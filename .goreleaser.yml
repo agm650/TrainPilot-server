@@ -1,0 +1,54 @@
+builds:
+  - env:
+    - CGO_ENABLED=0
+    id: server
+    main: cmd/dccd/main.go
+    binary: bin/dccd
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+    targets:
+      - linux_amd64
+      - darwin_amd64
+
+  - env:
+    - CGO_ENABLED=0
+    id: cli
+    main: cmd/dccctl/main.go
+    binary: bin/dccctl
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+    targets:
+      - linux_amd64
+      - darwin_amd64
+
+  - env:
+    - CGO_ENABLED=0
+    id: conformance
+    main: cmd/dcc-api-conformance/main.go
+    binary: bin/dcc-api-conformance
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+    targets:
+      - linux_amd64
+      - darwin_amd64
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_sha512-checksums.txt"
+  algorithm: sha512
+
+archives:
+  - id: tar
+    format: tar.gz
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
