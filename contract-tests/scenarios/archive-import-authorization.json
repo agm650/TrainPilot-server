@@ -1,0 +1,20 @@
+{
+  "id": "archive-import-requires-administrator",
+  "description": "Les archives peuvent être exportées par un utilisateur authentifié, mais leur import modifie la configuration et exige le rôle administrator.",
+  "given": [
+    "Alice est authentifiée comme driver",
+    "Admin est authentifié comme administrator",
+    "une archive native de parc valide existe"
+  ],
+  "when": [
+    "Alice exporte le parc",
+    "Alice tente d'importer l'archive",
+    "Admin importe ensuite la même archive en mode merge"
+  ],
+  "then": [
+    "l'export d'Alice répond HTTP 200",
+    "l'import d'Alice répond HTTP 403",
+    "l'import d'Admin répond HTTP 204",
+    "aucune route distante de gestion des utilisateurs n'est ajoutée"
+  ]
+}

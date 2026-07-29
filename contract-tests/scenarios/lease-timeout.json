@@ -1,0 +1,18 @@
+{
+  "id": "lease-timeout-stops-before-release",
+  "description": "La perte du heartbeat provoque l'arrêt avant la libération.",
+  "given": [
+    "Alice contrôle L1",
+    "L1 roule à une vitesse supérieure à zéro",
+    "le lease expire après 15 secondes"
+  ],
+  "when": [
+    "aucun heartbeat n'est reçu pendant plus de 15 secondes"
+  ],
+  "then": [
+    "le lease passe à stopping",
+    "une commande de vitesse zéro est envoyée",
+    "un autre utilisateur ne peut pas acquérir L1 pendant stopping",
+    "le lease passe ensuite à released après le délai de sécurité"
+  ]
+}

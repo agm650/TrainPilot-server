@@ -1,0 +1,517 @@
+openapi: 3.1.1
+info:
+  title: DCC Control Server API
+  version: 1.1.0
+  description: >-
+    Contract for native DCC clients. User administration is deliberately absent
+    from this public API and is available only over the local administration socket.
+servers:
+  - url: https://dcc-server.example:8443
+  - url: http://127.0.0.1:8080
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      security: []
+      operationId: health
+      responses:
+        '200':
+          description: Server is ready.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { const: ok }
+  /api/v1/system/info:
+    get:
+      security: []
+      operationId: getSystemInfo
+      responses:
+        '200':
+          description: Server and command-station capabilities.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SystemInfo' }
+  /api/v1/auth/login:
+    post:
+      security: []
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Authenticated session.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/auth/refresh:
+    post:
+      security: []
+      operationId: refreshSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string, minLength: 20 }
+      responses:
+        '200':
+          description: Rotated access and refresh tokens.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/auth/logout:
+    post:
+      operationId: logout
+      responses:
+        '204': { description: Session revoked. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/me:
+    get:
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: Current user.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/locomotives:
+    get:
+      operationId: listLocomotives
+      responses:
+        '200':
+          description: Rolling-stock locomotives.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Locomotive' }
+  /api/v1/locomotives/{locomotiveId}/control-lease:
+    parameters:
+      - $ref: '#/components/parameters/LocomotiveId'
+    post:
+      operationId: acquireLocomotiveControl
+      description: Atomically acquires exclusive control of a free locomotive.
+      responses:
+        '201':
+          description: Exclusive control acquired.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ControlLease' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Another live lease already owns the locomotive.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /api/v1/control-leases/{leaseId}/heartbeat:
+    parameters:
+      - $ref: '#/components/parameters/LeaseId'
+    put:
+      operationId: heartbeatControlLease
+      responses:
+        '200':
+          description: Lease renewed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ControlLease' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/control-leases/{leaseId}:
+    parameters:
+      - $ref: '#/components/parameters/LeaseId'
+    delete:
+      operationId: releaseControlLease
+      description: Commands speed zero and moves the lease to stopping before release.
+      responses:
+        '202': { description: Controlled stop and release accepted. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/locomotives/{locomotiveId}/throttle:
+    parameters:
+      - $ref: '#/components/parameters/LocomotiveId'
+    put:
+      operationId: setLocomotiveThrottle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ThrottleCommand' }
+      responses:
+        '204': { description: Command accepted by the station driver. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/locomotives/{locomotiveId}/functions/{functionNumber}:
+    parameters:
+      - $ref: '#/components/parameters/LocomotiveId'
+      - name: functionNumber
+        in: path
+        required: true
+        schema: { type: integer, minimum: 0, maximum: 68 }
+    put:
+      operationId: setLocomotiveFunction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [leaseId, enabled]
+              properties:
+                leaseId: { type: string, format: uuid }
+                enabled: { type: boolean }
+      responses:
+        '204': { description: Function command accepted. }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/blocks:
+    get:
+      operationId: listBlocks
+      responses:
+        '200':
+          description: Blocks and their current occupancy.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Block' }
+  /api/v1/turnouts:
+    get:
+      operationId: listTurnouts
+      responses:
+        '200':
+          description: Turnouts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Turnout' }
+  /api/v1/turnouts/{turnoutId}:
+    parameters:
+      - name: turnoutId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      operationId: setTurnout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state]
+              properties:
+                state: { type: string, enum: [straight, diverging] }
+      responses:
+        '204': { description: Turnout command accepted. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/routes:
+    get:
+      operationId: listRoutes
+      responses:
+        '200':
+          description: Routes and their operational states.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Route' }
+  /api/v1/routes/{routeId}/reserve:
+    parameters: [{ $ref: '#/components/parameters/RouteId' }]
+    post:
+      operationId: reserveRoute
+      responses:
+        '204': { description: Route reserved atomically. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/routes/{routeId}/activate:
+    parameters: [{ $ref: '#/components/parameters/RouteId' }]
+    post:
+      operationId: activateRoute
+      responses:
+        '204': { description: Required turnouts commanded and route activated. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/routes/{routeId}/release:
+    parameters: [{ $ref: '#/components/parameters/RouteId' }]
+    post:
+      operationId: releaseRoute
+      responses:
+        '204': { description: Route released. }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/exports/rolling-stock:
+    get:
+      operationId: exportRollingStock
+      description: Downloads a versioned ZIP archive containing the rolling-stock library.
+      responses:
+        '200':
+          description: Rolling-stock archive.
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+          content:
+            application/vnd.dcc-control.package+zip:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/imports/rolling-stock:
+    post:
+      operationId: importRollingStock
+      description: Imports a native rolling-stock archive. Requires the administrator role.
+      parameters:
+        - $ref: '#/components/parameters/ImportMode'
+      requestBody:
+        required: true
+        content:
+          application/vnd.dcc-control.package+zip:
+            schema: { type: string, format: binary }
+          application/zip:
+            schema: { type: string, format: binary }
+      responses:
+        '204': { description: Archive imported. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/layout/export:
+    get:
+      operationId: exportLayout
+      description: Downloads blocks, turnouts, routes and feedback mappings as a versioned ZIP archive.
+      responses:
+        '200':
+          description: Layout archive.
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+          content:
+            application/vnd.dcc-control.package+zip:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/layout/import:
+    post:
+      operationId: importLayout
+      description: Imports a native layout archive. Requires the administrator role.
+      parameters:
+        - $ref: '#/components/parameters/ImportMode'
+      requestBody:
+        required: true
+        content:
+          application/vnd.dcc-control.package+zip:
+            schema: { type: string, format: binary }
+          application/zip:
+            schema: { type: string, format: binary }
+      responses:
+        '204': { description: Archive imported. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/events:
+    get:
+      operationId: openEventWebSocket
+      description: >-
+        Upgrades to WebSocket. The first message is system.snapshot. Clients may
+        send {"type":"client.heartbeat"}. Event schemas are defined in asyncapi.yaml.
+      responses:
+        '101': { description: WebSocket established. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+  parameters:
+    LocomotiveId:
+      name: locomotiveId
+      in: path
+      required: true
+      schema: { type: string }
+    LeaseId:
+      name: leaseId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RouteId:
+      name: routeId
+      in: path
+      required: true
+      schema: { type: string }
+    ImportMode:
+      name: mode
+      in: query
+      required: false
+      description: Merge archive objects into the database or replace the corresponding library.
+      schema: { type: string, enum: [merge, replace], default: merge }
+  responses:
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: Missing, invalid, expired or revoked access token.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: Authenticated role is not authorised.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Resource not found.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: Operational state prevents the command.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code: { type: string }
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [username, password, clientId]
+      properties:
+        username: { type: string, minLength: 3, maxLength: 32 }
+        password: { type: string, minLength: 10 }
+        clientId: { type: string, minLength: 1, maxLength: 128 }
+        clientName: { type: string, maxLength: 128 }
+        platform: { type: string, maxLength: 64 }
+    TokenPair:
+      type: object
+      required: [accessToken, refreshToken, accessExpiresAt, refreshExpiresAt, sessionId, user]
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        accessExpiresAt: { type: string, format: date-time }
+        refreshExpiresAt: { type: string, format: date-time }
+        sessionId: { type: string, format: uuid }
+        user: { $ref: '#/components/schemas/User' }
+    User:
+      type: object
+      required: [id, username, role, enabled, mustChangePassword, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string }
+        role: { type: string, enum: [viewer, driver, dispatcher, administrator] }
+        enabled: { type: boolean }
+        mustChangePassword: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        lastLoginAt: { type: string, format: date-time }
+    Capabilities:
+      type: object
+      required: [driver, trackPower, locomotiveControl, functions, accessoryControl, feedback]
+      properties:
+        driver: { type: string, enum: [simulator, dccex, z21] }
+        trackPower: { type: boolean }
+        locomotiveControl: { type: boolean }
+        functions: { type: integer, minimum: 0 }
+        accessoryControl: { type: boolean }
+        feedback: { type: boolean }
+    SystemInfo:
+      type: object
+      required: [serverVersion, apiVersion, minimumClientApiVersion, station]
+      properties:
+        serverVersion: { type: string }
+        apiVersion: { type: string }
+        minimumClientApiVersion: { type: string }
+        station: { $ref: '#/components/schemas/Capabilities' }
+    Locomotive:
+      type: object
+      required: [id, name, dccAddress, addressKind, speedSteps]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        dccAddress: { type: integer, minimum: 1, maximum: 9999 }
+        addressKind: { type: string, enum: [short, long] }
+        speedSteps: { type: integer, enum: [14, 28, 128] }
+        manufacturer: { type: string }
+        model: { type: string }
+    ControlLease:
+      type: object
+      required: [id, locomotiveId, userId, sessionId, state, acquiredAt, renewedAt, expiresAt, heartbeatMillis]
+      properties:
+        id: { type: string, format: uuid }
+        locomotiveId: { type: string }
+        userId: { type: string, format: uuid }
+        sessionId: { type: string, format: uuid }
+        state: { type: string, enum: [active, stopping, released] }
+        acquiredAt: { type: string, format: date-time }
+        renewedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        releaseAfter: { type: string, format: date-time }
+        releaseReason: { type: string }
+        heartbeatMillis: { type: integer, minimum: 100 }
+    ThrottleCommand:
+      type: object
+      additionalProperties: false
+      required: [leaseId, speed, direction]
+      properties:
+        leaseId: { type: string, format: uuid }
+        speed: { type: number, minimum: 0, maximum: 1 }
+        direction: { type: string, enum: [forward, reverse] }
+    Block:
+      type: object
+      required: [id, name, occupied]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        occupied: { type: boolean }
+    Turnout:
+      type: object
+      required: [id, name, dccAddress, desiredState, reportedState]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        dccAddress: { type: integer, minimum: 1 }
+        desiredState: { type: string, enum: [straight, diverging] }
+        reportedState: { type: string, enum: [straight, diverging, unknown] }
+    Route:
+      type: object
+      required: [id, name, state]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        state: { type: string, enum: [idle, reserved, active] }
+        reservedBySession: { type: string }

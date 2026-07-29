@@ -1,0 +1,23 @@
+[Unit]
+Description=DCC Control Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dccd
+Group=dccd
+RuntimeDirectory=dccd
+RuntimeDirectoryMode=0750
+WorkingDirectory=/var/lib/dccd
+ExecStart=/usr/local/bin/dccd serve --config /etc/dccd/config.json
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/dccd /run/dccd
+
+[Install]
+WantedBy=multi-user.target

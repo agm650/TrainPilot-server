@@ -1,0 +1,217 @@
+asyncapi: 3.0.0
+info:
+  title: DCC Control Server Events
+  version: 1.1.0
+  description: WebSocket event contract for native clients.
+servers:
+  local:
+    host: 127.0.0.1:8080
+    pathname: /api/v1/events
+    protocol: ws
+  production:
+    host: dcc-server.example:8443
+    pathname: /api/v1/events
+    protocol: wss
+channels:
+  events:
+    address: /api/v1/events
+    messages:
+      systemSnapshot: { $ref: '#/components/messages/SystemSnapshot' }
+      locomotiveControlAcquired: { $ref: '#/components/messages/LocomotiveControlAcquired' }
+      locomotiveControlExpired: { $ref: '#/components/messages/LocomotiveControlExpired' }
+      locomotiveControlReleased: { $ref: '#/components/messages/LocomotiveControlReleased' }
+      locomotiveSpeedChanged: { $ref: '#/components/messages/LocomotiveSpeedChanged' }
+      locomotiveFunctionChanged: { $ref: '#/components/messages/LocomotiveFunctionChanged' }
+      blockOccupancyChanged: { $ref: '#/components/messages/BlockOccupancyChanged' }
+      turnoutStateChanged: { $ref: '#/components/messages/TurnoutStateChanged' }
+      routeReserved: { $ref: '#/components/messages/RouteReserved' }
+      routeActivated: { $ref: '#/components/messages/RouteActivated' }
+      routeReleased: { $ref: '#/components/messages/RouteReleased' }
+      rollingStockImported: { $ref: '#/components/messages/RollingStockImported' }
+      layoutImported: { $ref: '#/components/messages/LayoutImported' }
+operations:
+  receiveEvents:
+    action: receive
+    channel: { $ref: '#/channels/events' }
+  sendHeartbeat:
+    action: send
+    channel: { $ref: '#/channels/events' }
+    messages:
+      - $ref: '#/components/messages/ClientHeartbeat'
+components:
+  schemas:
+    EventEnvelope:
+      type: object
+      required: [type, sequence, timestamp, payload]
+      properties:
+        type: { type: string }
+        sequence: { type: integer, minimum: 1 }
+        timestamp: { type: string, format: date-time }
+        payload: { type: object }
+    LeasePayload:
+      type: object
+      required: [id, locomotiveId, userId, sessionId, state, acquiredAt, renewedAt, expiresAt]
+      properties:
+        id: { type: string, format: uuid }
+        locomotiveId: { type: string }
+        userId: { type: string, format: uuid }
+        sessionId: { type: string, format: uuid }
+        state: { type: string, enum: [active, stopping, released] }
+        acquiredAt: { type: string, format: date-time }
+        renewedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+  messages:
+    SystemSnapshot:
+      name: system.snapshot
+      payload:
+        type: object
+        required: [type, sequence, payload]
+        properties:
+          type: { const: system.snapshot }
+          sequence: { const: 0 }
+          payload:
+            type: object
+            required: [station]
+            properties:
+              station: { type: object }
+    ClientHeartbeat:
+      name: client.heartbeat
+      payload:
+        type: object
+        required: [type]
+        properties:
+          type: { const: client.heartbeat }
+    LocomotiveControlAcquired:
+      name: locomotive.control.acquired
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: locomotive.control.acquired }
+              payload: { $ref: '#/components/schemas/LeasePayload' }
+    LocomotiveControlExpired:
+      name: locomotive.control.expired
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: locomotive.control.expired }
+              payload:
+                type: object
+                required: [leaseId, locomotiveId, reason, releaseAfter]
+                properties:
+                  leaseId: { type: string, format: uuid }
+                  locomotiveId: { type: string }
+                  reason: { type: string, enum: [heartbeat_timeout, client_release] }
+                  releaseAfter: { type: string, format: date-time }
+    LocomotiveControlReleased:
+      name: locomotive.control.released
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: locomotive.control.released }
+              payload: { $ref: '#/components/schemas/LeasePayload' }
+    LocomotiveSpeedChanged:
+      name: locomotive.speed.changed
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: locomotive.speed.changed }
+              payload:
+                type: object
+                required: [locomotiveId, speed, direction, userId]
+                properties:
+                  locomotiveId: { type: string }
+                  speed: { type: number, minimum: 0, maximum: 1 }
+                  direction: { type: string, enum: [forward, reverse] }
+                  userId: { type: string, format: uuid }
+    LocomotiveFunctionChanged:
+      name: locomotive.function.changed
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: locomotive.function.changed }
+    BlockOccupancyChanged:
+      name: block.occupancy.changed
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: block.occupancy.changed }
+              payload:
+                type: object
+                required: [blockId, occupied]
+                properties:
+                  blockId: { type: string }
+                  occupied: { type: boolean }
+    TurnoutStateChanged:
+      name: turnout.state.changed
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: turnout.state.changed }
+    RouteReserved:
+      name: route.reserved
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties: { type: { const: route.reserved } }
+    RouteActivated:
+      name: route.activated
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties: { type: { const: route.activated } }
+    RouteReleased:
+      name: route.released
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties: { type: { const: route.released } }
+
+    RollingStockImported:
+      name: rolling-stock.imported
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: rolling-stock.imported }
+              payload:
+                type: object
+                required: [count, replace, userId]
+                properties:
+                  count: { type: integer, minimum: 0 }
+                  replace: { type: boolean }
+                  userId: { type: string, format: uuid }
+    LayoutImported:
+      name: layout.imported
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: layout.imported }
+              payload:
+                type: object
+                required: [blocks, turnouts, routes, replace, userId]
+                properties:
+                  blocks: { type: integer, minimum: 0 }
+                  turnouts: { type: integer, minimum: 0 }
+                  routes: { type: integer, minimum: 0 }
+                  replace: { type: boolean }
+                  userId: { type: string, format: uuid }

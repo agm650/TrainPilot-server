@@ -1,0 +1,17 @@
+{
+  "id": "exclusive-locomotive-lease",
+  "description": "Une locomotive ne peut être réservée que par une seule session.",
+  "given": [
+    "Alice et Bob sont authentifiés comme driver",
+    "la locomotive L1 est libre"
+  ],
+  "when": [
+    "Alice acquiert L1",
+    "Bob tente ensuite d'acquérir L1"
+  ],
+  "then": [
+    "Alice reçoit HTTP 201 avec un lease actif",
+    "Bob reçoit HTTP 409",
+    "le propriétaire du lease reste la session d'Alice"
+  ]
+}

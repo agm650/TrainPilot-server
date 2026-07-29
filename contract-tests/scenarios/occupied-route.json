@@ -1,0 +1,17 @@
+{
+  "id": "occupied-block-prevents-route",
+  "description": "Un itinéraire contenant un canton occupé ne peut pas être réservé.",
+  "given": [
+    "le canton B appartient à l'itinéraire R1",
+    "le canton B est occupé",
+    "Alice possède le rôle dispatcher"
+  ],
+  "when": [
+    "Alice tente de réserver R1"
+  ],
+  "then": [
+    "le serveur répond HTTP 409",
+    "R1 reste idle",
+    "aucun aiguillage n'est commandé"
+  ]
+}

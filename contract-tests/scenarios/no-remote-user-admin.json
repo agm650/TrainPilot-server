@@ -1,0 +1,15 @@
+{
+  "id": "no-remote-user-administration",
+  "description": "La gestion des comptes est exclusivement locale.",
+  "given": [
+    "un utilisateur administrator est authentifié sur l'API publique"
+  ],
+  "when": [
+    "le client appelle POST /api/v1/users"
+  ],
+  "then": [
+    "le serveur répond HTTP 404",
+    "aucun utilisateur n'est créé",
+    "la création reste disponible par le socket Unix local"
+  ]
+}

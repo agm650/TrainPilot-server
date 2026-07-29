@@ -1,0 +1,31 @@
+{
+  "http": {
+    "listen": "127.0.0.1:8080",
+    "tlsCert": "",
+    "tlsKey": ""
+  },
+  "admin": {
+    "socket": "/tmp/dccd-admin.sock",
+    "mode": 432
+  },
+  "database": {
+    "path": "./dcc-control.db"
+  },
+  "station": {
+    "driver": "simulator",
+    "address": "127.0.0.1",
+    "port": 21105,
+    "transport": "tcp"
+  },
+  "security": {
+    "accessTokenTTL": "15m",
+    "refreshTokenTTL": "720h"
+  },
+  "control": {
+    "leaseTTL": "15s",
+    "stopGrace": "2s",
+    "monitorPeriod": "250ms"
+  },
+  "testAPI": true,
+  "seedDemo": true
+}

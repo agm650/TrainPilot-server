@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/dcc/scenario.schema.json",
+  "type": "object",
+  "required": ["id", "given", "when", "then"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "given": { "type": "array", "items": { "type": "string" } },
+    "when": { "type": "array", "items": { "type": "string" } },
+    "then": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}
