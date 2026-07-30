@@ -1,0 +1,74 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-13
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Check formatting
+        shell: bash
+        run: |
+          test -z "$(gofmt -l .)" || {
+            gofmt -d .
+            exit 1
+          }
+
+      - name: Unit and integration tests
+        run: go test ./...
+
+      # Le race detector Go exige CGO, même si l'application et modernc.org/sqlite
+      # sont construits sans CGO pour les distributions.
+      - name: Race detector
+        run: go test -race ./...
+
+      - name: Vet
+        run: go vet ./...
+
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Validate and build a snapshot release
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: v2.17.1
+          args: release --snapshot --clean --skip=publish

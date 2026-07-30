@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -16,6 +17,11 @@ import (
 
 func TestUserAdministrationOverUnixSocket(t *testing.T) {
 	ctx := context.Background()
+
+	if os.Getenv("GITHUB_ACTIONS") == "true" {
+		t.Skip("test d'intégration du socket Unix réservé aux exécutions locales")
+	}
+
 	db, err := store.Open(":memory:")
 	if err != nil {
 		t.Fatal(err)

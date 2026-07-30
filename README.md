@@ -64,6 +64,7 @@ deploy/                     exemple systemd et configuration Linux
 ### Linux et macOS
 
 - Go 1.23 ou supérieur ;
+- GoReleaser 2.17 ou supérieur pour produire les binaires et archives.
 
 La persistance utilise `modernc.org/sqlite`, un pilote `database/sql` sans CGO. Aucun compilateur C ni paquet système SQLite n'est nécessaire. Les binaires peuvent donc être compilés nativement ou en cross-compilation avec `CGO_ENABLED=0`.
 
@@ -71,31 +72,53 @@ La persistance utilise `modernc.org/sqlite`, un pilote `database/sql` sans CGO. 
 
 ```bash
 go mod download
-make test
-make race
-make build
+go test ./...
+go test -race ./...
+goreleaser check
+goreleaser release --snapshot --clean --skip=publish
 ```
 
-Binaires produits :
+GoReleaser produit dans `dist/` une archive par système cible. Chaque archive contient :
 
 ```text
 bin/dccd
 bin/dccctl
 bin/dcc-api-conformance
+README.md
+config.example.json
+api/
+docs/
+deploy/
+```
+
+Pour ne construire que les trois binaires de la plateforme courante :
+
+```bash
+goreleaser build --single-target --snapshot
+```
+
+Le chemin de module fourni est volontairement générique. Avant de publier le dépôt :
+
+```bash
+./scripts/rename-module.sh github.com/votre-organisation/dcc-control-server
 ```
 
 ## Démarrage rapide avec le simulateur
 
 ```bash
-make build
-./bin/dccd serve --config config.json
+cp config.example.json config.json
+goreleaser build --single-target --snapshot
+
+# GoReleaser place les artefacts dans dist/. Pour un lancement de développement
+# sans rechercher leur chemin, go run reste le plus simple :
+go run ./cmd/dccd serve --config config.json
 ```
 
 Dans un autre terminal, créer les utilisateurs pendant que le serveur fonctionne :
 
 ```bash
 printf '%s\n' 'correct-horse-1' |
-  ./bin/dccd user bootstrap \
+  go run ./cmd/dccd user bootstrap \
     --socket /tmp/dccd-admin.sock \
     --username alice \
     --display-name 'Alice' \
@@ -103,7 +126,7 @@ printf '%s\n' 'correct-horse-1' |
     --password-stdin
 
 printf '%s\n' 'correct-horse-2' |
-  ./bin/dccd user add \
+  go run ./cmd/dccd user add \
     --socket /tmp/dccd-admin.sock \
     --username bob \
     --display-name 'Bob' \
@@ -116,13 +139,13 @@ Le mode `bootstrap` ne fonctionne que si la table des utilisateurs est vide.
 Lister les utilisateurs :
 
 ```bash
-./bin/dccd user list --socket /tmp/dccd-admin.sock
+go run ./cmd/dccd user list --socket /tmp/dccd-admin.sock
 ```
 
 Désactiver un utilisateur et révoquer ses sessions :
 
 ```bash
-./bin/dccd user disable --socket /tmp/dccd-admin.sock --username bob
+go run ./cmd/dccd user disable --socket /tmp/dccd-admin.sock --username bob
 ```
 
 Aucune route `/api/v1/users` n’est exposée aux clients. Même un utilisateur ayant le rôle applicatif `administrator` ne peut pas créer de compte à distance.
@@ -131,7 +154,7 @@ Aucune route `/api/v1/users` n’est exposée aux clients. Même un utilisateur 
 
 ```bash
 DCC_PASSWORD='correct-horse-1' \
-./bin/dccctl \
+go run ./cmd/dccctl \
   --server http://127.0.0.1:8080 \
   --username alice \
   --password-env DCC_PASSWORD \
@@ -141,7 +164,7 @@ DCC_PASSWORD='correct-horse-1' \
 Lancer la suite de conformité :
 
 ```bash
-./bin/dcc-api-conformance \
+go run ./cmd/dcc-api-conformance \
   --server http://127.0.0.1:8080 \
   --user1 alice --pass1 correct-horse-1 \
   --user2 bob   --pass2 correct-horse-2
@@ -165,18 +188,18 @@ Les exports sont des archives ZIP versionnées contenant un `manifest.json` et u
 
 ```bash
 # Export accessible à tout utilisateur authentifié
-DCC_PASSWORD='correct-horse-1' ./bin/dccctl \
+DCC_PASSWORD='correct-horse-1' go run ./cmd/dccctl \
   --server http://127.0.0.1:8080 --username alice \
   --password-env DCC_PASSWORD \
   export-rolling-stock rolling-stock.dcclib
 
-DCC_PASSWORD='correct-horse-1' ./bin/dccctl \
+DCC_PASSWORD='correct-horse-1' go run ./cmd/dccctl \
   --server http://127.0.0.1:8080 --username alice \
   --password-env DCC_PASSWORD \
   export-layout layout.dcclayout
 
 # Import réservé au rôle applicatif administrator
-DCC_ADMIN_PASSWORD='correct-horse-admin' ./bin/dccctl \
+DCC_ADMIN_PASSWORD='correct-horse-admin' go run ./cmd/dccctl \
   --server http://127.0.0.1:8080 --username admin \
   --password-env DCC_ADMIN_PASSWORD \
   import-layout layout.dcclayout --replace

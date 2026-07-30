@@ -1,54 +1,77 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+
+version: 2
+
 builds:
-  - env:
-    - CGO_ENABLED=0
-    id: server
-    main: cmd/dccd/main.go
+  - id: server
+    main: ./cmd/dccd
     binary: bin/dccd
+    env:
+      - CGO_ENABLED=0
     goos:
       - linux
       - darwin
     goarch:
       - amd64
-    targets:
-      - linux_amd64
-      - darwin_amd64
+      - arm64
+    flags:
+      - -trimpath
 
-  - env:
-    - CGO_ENABLED=0
-    id: cli
-    main: cmd/dccctl/main.go
+  - id: cli
+    main: ./cmd/dccctl
     binary: bin/dccctl
+    env:
+      - CGO_ENABLED=0
     goos:
       - linux
       - darwin
     goarch:
       - amd64
-    targets:
-      - linux_amd64
-      - darwin_amd64
+      - arm64
+    flags:
+      - -trimpath
 
-  - env:
-    - CGO_ENABLED=0
-    id: conformance
-    main: cmd/dcc-api-conformance/main.go
+  - id: conformance
+    main: ./cmd/dcc-api-conformance
     binary: bin/dcc-api-conformance
+    env:
+      - CGO_ENABLED=0
     goos:
       - linux
       - darwin
     goarch:
       - amd64
-    targets:
-      - linux_amd64
-      - darwin_amd64
-
-checksum:
-  name_template: "{{ .ProjectName }}_{{ .Version }}_sha512-checksums.txt"
-  algorithm: sha512
+      - arm64
+    flags:
+      - -trimpath
 
 archives:
-  - id: tar
-    format: tar.gz
+  - id: distribution
+    ids:
+      - server
+      - cli
+      - conformance
+
+    formats:
+      - tar.gz
+
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+    wrap_in_directory: >-
+      {{ .ProjectName }}_{{ .Version }}
+
     files:
-      - LICENSE
       - README.md
-      - CHANGELOG.md
+      - CHANGELOG*
+      - LICENSE*
+      - config.example.json
+      - api/*.yaml
+      - docs/**/*
+      - deploy/**/*
+
+checksum:
+  name_template: >-
+    {{ .ProjectName }}_{{ .Version }}_sha512-checksums.txt
+
+  algorithm: sha512
