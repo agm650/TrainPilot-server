@@ -65,7 +65,7 @@ archives:
       - README.md
       - CHANGELOG*
       - LICENSE*
-      - config.example.json
+      - config.json
       - api/*.yaml
       - docs/**/*
       - deploy/**/*
