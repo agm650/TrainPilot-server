@@ -129,7 +129,9 @@ func TestHTTPHandlersCoverSuccessAndErrorPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertStatus(t, server.URL, http.MethodPut, "/api/v1/locomotives/"+locos[0].ID+"/throttle", "Bearer "+dispatcher.AccessToken, []byte(`{"leaseId":"`+lease.ID+`","speed":0.3,"direction":"sideways"}`), http.StatusBadRequest)
+	assertStatus(t, server.URL, http.MethodPut, "/api/v1/locomotives/"+locos[0].ID+"/throttle", "Bearer "+dispatcher.AccessToken, []byte(`{"leaseId":"`+lease.ID+`","speed":0.5,"direction":"forward"}`), http.StatusBadRequest)
+	assertStatus(t, server.URL, http.MethodPut, "/api/v1/locomotives/"+locos[0].ID+"/throttle", "Bearer "+dispatcher.AccessToken, []byte(`{"leaseId":"`+lease.ID+`","speed":101,"direction":"forward"}`), http.StatusBadRequest)
+	assertStatus(t, server.URL, http.MethodPut, "/api/v1/locomotives/"+locos[0].ID+"/throttle", "Bearer "+dispatcher.AccessToken, []byte(`{"leaseId":"`+lease.ID+`","speed":30,"direction":"sideways"}`), http.StatusBadRequest)
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/locomotives/"+locos[0].ID+"/functions/not-a-number", "Bearer "+dispatcher.AccessToken, []byte(`{"leaseId":"`+lease.ID+`","enabled":true}`), http.StatusBadRequest)
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/control-leases/missing/heartbeat", "Bearer "+dispatcher.AccessToken, nil, http.StatusNotFound)
 	assertStatus(t, server.URL, http.MethodDelete, "/api/v1/control-leases/"+lease.ID, "Bearer "+viewer.AccessToken, nil, http.StatusConflict)

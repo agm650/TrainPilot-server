@@ -41,7 +41,7 @@ func (s *Server) releaseLease(w http.ResponseWriter, r *http.Request) {
 func (s *Server) throttle(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		LeaseID   string            `json:"leaseId"`
-		Speed     float64           `json:"speed"`
+		Speed     int               `json:"speed"`
 		Direction station.Direction `json:"direction"`
 	}
 	if !decodeJSON(w, r, &req) {

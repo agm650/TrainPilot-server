@@ -554,7 +554,7 @@ components:
       required: [leaseId, speed, direction]
       properties:
         leaseId: { type: string, format: uuid }
-        speed: { type: number, minimum: 0, maximum: 1 }
+        speed: { type: integer, minimum: 0, maximum: 100 }
         direction: { type: string, enum: [forward, reverse] }
     Block:
       type: object

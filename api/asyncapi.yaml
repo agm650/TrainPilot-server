@@ -155,7 +155,7 @@ components:
                 required: [locomotiveId, speed, direction, userId]
                 properties:
                   locomotiveId: { type: string }
-                  speed: { type: number, minimum: 0, maximum: 1 }
+                  speed: { type: integer, minimum: 0, maximum: 100 }
                   direction: { type: string, enum: [forward, reverse] }
                   userId: { type: string, format: uuid }
     LocomotiveFunctionChanged:

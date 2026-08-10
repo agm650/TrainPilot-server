@@ -118,7 +118,7 @@ func (c *Client) Acquire(ctx context.Context, loco string) (model.ControlLease, 
 	_, err := c.Do(ctx, "POST", "/api/v1/locomotives/"+url.PathEscape(loco)+"/control-lease", nil, &out)
 	return out, err
 }
-func (c *Client) Throttle(ctx context.Context, loco, lease string, speed float64, direction station.Direction) error {
+func (c *Client) Throttle(ctx context.Context, loco, lease string, speed int, direction station.Direction) error {
 	_, err := c.Do(ctx, "PUT", "/api/v1/locomotives/"+url.PathEscape(loco)+"/throttle", map[string]any{"leaseId": lease, "speed": speed, "direction": direction}, nil)
 	return err
 }

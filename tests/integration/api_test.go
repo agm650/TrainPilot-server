@@ -85,7 +85,7 @@ func TestPublicAPIContract(t *testing.T) {
 	if err == nil || status != http.StatusConflict {
 		t.Fatalf("second lease status=%d err=%v", status, err)
 	}
-	if err := alice.Throttle(ctx, locos[0].ID, lease.ID, 0.3, station.Forward); err != nil {
+	if err := alice.Throttle(ctx, locos[0].ID, lease.ID, 30, station.Forward); err != nil {
 		t.Fatal(err)
 	}
 	status, err = viewer.Do(ctx, http.MethodPost, "/api/v1/locomotives/"+locos[1].ID+"/control-lease", nil, &ignored)

@@ -105,13 +105,13 @@ func main() {
 		fmt.Println(lease.ID)
 	case "throttle":
 		if len(args) < 3 {
-			fatal(errors.New("throttle requires locomotive ID and speed 0..1"))
+			fatal(errors.New("throttle requires locomotive ID and speed 0..100"))
 		}
 		lease, ok := profile.Leases[args[1]]
 		if !ok || lease.ID == "" {
 			fatal(fmt.Errorf("no saved lease for locomotive %q; run acquire first", args[1]))
 		}
-		speed, err := strconv.ParseFloat(args[2], 64)
+		speed, err := strconv.Atoi(args[2])
 		if err != nil {
 			fatal(err)
 		}

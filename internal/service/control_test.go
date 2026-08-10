@@ -50,7 +50,7 @@ func TestLeaseExpirationStopsBeforeRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := control.Throttle(ctx, user, sess, "loco-bb26001", lease.ID, 0.4, station.Forward); err != nil {
+	if err := control.Throttle(ctx, user, sess, "loco-bb26001", lease.ID, 40, station.Forward); err != nil {
 		t.Fatal(err)
 	}
 	if got := sim.Loco(2601).Speed; got != 0.4 {
@@ -125,7 +125,7 @@ func TestThrottleExtendsLeaseFromLastUse(t *testing.T) {
 		t.Fatal(err)
 	}
 	clk.Advance(10 * time.Second)
-	if err := control.Throttle(ctx, user, sess, "loco-bb26001", lease.ID, 0.4, station.Forward); err != nil {
+	if err := control.Throttle(ctx, user, sess, "loco-bb26001", lease.ID, 40, station.Forward); err != nil {
 		t.Fatal(err)
 	}
 	stored, err := db.GetLease(ctx, lease.ID)
@@ -155,7 +155,7 @@ func TestThrottleCannotReviveExpiredUnsweptLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	clk.Advance(15 * time.Second)
-	if err := control.Throttle(ctx, user, sess, "loco-bb26001", lease.ID, 0.4, station.Forward); err == nil {
+	if err := control.Throttle(ctx, user, sess, "loco-bb26001", lease.ID, 40, station.Forward); err == nil {
 		t.Fatal("throttle revived an expired lease")
 	}
 	if got := sim.Loco(2601).Speed; got != 0 {

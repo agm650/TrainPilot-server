@@ -238,7 +238,7 @@ DCC_PASSWORD='correct-horse-1' go run ./cmd/dccctl \
 
 go run ./cmd/dccctl \
   --server http://127.0.0.1:8080 --username alice \
-  throttle loco-bb26001 0.4 forward
+  throttle loco-bb26001 40 forward
 
 go run ./cmd/dccctl \
   --server http://127.0.0.1:8080 --username alice \

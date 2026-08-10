@@ -53,13 +53,13 @@ func TestControlThrottleAndFunctionErrors(t *testing.T) {
 	ctx := context.Background()
 	control, db, sim, _, user, sess := newControlFixture(t)
 
-	if err := control.Throttle(ctx, user, sess, "loco-bb26001", "missing", -0.1, station.Forward); err == nil {
+	if err := control.Throttle(ctx, user, sess, "loco-bb26001", "missing", -1, station.Forward); err == nil {
 		t.Fatal("negative speed accepted")
 	}
-	if err := control.Throttle(ctx, user, sess, "loco-bb26001", "missing", 1.1, station.Forward); err == nil {
+	if err := control.Throttle(ctx, user, sess, "loco-bb26001", "missing", 101, station.Forward); err == nil {
 		t.Fatal("speed above one accepted")
 	}
-	if err := control.Throttle(ctx, user, sess, "loco-bb26001", "missing", 0.5, station.Forward); !errors.Is(err, store.ErrNotFound) {
+	if err := control.Throttle(ctx, user, sess, "loco-bb26001", "missing", 50, station.Forward); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("missing lease error=%v", err)
 	}
 	if err := control.Function(ctx, sess, "loco-bb26001", "missing", 1, true); !errors.Is(err, store.ErrNotFound) {
@@ -70,10 +70,10 @@ func TestControlThrottleAndFunctionErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := control.Throttle(ctx, user, sess, "other-loco", lease.ID, 0.5, station.Forward); err == nil {
+	if err := control.Throttle(ctx, user, sess, "other-loco", lease.ID, 50, station.Forward); err == nil {
 		t.Fatal("lease used for another locomotive")
 	}
-	if err := control.Throttle(ctx, user, model.Session{ID: "other"}, "loco-bb26001", lease.ID, 0.5, station.Forward); err == nil {
+	if err := control.Throttle(ctx, user, model.Session{ID: "other"}, "loco-bb26001", lease.ID, 50, station.Forward); err == nil {
 		t.Fatal("lease used by another session")
 	}
 	if err := control.Function(ctx, model.Session{ID: "other"}, "loco-bb26001", lease.ID, 1, true); err == nil {
@@ -83,7 +83,7 @@ func TestControlThrottleAndFunctionErrors(t *testing.T) {
 	if err := sim.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := control.Throttle(ctx, user, sess, "loco-bb26001", lease.ID, 0.5, station.Forward); err == nil {
+	if err := control.Throttle(ctx, user, sess, "loco-bb26001", lease.ID, 50, station.Forward); err == nil {
 		t.Fatal("throttle succeeded while station disconnected")
 	}
 	if err := control.Function(ctx, sess, "loco-bb26001", lease.ID, 1, true); err == nil {
@@ -102,7 +102,7 @@ func TestControlThrottleAndFunctionErrors(t *testing.T) {
 	if err := db.ReleaseLease(ctx, lease.ID, sess.ID, "test"); err != nil {
 		t.Fatal(err)
 	}
-	if err := control.Throttle(ctx, user, sess, "loco-bb26001", lease.ID, 0.5, station.Forward); err == nil {
+	if err := control.Throttle(ctx, user, sess, "loco-bb26001", lease.ID, 50, station.Forward); err == nil {
 		t.Fatal("released lease used for throttle")
 	}
 	if err := control.Function(ctx, sess, "loco-bb26001", lease.ID, 1, false); err == nil {

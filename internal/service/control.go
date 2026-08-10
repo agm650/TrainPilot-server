@@ -78,9 +78,9 @@ func (c *ControlService) Release(ctx context.Context, id string, sess model.Sess
 	}
 	return c.stopAndScheduleRelease(ctx, lease, "client_release")
 }
-func (c *ControlService) Throttle(ctx context.Context, user model.User, sess model.Session, locoID, leaseID string, speed float64, direction station.Direction) error {
-	if speed < 0 || speed > 1 {
-		return errors.New("speed must be between 0 and 1")
+func (c *ControlService) Throttle(ctx context.Context, user model.User, sess model.Session, locoID, leaseID string, speed int, direction station.Direction) error {
+	if speed < 0 || speed > 100 {
+		return errors.New("speed must be between 0 and 100")
 	}
 	now := c.clock.Now()
 	if err := c.store.RenewActiveLeaseForCommand(ctx, leaseID, locoID, sess.ID, now, now.Add(c.leaseTTL)); err != nil {
@@ -90,7 +90,7 @@ func (c *ControlService) Throttle(ctx context.Context, user model.User, sess mod
 	if err != nil {
 		return err
 	}
-	if err := c.station.SetLocoSpeed(ctx, loco.DCCAddress, speed, direction); err != nil {
+	if err := c.station.SetLocoSpeed(ctx, loco.DCCAddress, float64(speed)/100, direction); err != nil {
 		return err
 	}
 	c.events.Publish("locomotive.speed.changed", map[string]any{"locomotiveId": locoID, "speed": speed, "direction": direction, "userId": user.ID})
