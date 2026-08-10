@@ -31,7 +31,7 @@ func main() {
 	_ = fs.Parse(os.Args[1:])
 	args := fs.Args()
 	if len(args) == 0 {
-		fatal(errors.New("command required: locomotives | locomotive-show | locomotive-add | locomotive-update | locomotive-delete | acquire | throttle | release | export-rolling-stock | import-rolling-stock | export-layout | import-layout"))
+		fatal(errors.New("command required: locomotives | locomotive-show | locomotive-add | locomotive-update | locomotive-delete | acquire | throttle | function | release | export-rolling-stock | import-rolling-stock | export-layout | import-layout"))
 	}
 	if *username == "" {
 		fatal(errors.New("--username is required"))
@@ -120,6 +120,26 @@ func main() {
 			direction = station.Direction(args[3])
 		}
 		if err := c.Throttle(context.Background(), args[1], lease.ID, speed, direction); err != nil {
+			forgetRejectedLease(*statePath, state, profile, args[1], err)
+			fatal(err)
+		}
+	case "function":
+		if len(args) != 4 {
+			fatal(errors.New("function requires locomotive ID, function number 0..68 and true or false"))
+		}
+		lease, ok := profile.Leases[args[1]]
+		if !ok || lease.ID == "" {
+			fatal(fmt.Errorf("no saved lease for locomotive %q; run acquire first", args[1]))
+		}
+		function, err := strconv.Atoi(args[2])
+		if err != nil || function < 0 || function > 68 {
+			fatal(errors.New("function number must be between 0 and 68"))
+		}
+		enabled, err := strconv.ParseBool(args[3])
+		if err != nil {
+			fatal(errors.New("function state must be true or false"))
+		}
+		if err := c.Function(context.Background(), args[1], lease.ID, function, enabled); err != nil {
 			forgetRejectedLease(*statePath, state, profile, args[1], err)
 			fatal(err)
 		}

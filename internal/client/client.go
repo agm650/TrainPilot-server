@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -120,6 +121,10 @@ func (c *Client) Acquire(ctx context.Context, loco string) (model.ControlLease, 
 }
 func (c *Client) Throttle(ctx context.Context, loco, lease string, speed int, direction station.Direction) error {
 	_, err := c.Do(ctx, "PUT", "/api/v1/locomotives/"+url.PathEscape(loco)+"/throttle", map[string]any{"leaseId": lease, "speed": speed, "direction": direction}, nil)
+	return err
+}
+func (c *Client) Function(ctx context.Context, loco, lease string, function int, enabled bool) error {
+	_, err := c.Do(ctx, http.MethodPut, "/api/v1/locomotives/"+url.PathEscape(loco)+"/functions/"+strconv.Itoa(function), map[string]any{"leaseId": lease, "enabled": enabled}, nil)
 	return err
 }
 func (c *Client) Release(ctx context.Context, lease string) error {

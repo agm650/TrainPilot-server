@@ -88,6 +88,9 @@ func TestPublicAPIContract(t *testing.T) {
 	if err := alice.Throttle(ctx, locos[0].ID, lease.ID, 30, station.Forward); err != nil {
 		t.Fatal(err)
 	}
+	if err := alice.Function(ctx, locos[0].ID, lease.ID, 0, true); err != nil {
+		t.Fatal(err)
+	}
 	status, err = viewer.Do(ctx, http.MethodPost, "/api/v1/locomotives/"+locos[1].ID+"/control-lease", nil, &ignored)
 	if err == nil || status != http.StatusForbidden {
 		t.Fatalf("viewer lease status=%d err=%v", status, err)

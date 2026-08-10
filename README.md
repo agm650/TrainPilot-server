@@ -242,6 +242,10 @@ go run ./cmd/dccctl \
 
 go run ./cmd/dccctl \
   --server http://127.0.0.1:8080 --username alice \
+  function loco-bb26001 0 true
+
+go run ./cmd/dccctl \
+  --server http://127.0.0.1:8080 --username alice \
   release loco-bb26001
 ```
 

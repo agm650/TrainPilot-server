@@ -46,6 +46,7 @@ func main() {
 			}
 			results = append(results, result{"second user cannot reserve same locomotive", conflictErr})
 			results = append(results, result{"lease owner can change speed", c1.Throttle(ctx, locos[0].ID, lease.ID, 20, station.Forward)})
+			results = append(results, result{"lease owner can change functions", c1.Function(ctx, locos[0].ID, lease.ID, 0, true)})
 			results = append(results, result{"lease owner can release control", c1.Release(ctx, lease.ID)})
 		}
 	}
