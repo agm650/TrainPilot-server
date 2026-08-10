@@ -3,9 +3,24 @@ package station
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 var ErrUnsupported = errors.New("command not supported by station driver")
+var ErrOffline = errors.New("command station is offline")
+
+type Connectivity string
+
+const (
+	Online   Connectivity = "online"
+	Degraded Connectivity = "degraded"
+	Offline  Connectivity = "offline"
+)
+
+type Health struct {
+	Connectivity Connectivity `json:"connectivity"`
+	LastSeen     *time.Time   `json:"lastSeen,omitempty"`
+}
 
 type Direction string
 
@@ -31,24 +46,37 @@ type FeedbackEvent struct {
 }
 
 type Status struct {
-	TrackPower                   string `json:"trackPower"`
-	EmergencyStop                bool   `json:"emergencyStop"`
-	ShortCircuit                 bool   `json:"shortCircuit"`
-	ProgrammingMode              bool   `json:"programmingMode"`
-	MainCurrentMilliAmps         int16  `json:"mainCurrentMilliAmps"`
-	ProgrammingCurrentMilliAmps  int16  `json:"programmingCurrentMilliAmps"`
-	FilteredMainCurrentMilliAmps int16  `json:"filteredMainCurrentMilliAmps"`
-	TemperatureCelsius           int16  `json:"temperatureCelsius"`
-	SupplyVoltageMilliVolts      uint16 `json:"supplyVoltageMilliVolts"`
-	TrackVoltageMilliVolts       uint16 `json:"trackVoltageMilliVolts"`
-	HighTemperature              bool   `json:"highTemperature"`
-	PowerLost                    bool   `json:"powerLost"`
-	ExternalShortCircuit         bool   `json:"externalShortCircuit"`
-	InternalShortCircuit         bool   `json:"internalShortCircuit"`
+	Connectivity                 Connectivity `json:"connectivity"`
+	LastSeen                     *time.Time   `json:"lastSeen,omitempty"`
+	TrackPower                   string       `json:"trackPower"`
+	EmergencyStop                bool         `json:"emergencyStop"`
+	ShortCircuit                 bool         `json:"shortCircuit"`
+	ProgrammingMode              bool         `json:"programmingMode"`
+	MainCurrentMilliAmps         int16        `json:"mainCurrentMilliAmps"`
+	ProgrammingCurrentMilliAmps  int16        `json:"programmingCurrentMilliAmps"`
+	FilteredMainCurrentMilliAmps int16        `json:"filteredMainCurrentMilliAmps"`
+	TemperatureCelsius           int16        `json:"temperatureCelsius"`
+	SupplyVoltageMilliVolts      uint16       `json:"supplyVoltageMilliVolts"`
+	TrackVoltageMilliVolts       uint16       `json:"trackVoltageMilliVolts"`
+	HighTemperature              bool         `json:"highTemperature"`
+	PowerLost                    bool         `json:"powerLost"`
+	ExternalShortCircuit         bool         `json:"externalShortCircuit"`
+	InternalShortCircuit         bool         `json:"internalShortCircuit"`
 }
 
 type StatusProvider interface {
 	Status(context.Context) (Status, error)
+}
+
+type HealthProvider interface {
+	Health() Health
+}
+
+func CheckCommandAllowed(s CommandStation) error {
+	if provider, ok := s.(HealthProvider); ok && provider.Health().Connectivity == Offline {
+		return ErrOffline
+	}
+	return nil
 }
 
 type CommandStation interface {

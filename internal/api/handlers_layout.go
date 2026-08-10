@@ -26,7 +26,7 @@ func (s *Server) setTurnout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.railway.SetTurnout(r.Context(), userFrom(r), r.PathValue("id"), req.State); err != nil {
-		writeProblem(w, statusFor(err), "turnout_failed", err.Error())
+		writeOperationProblem(w, err, "turnout_failed")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

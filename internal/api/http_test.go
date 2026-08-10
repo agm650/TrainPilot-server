@@ -17,6 +17,7 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/service"
+	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/agm650/TrainPilot-server/internal/station/simulator"
 	"github.com/agm650/TrainPilot-server/internal/store"
 	"github.com/agm650/TrainPilot-server/internal/transfer"
@@ -73,11 +74,27 @@ func TestDecodeJSONAndStatusMapping(t *testing.T) {
 		{errors.New("unsafe archive path"), http.StatusBadRequest},
 		{errors.New("archive is missing manifest"), http.StatusBadRequest},
 		{errors.New("station disconnected"), http.StatusConflict},
+		{station.ErrOffline, http.StatusServiceUnavailable},
 	}
 	for _, tc := range cases {
 		if got := statusFor(tc.err); got != tc.want {
 			t.Errorf("statusFor(%q)=%d want %d", tc.err, got, tc.want)
 		}
+	}
+}
+
+func TestStationOfflineProblem(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	writeOperationProblem(recorder, station.ErrOffline, "throttle_failed")
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d", recorder.Code)
+	}
+	var got problem
+	if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Code != "station_offline" || got.Detail != "command station is offline" {
+		t.Fatalf("problem=%+v", got)
 	}
 }
 

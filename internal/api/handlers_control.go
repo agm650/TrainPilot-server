@@ -33,7 +33,7 @@ func (s *Server) heartbeatLease(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) releaseLease(w http.ResponseWriter, r *http.Request) {
 	if err := s.control.Release(r.Context(), r.PathValue("id"), sessionFrom(r)); err != nil {
-		writeProblem(w, statusFor(err), "lease_release_failed", err.Error())
+		writeOperationProblem(w, err, "lease_release_failed")
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
@@ -52,7 +52,7 @@ func (s *Server) throttle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.control.Throttle(r.Context(), userFrom(r), sessionFrom(r), r.PathValue("id"), req.LeaseID, req.Speed, req.Direction); err != nil {
-		writeProblem(w, statusFor(err), "throttle_failed", err.Error())
+		writeOperationProblem(w, err, "throttle_failed")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -71,7 +71,7 @@ func (s *Server) setFunction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.control.Function(r.Context(), sessionFrom(r), r.PathValue("id"), req.LeaseID, fn, req.Enabled); err != nil {
-		writeProblem(w, statusFor(err), "function_failed", err.Error())
+		writeOperationProblem(w, err, "function_failed")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

@@ -16,7 +16,7 @@ func (s *Server) setTrackPower(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.control.SetTrackPower(r.Context(), userFrom(r), *req.Enabled); err != nil {
-		writeProblem(w, statusFor(err), "track_power_failed", err.Error())
+		writeOperationProblem(w, err, "track_power_failed")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -33,7 +33,7 @@ func (s *Server) trackPowerStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) emergencyStop(w http.ResponseWriter, r *http.Request) {
 	if err := s.control.EmergencyStop(r.Context(), userFrom(r)); err != nil {
-		writeProblem(w, statusFor(err), "emergency_stop_failed", err.Error())
+		writeOperationProblem(w, err, "emergency_stop_failed")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

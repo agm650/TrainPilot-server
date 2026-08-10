@@ -83,8 +83,8 @@ func TestControlThrottleAndFunctionErrors(t *testing.T) {
 	if err := sim.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := control.Throttle(ctx, user, sess, "loco-bb26001", lease.ID, 50, station.Forward); err == nil {
-		t.Fatal("throttle succeeded while station disconnected")
+	if err := control.Throttle(ctx, user, sess, "loco-bb26001", lease.ID, 50, station.Forward); !errors.Is(err, station.ErrOffline) {
+		t.Fatalf("throttle while station offline error=%v", err)
 	}
 	if err := control.Function(ctx, sess, "loco-bb26001", lease.ID, 1, true); err == nil {
 		t.Fatal("function succeeded while station disconnected")

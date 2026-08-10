@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/spf13/cobra"
@@ -129,7 +130,11 @@ func newPowerCommand(a *commandContext) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "track-power: %s\nemergency-stop: %t\nshort-circuit: %t\nprogramming-mode: %t\nmain-current-ma: %d\nfiltered-main-current-ma: %d\ntemperature-c: %d\nsupply-voltage-mv: %d\ntrack-voltage-mv: %d\nhigh-temperature: %t\npower-lost: %t\nexternal-short-circuit: %t\ninternal-short-circuit: %t\n", status.TrackPower, status.EmergencyStop, status.ShortCircuit, status.ProgrammingMode, status.MainCurrentMilliAmps, status.FilteredMainCurrentMilliAmps, status.TemperatureCelsius, status.SupplyVoltageMilliVolts, status.TrackVoltageMilliVolts, status.HighTemperature, status.PowerLost, status.ExternalShortCircuit, status.InternalShortCircuit)
+				lastSeen := "unknown"
+				if status.LastSeen != nil {
+					lastSeen = status.LastSeen.Format(time.RFC3339Nano)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "connectivity: %s\nlast-seen: %s\ntrack-power: %s\nemergency-stop: %t\nshort-circuit: %t\nprogramming-mode: %t\nmain-current-ma: %d\nfiltered-main-current-ma: %d\ntemperature-c: %d\nsupply-voltage-mv: %d\ntrack-voltage-mv: %d\nhigh-temperature: %t\npower-lost: %t\nexternal-short-circuit: %t\ninternal-short-circuit: %t\n", status.Connectivity, lastSeen, status.TrackPower, status.EmergencyStop, status.ShortCircuit, status.ProgrammingMode, status.MainCurrentMilliAmps, status.FilteredMainCurrentMilliAmps, status.TemperatureCelsius, status.SupplyVoltageMilliVolts, status.TrackVoltageMilliVolts, status.HighTemperature, status.PowerLost, status.ExternalShortCircuit, status.InternalShortCircuit)
 				return nil
 			},
 		},

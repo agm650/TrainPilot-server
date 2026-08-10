@@ -265,6 +265,13 @@ de `LAN_X_GET_STATUS` et `LAN_SYSTEMSTATE_GETDATA`. Pour un pilote ne proposant
 pas encore de lecture d'état, l'alimentation vaut `unknown` jusqu'au premier
 ordre `power on` ou `power off` réussi.
 
+La connectivité Z21 vaut `online` après toute réponse UDP valide, `degraded`
+après la première erreur ou expiration de délai, puis `offline` si aucune
+réponse valide ne revient pendant 10 secondes. Les interrogations de statut
+continuent en permanence, y compris hors ligne. Les commandes actives sont
+refusées en état `offline` avec HTTP 503 et le code `station_offline`, mais
+restent autorisées en état `degraded`.
+
 Une commande `throttle` ou de fonction valide repousse l'expiration du lease
 de 10 minutes. Sans activité ni heartbeat pendant ce délai, le serveur lance
 l'arrêt contrôlé puis libère le lease. `throttle` n'acquiert jamais

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/agm650/TrainPilot-server/internal/model"
+	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/agm650/TrainPilot-server/internal/store"
 )
 
@@ -33,6 +34,12 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 func writeProblem(w http.ResponseWriter, status int, code, detail string) {
 	writeJSON(w, status, problem{Type: "about:blank", Title: http.StatusText(status), Status: status, Detail: detail, Code: code})
+}
+func writeOperationProblem(w http.ResponseWriter, err error, code string) {
+	if errors.Is(err, station.ErrOffline) {
+		code = "station_offline"
+	}
+	writeProblem(w, statusFor(err), code, err.Error())
 }
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
@@ -69,6 +76,8 @@ func statusFor(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, store.ErrConflict):
 		return http.StatusConflict
+	case errors.Is(err, station.ErrOffline):
+		return http.StatusServiceUnavailable
 	case strings.Contains(err.Error(), "permission denied"):
 		return http.StatusForbidden
 	case strings.Contains(err.Error(), "required") ||

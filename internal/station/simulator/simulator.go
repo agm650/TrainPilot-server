@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/station"
 )
@@ -72,7 +73,20 @@ func (s *Simulator) Status(context.Context) (station.Status, error) {
 	if s.power {
 		power = "on"
 	}
-	return station.Status{TrackPower: power}, nil
+	health := s.healthLocked()
+	return station.Status{Connectivity: health.Connectivity, LastSeen: health.LastSeen, TrackPower: power}, nil
+}
+func (s *Simulator) Health() station.Health {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.healthLocked()
+}
+func (s *Simulator) healthLocked() station.Health {
+	if !s.connected {
+		return station.Health{Connectivity: station.Offline}
+	}
+	now := time.Now()
+	return station.Health{Connectivity: station.Online, LastSeen: &now}
 }
 func (s *Simulator) SetLocoSpeed(_ context.Context, address int, speed float64, direction station.Direction) error {
 	s.mu.Lock()

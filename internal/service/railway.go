@@ -147,6 +147,9 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, st
 	if state != "straight" && state != "diverging" {
 		return errors.New("state must be straight or diverging")
 	}
+	if err := station.CheckCommandAllowed(r.station); err != nil {
+		return err
+	}
 	t, err := r.store.GetTurnout(ctx, id)
 	if err != nil {
 		return err

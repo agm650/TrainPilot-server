@@ -20,6 +20,10 @@ type Driver struct {
 	statusMu           sync.Mutex
 	xStatusWaiters     []chan byte
 	systemStateWaiters []chan systemState
+	health             station.HealthTracker
+	lastStatus         *station.Status
+	done               chan struct{}
+	closeOnce          sync.Once
 }
 
 type systemState struct {
@@ -29,7 +33,7 @@ type systemState struct {
 }
 
 func New(address string) *Driver {
-	return &Driver{address: address, feedback: make(chan station.FeedbackEvent, 64)}
+	return &Driver{address: address, feedback: make(chan station.FeedbackEvent, 64), done: make(chan struct{})}
 }
 func (d *Driver) Connect(ctx context.Context) error {
 	remote, err := net.ResolveUDPAddr("udp", d.address)
@@ -43,10 +47,13 @@ func (d *Driver) Connect(ctx context.Context) error {
 	d.mu.Lock()
 	d.conn = c
 	d.mu.Unlock()
+	d.health.Connected()
 	go d.readLoop(c)
+	go d.statusLoop()
 	return nil
 }
 func (d *Driver) Close() error {
+	d.closeOnce.Do(func() { close(d.done) })
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.conn != nil {
@@ -54,6 +61,7 @@ func (d *Driver) Close() error {
 	}
 	return nil
 }
+func (d *Driver) Health() station.Health { return d.health.Health() }
 func (d *Driver) Capabilities() station.Capabilities {
 	return station.Capabilities{Driver: "z21", TrackPower: true, LocomotiveControl: true, Functions: 29, AccessoryControl: false, Feedback: true}
 }
@@ -88,6 +96,9 @@ func (d *Driver) send(ctx context.Context, b []byte) error {
 		_ = d.conn.SetWriteDeadline(deadline)
 	}
 	_, err := d.conn.Write(b)
+	if err != nil {
+		d.health.CommunicationError()
+	}
 	return err
 }
 func (d *Driver) SetTrackPower(ctx context.Context, on bool) error {
@@ -107,33 +118,31 @@ func (d *Driver) Status(ctx context.Context) (station.Status, error) {
 	d.statusMu.Unlock()
 	defer d.removeStatusWaiters(xReply, systemReply)
 	if err := d.send(ctx, xbus(0x21, 0x24)); err != nil {
-		return station.Status{}, err
+		d.health.CommunicationError()
+		return d.currentStatus(), nil
 	}
 	if err := d.send(ctx, lan(0x0085)); err != nil {
-		return station.Status{}, err
+		d.health.CommunicationError()
+		return d.currentStatus(), nil
 	}
 	timer := time.NewTimer(2 * time.Second)
 	defer timer.Stop()
-	var central byte
-	select {
-	case central = <-xReply:
-	case <-ctx.Done():
-		return station.Status{}, ctx.Err()
-	case <-timer.C:
-		return station.Status{}, fmt.Errorf("timeout waiting for LAN_X_STATUS_CHANGED")
-	}
-	var state systemState
-	select {
-	case state = <-systemReply:
-	case <-ctx.Done():
-		return station.Status{}, ctx.Err()
-	case <-timer.C:
-		return station.Status{}, fmt.Errorf("timeout waiting for LAN_SYSTEMSTATE_DATACHANGED")
+	for xReply != nil || systemReply != nil {
+		select {
+		case <-xReply:
+			xReply = nil
+		case <-systemReply:
+			systemReply = nil
+		case <-ctx.Done():
+			return d.currentStatus(), ctx.Err()
+		case <-timer.C:
+			d.health.CommunicationError()
+			return d.currentStatus(), nil
+		}
 	}
 	// The system-state reply is richer and authoritative. LAN_X_GET_STATUS is
 	// still queried to support and verify both protocol paths.
-	_ = central
-	return statusFromSystemState(state), nil
+	return d.currentStatus(), nil
 }
 func (d *Driver) SetLocoSpeed(ctx context.Context, address int, speed float64, direction station.Direction) error {
 	if speed < 0 || speed > 1 {
@@ -168,6 +177,7 @@ func (d *Driver) readLoop(c *net.UDPConn) {
 	for {
 		n, err := c.Read(buf)
 		if err != nil {
+			d.health.CommunicationError()
 			return
 		}
 		d.parse(buf[:n])
@@ -181,6 +191,12 @@ func (d *Driver) parse(data []byte) {
 		}
 		header := binary.LittleEndian.Uint16(data[2:4])
 		payload := data[4:length]
+		valid := header != 0x0040 || (len(payload) > 0 && xor(payload) == 0)
+		if !valid {
+			data = data[length:]
+			continue
+		}
+		d.health.ValidResponse()
 		switch {
 		case header == 0x0040 && len(payload) == 4 && payload[0] == 0x62 && payload[1] == 0x22 && xor(payload[:3]) == payload[3]:
 			d.publishXStatus(payload[2])
@@ -239,11 +255,42 @@ func (d *Driver) publishXStatus(status byte) {
 }
 func (d *Driver) publishSystemState(status systemState) {
 	d.statusMu.Lock()
+	parsed := statusFromSystemState(status)
+	d.lastStatus = &parsed
 	waiters := d.systemStateWaiters
 	d.systemStateWaiters = nil
 	d.statusMu.Unlock()
 	for _, ch := range waiters {
 		ch <- status
+	}
+}
+
+func (d *Driver) currentStatus() station.Status {
+	d.statusMu.Lock()
+	var status station.Status
+	if d.lastStatus != nil {
+		status = *d.lastStatus
+	} else {
+		status.TrackPower = "unknown"
+	}
+	d.statusMu.Unlock()
+	health := d.health.Health()
+	status.Connectivity = health.Connectivity
+	status.LastSeen = health.LastSeen
+	return status
+}
+
+func (d *Driver) statusLoop() {
+	_, _ = d.Status(context.Background())
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			_, _ = d.Status(context.Background())
+		case <-d.done:
+			return
+		}
 	}
 }
 func (d *Driver) removeStatusWaiters(x chan byte, system chan systemState) {

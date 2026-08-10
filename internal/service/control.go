@@ -52,6 +52,9 @@ func (c *ControlService) SetTrackPower(ctx context.Context, user model.User, ena
 	if !c.station.Capabilities().TrackPower {
 		return station.ErrUnsupported
 	}
+	if err := station.CheckCommandAllowed(c.station); err != nil {
+		return err
+	}
 	if err := c.station.SetTrackPower(ctx, enabled); err != nil {
 		return err
 	}
@@ -70,17 +73,20 @@ func (c *ControlService) StationStatus(ctx context.Context) (station.Status, err
 	c.powerMu.RLock()
 	defer c.powerMu.RUnlock()
 	if c.trackPower == nil {
-		return station.Status{TrackPower: "unknown"}, nil
+		return station.Status{Connectivity: station.Degraded, TrackPower: "unknown"}, nil
 	}
 	if *c.trackPower {
-		return station.Status{TrackPower: "on"}, nil
+		return station.Status{Connectivity: station.Degraded, TrackPower: "on"}, nil
 	}
-	return station.Status{TrackPower: "off"}, nil
+	return station.Status{Connectivity: station.Degraded, TrackPower: "off"}, nil
 }
 
 func (c *ControlService) EmergencyStop(ctx context.Context, user model.User) error {
 	if !Allowed(user.Role, PermissionDrive) {
 		return errors.New("permission denied")
+	}
+	if err := station.CheckCommandAllowed(c.station); err != nil {
+		return err
 	}
 	if err := c.station.EmergencyStop(ctx); err != nil {
 		return err
@@ -128,6 +134,9 @@ func (c *ControlService) Throttle(ctx context.Context, user model.User, sess mod
 	if speed < 0 || speed > 100 {
 		return errors.New("speed must be between 0 and 100")
 	}
+	if err := station.CheckCommandAllowed(c.station); err != nil {
+		return err
+	}
 	now := c.clock.Now()
 	if err := c.store.RenewActiveLeaseForCommand(ctx, leaseID, locoID, sess.ID, now, now.Add(c.leaseTTL)); err != nil {
 		return err
@@ -143,6 +152,9 @@ func (c *ControlService) Throttle(ctx context.Context, user model.User, sess mod
 	return nil
 }
 func (c *ControlService) Function(ctx context.Context, sess model.Session, locoID, leaseID string, fn int, on bool) error {
+	if err := station.CheckCommandAllowed(c.station); err != nil {
+		return err
+	}
 	now := c.clock.Now()
 	if err := c.store.RenewActiveLeaseForCommand(ctx, leaseID, locoID, sess.ID, now, now.Add(c.leaseTTL)); err != nil {
 		return err
@@ -178,6 +190,9 @@ func (c *ControlService) stopAndScheduleRelease(ctx context.Context, l model.Con
 	releaseAt := c.clock.Now().Add(c.stopGrace)
 	if err := c.store.MarkLeaseStopping(ctx, l.ID, reason, releaseAt); err != nil {
 		return err
+	}
+	if err := station.CheckCommandAllowed(c.station); err != nil {
+		return fmt.Errorf("stop command failed: %w", err)
 	}
 	if err := c.station.SetLocoSpeed(ctx, loco.DCCAddress, 0, station.Forward); err != nil {
 		return fmt.Errorf("stop command failed: %w", err)

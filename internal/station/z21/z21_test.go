@@ -3,6 +3,8 @@ package z21
 import (
 	"bytes"
 	"testing"
+
+	"github.com/agm650/TrainPilot-server/internal/station"
 )
 
 func TestTrackPowerPacket(t *testing.T) {
@@ -46,6 +48,7 @@ func TestParseSystemState(t *testing.T) {
 
 func TestParseDispatchesStatusReplies(t *testing.T) {
 	d := New("unused")
+	d.health.Connected()
 	xReply := make(chan byte, 1)
 	systemReply := make(chan systemState, 1)
 	d.xStatusWaiters = append(d.xStatusWaiters, xReply)
@@ -62,5 +65,19 @@ func TestParseDispatchesStatusReplies(t *testing.T) {
 	case <-systemReply:
 	default:
 		t.Fatal("system state was not dispatched")
+	}
+	if health := d.Health(); health.Connectivity != station.Online || health.LastSeen == nil {
+		t.Fatalf("health after valid replies=%+v", health)
+	}
+}
+
+func TestInvalidXBusChecksumDoesNotRestoreHealth(t *testing.T) {
+	d := New("unused")
+	d.health.Connected()
+	d.health.CommunicationError()
+	record := []byte{0x08, 0x00, 0x40, 0x00, 0x62, 0x22, 0x02, 0x00}
+	d.parse(record)
+	if got := d.Health().Connectivity; got != station.Degraded {
+		t.Fatalf("health=%s want degraded", got)
 	}
 }

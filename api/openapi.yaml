@@ -99,6 +99,7 @@ paths:
         '204': { description: Track-power command accepted by the station driver. }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/emergency-stop:
     post:
       operationId: emergencyStop
@@ -107,6 +108,7 @@ paths:
         '204': { description: Emergency-stop command accepted by the station driver. }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/station/status:
     get:
       operationId: getStationStatus
@@ -247,6 +249,7 @@ paths:
         '202': { description: Controlled stop and release accepted. }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/locomotives/{locomotiveId}/throttle:
     parameters:
       - $ref: '#/components/parameters/LocomotiveId'
@@ -262,6 +265,7 @@ paths:
         '204': { description: Command accepted by the station driver. }
         '400': { $ref: '#/components/responses/BadRequest' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/locomotives/{locomotiveId}/functions/{functionNumber}:
     parameters:
       - $ref: '#/components/parameters/LocomotiveId'
@@ -285,6 +289,7 @@ paths:
       responses:
         '204': { description: Function command accepted. }
         '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/blocks:
     get:
       operationId: listBlocks
@@ -336,6 +341,7 @@ paths:
         '204': { description: Turnout command accepted. }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/routes:
     get:
       operationId: listRoutes
@@ -501,6 +507,11 @@ components:
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
+    ServiceUnavailable:
+      description: Command station is offline. The problem code is `station_offline`.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
   schemas:
     Problem:
       type: object
@@ -557,8 +568,10 @@ components:
     StationStatus:
       type: object
       additionalProperties: false
-      required: [trackPower, emergencyStop, shortCircuit, programmingMode, mainCurrentMilliAmps, programmingCurrentMilliAmps, filteredMainCurrentMilliAmps, temperatureCelsius, supplyVoltageMilliVolts, trackVoltageMilliVolts, highTemperature, powerLost, externalShortCircuit, internalShortCircuit]
+      required: [connectivity, trackPower, emergencyStop, shortCircuit, programmingMode, mainCurrentMilliAmps, programmingCurrentMilliAmps, filteredMainCurrentMilliAmps, temperatureCelsius, supplyVoltageMilliVolts, trackVoltageMilliVolts, highTemperature, powerLost, externalShortCircuit, internalShortCircuit]
       properties:
+        connectivity: { type: string, enum: [online, degraded, offline] }
+        lastSeen: { type: string, format: date-time }
         trackPower: { type: string, enum: [on, off, unknown] }
         emergencyStop: { type: boolean }
         shortCircuit: { type: boolean }
