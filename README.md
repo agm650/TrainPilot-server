@@ -249,6 +249,20 @@ go run ./cmd/dccctl \
   release loco-bb26001
 ```
 
+Les commandes globales de voie ne nécessitent pas de lease :
+
+```bash
+dccctl --server http://127.0.0.1:8080 --username alice power off
+dccctl --server http://127.0.0.1:8080 --username alice power on
+dccctl --server http://127.0.0.1:8080 --username alice power status
+dccctl --server http://127.0.0.1:8080 --username alice emergency-stop
+```
+
+`power status` affiche `on`, `off` ou `unknown`. L'état est `unknown` après le
+démarrage du serveur jusqu'au premier ordre d'alimentation réussi, car
+l'interface actuelle des centrales ne permet pas encore d'interroger leur état
+réel.
+
 Une commande `throttle` ou de fonction valide repousse l'expiration du lease
 de 10 minutes. Sans activité ni heartbeat pendant ce délai, le serveur lance
 l'arrêt contrôlé puis libère le lease. `throttle` n'acquiert jamais

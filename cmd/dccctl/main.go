@@ -31,7 +31,7 @@ func main() {
 	_ = fs.Parse(os.Args[1:])
 	args := fs.Args()
 	if len(args) == 0 {
-		fatal(errors.New("command required: locomotives | locomotive-show | locomotive-add | locomotive-update | locomotive-delete | acquire | throttle | function | release | export-rolling-stock | import-rolling-stock | export-layout | import-layout"))
+		fatal(errors.New("command required: locomotives | locomotive-show | locomotive-add | locomotive-update | locomotive-delete | acquire | throttle | function | release | power | emergency-stop | export-rolling-stock | import-rolling-stock | export-layout | import-layout"))
 	}
 	if *username == "" {
 		fatal(errors.New("--username is required"))
@@ -158,6 +158,35 @@ func main() {
 		delete(profile.Leases, args[1])
 		if err := saveState(*statePath, state); err != nil {
 			fatal(fmt.Errorf("save lease state: %w", err))
+		}
+	case "power":
+		if len(args) != 2 {
+			fatal(errors.New("power requires on, off or status"))
+		}
+		switch args[1] {
+		case "on":
+			if err := c.SetTrackPower(context.Background(), true); err != nil {
+				fatal(err)
+			}
+		case "off":
+			if err := c.SetTrackPower(context.Background(), false); err != nil {
+				fatal(err)
+			}
+		case "status":
+			status, err := c.TrackPowerStatus(context.Background())
+			if err != nil {
+				fatal(err)
+			}
+			fmt.Println(status.State)
+		default:
+			fatal(errors.New("power requires on, off or status"))
+		}
+	case "emergency-stop":
+		if len(args) != 1 {
+			fatal(errors.New("emergency-stop does not accept arguments"))
+		}
+		if err := c.EmergencyStop(context.Background()); err != nil {
+			fatal(err)
 		}
 	case "export-rolling-stock":
 		if len(args) != 2 {

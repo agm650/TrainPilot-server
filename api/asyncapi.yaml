@@ -25,6 +25,8 @@ channels:
       locomotiveControlReleased: { $ref: '#/components/messages/LocomotiveControlReleased' }
       locomotiveSpeedChanged: { $ref: '#/components/messages/LocomotiveSpeedChanged' }
       locomotiveFunctionChanged: { $ref: '#/components/messages/LocomotiveFunctionChanged' }
+      trackPowerChanged: { $ref: '#/components/messages/TrackPowerChanged' }
+      trackEmergencyStop: { $ref: '#/components/messages/TrackEmergencyStop' }
       blockOccupancyChanged: { $ref: '#/components/messages/BlockOccupancyChanged' }
       turnoutStateChanged: { $ref: '#/components/messages/TurnoutStateChanged' }
       routeReserved: { $ref: '#/components/messages/RouteReserved' }
@@ -166,6 +168,33 @@ components:
           - type: object
             properties:
               type: { const: locomotive.function.changed }
+    TrackPowerChanged:
+      name: track.power.changed
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: track.power.changed }
+              payload:
+                type: object
+                required: [enabled, userId]
+                properties:
+                  enabled: { type: boolean }
+                  userId: { type: string, format: uuid }
+    TrackEmergencyStop:
+      name: track.emergency_stop
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: track.emergency_stop }
+              payload:
+                type: object
+                required: [userId]
+                properties:
+                  userId: { type: string, format: uuid }
     BlockOccupancyChanged:
       name: block.occupancy.changed
       payload:

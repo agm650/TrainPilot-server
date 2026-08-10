@@ -117,6 +117,47 @@ func TestConcurrentLeaseAcquisitionAllowsOneWinner(t *testing.T) {
 	}
 }
 
+func TestTrackPowerAndEmergencyStop(t *testing.T) {
+	ctx := context.Background()
+	control, _, sim, _, user, sess := newControlFixture(t)
+	if got := control.TrackPowerStatus().State; got != "unknown" {
+		t.Fatalf("initial power state=%q want unknown", got)
+	}
+	viewer := user
+	viewer.Role = model.RoleViewer
+	if err := control.SetTrackPower(ctx, viewer, true); err == nil {
+		t.Fatal("viewer changed track power")
+	}
+	if err := control.EmergencyStop(ctx, viewer); err == nil {
+		t.Fatal("viewer triggered emergency stop")
+	}
+	if err := control.SetTrackPower(ctx, user, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := control.TrackPowerStatus().State; got != "on" {
+		t.Fatalf("power state=%q want on", got)
+	}
+	lease, err := control.Acquire(ctx, user, sess, "loco-bb26001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := control.Throttle(ctx, user, sess, "loco-bb26001", lease.ID, 50, station.Forward); err != nil {
+		t.Fatal(err)
+	}
+	if err := control.EmergencyStop(ctx, user); err != nil {
+		t.Fatal(err)
+	}
+	if got := sim.Loco(2601).Speed; got != 0 {
+		t.Fatalf("speed after emergency stop=%v want 0", got)
+	}
+	if err := control.SetTrackPower(ctx, user, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := control.TrackPowerStatus().State; got != "off" {
+		t.Fatalf("power state=%q want off", got)
+	}
+}
+
 func TestThrottleExtendsLeaseFromLastUse(t *testing.T) {
 	ctx := context.Background()
 	control, db, _, clk, user, sess := newControlFixture(t)

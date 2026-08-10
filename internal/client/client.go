@@ -131,6 +131,19 @@ func (c *Client) Release(ctx context.Context, lease string) error {
 	_, err := c.Do(ctx, "DELETE", "/api/v1/control-leases/"+url.PathEscape(lease), nil, nil)
 	return err
 }
+func (c *Client) SetTrackPower(ctx context.Context, enabled bool) error {
+	_, err := c.Do(ctx, http.MethodPut, "/api/v1/track-power", map[string]any{"enabled": enabled}, nil)
+	return err
+}
+func (c *Client) TrackPowerStatus(ctx context.Context) (service.TrackPowerStatus, error) {
+	var out service.TrackPowerStatus
+	_, err := c.Do(ctx, http.MethodGet, "/api/v1/track-power", nil, &out)
+	return out, err
+}
+func (c *Client) EmergencyStop(ctx context.Context) error {
+	_, err := c.Do(ctx, http.MethodPost, "/api/v1/emergency-stop", nil, nil)
+	return err
+}
 
 func (c *Client) ExportRollingStock(ctx context.Context) ([]byte, error) {
 	return c.download(ctx, "/api/v1/exports/rolling-stock")

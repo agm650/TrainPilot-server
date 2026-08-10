@@ -22,6 +22,12 @@ type ControlService struct {
 	leaseTTL, stopGrace, monitor time.Duration
 	stop                         chan struct{}
 	once                         sync.Once
+	powerMu                      sync.RWMutex
+	trackPower                   *bool
+}
+
+type TrackPowerStatus struct {
+	State string `json:"state"`
 }
 
 func NewControlService(s *store.Store, st station.CommandStation, b *events.Bus, c clock.Clock, leaseTTL, stopGrace, monitor time.Duration) *ControlService {
@@ -42,6 +48,47 @@ func (c *ControlService) Start() {
 	}()
 }
 func (c *ControlService) Close() { c.once.Do(func() { close(c.stop) }) }
+
+func (c *ControlService) SetTrackPower(ctx context.Context, user model.User, enabled bool) error {
+	if !Allowed(user.Role, PermissionDrive) {
+		return errors.New("permission denied")
+	}
+	if !c.station.Capabilities().TrackPower {
+		return station.ErrUnsupported
+	}
+	if err := c.station.SetTrackPower(ctx, enabled); err != nil {
+		return err
+	}
+	c.powerMu.Lock()
+	c.trackPower = new(bool)
+	*c.trackPower = enabled
+	c.powerMu.Unlock()
+	c.events.Publish("track.power.changed", map[string]any{"enabled": enabled, "userId": user.ID})
+	return nil
+}
+
+func (c *ControlService) TrackPowerStatus() TrackPowerStatus {
+	c.powerMu.RLock()
+	defer c.powerMu.RUnlock()
+	if c.trackPower == nil {
+		return TrackPowerStatus{State: "unknown"}
+	}
+	if *c.trackPower {
+		return TrackPowerStatus{State: "on"}
+	}
+	return TrackPowerStatus{State: "off"}
+}
+
+func (c *ControlService) EmergencyStop(ctx context.Context, user model.User) error {
+	if !Allowed(user.Role, PermissionDrive) {
+		return errors.New("permission denied")
+	}
+	if err := c.station.EmergencyStop(ctx); err != nil {
+		return err
+	}
+	c.events.Publish("track.emergency_stop", map[string]any{"userId": user.ID})
+	return nil
+}
 func (c *ControlService) Acquire(ctx context.Context, user model.User, sess model.Session, locoID string) (model.ControlLease, error) {
 	if !Allowed(user.Role, PermissionDrive) {
 		return model.ControlLease{}, errors.New("permission denied")
