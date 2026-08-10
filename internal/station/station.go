@@ -30,6 +30,27 @@ type FeedbackEvent struct {
 	Active  bool
 }
 
+type Status struct {
+	TrackPower                   string `json:"trackPower"`
+	EmergencyStop                bool   `json:"emergencyStop"`
+	ShortCircuit                 bool   `json:"shortCircuit"`
+	ProgrammingMode              bool   `json:"programmingMode"`
+	MainCurrentMilliAmps         int16  `json:"mainCurrentMilliAmps"`
+	ProgrammingCurrentMilliAmps  int16  `json:"programmingCurrentMilliAmps"`
+	FilteredMainCurrentMilliAmps int16  `json:"filteredMainCurrentMilliAmps"`
+	TemperatureCelsius           int16  `json:"temperatureCelsius"`
+	SupplyVoltageMilliVolts      uint16 `json:"supplyVoltageMilliVolts"`
+	TrackVoltageMilliVolts       uint16 `json:"trackVoltageMilliVolts"`
+	HighTemperature              bool   `json:"highTemperature"`
+	PowerLost                    bool   `json:"powerLost"`
+	ExternalShortCircuit         bool   `json:"externalShortCircuit"`
+	InternalShortCircuit         bool   `json:"internalShortCircuit"`
+}
+
+type StatusProvider interface {
+	Status(context.Context) (Status, error)
+}
+
 type CommandStation interface {
 	Connect(context.Context) error
 	Close() error

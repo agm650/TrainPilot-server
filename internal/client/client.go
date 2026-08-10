@@ -135,9 +135,9 @@ func (c *Client) SetTrackPower(ctx context.Context, enabled bool) error {
 	_, err := c.Do(ctx, http.MethodPut, "/api/v1/track-power", map[string]any{"enabled": enabled}, nil)
 	return err
 }
-func (c *Client) TrackPowerStatus(ctx context.Context) (service.TrackPowerStatus, error) {
-	var out service.TrackPowerStatus
-	_, err := c.Do(ctx, http.MethodGet, "/api/v1/track-power", nil, &out)
+func (c *Client) StationStatus(ctx context.Context) (station.Status, error) {
+	var out station.Status
+	_, err := c.Do(ctx, http.MethodGet, "/api/v1/station/status", nil, &out)
 	return out, err
 }
 func (c *Client) EmergencyStop(ctx context.Context) error {

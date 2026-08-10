@@ -258,10 +258,12 @@ dccctl --server http://127.0.0.1:8080 --username alice power status
 dccctl --server http://127.0.0.1:8080 --username alice emergency-stop
 ```
 
-`power status` affiche `on`, `off` ou `unknown`. L'état est `unknown` après le
-démarrage du serveur jusqu'au premier ordre d'alimentation réussi, car
-l'interface actuelle des centrales ne permet pas encore d'interroger leur état
-réel.
+`power status` interroge la centrale et affiche l'alimentation, l'arrêt
+d'urgence, les courts-circuits, le mode programmation ainsi que les mesures de
+courant, tension et température disponibles. Avec une Z21, ces données viennent
+de `LAN_X_GET_STATUS` et `LAN_SYSTEMSTATE_GETDATA`. Pour un pilote ne proposant
+pas encore de lecture d'état, l'alimentation vaut `unknown` jusqu'au premier
+ordre `power on` ou `power off` réussi.
 
 Une commande `throttle` ou de fonction valide repousse l'expiration du lease
 de 10 minutes. Sans activité ni heartbeat pendant ce délai, le serveur lance

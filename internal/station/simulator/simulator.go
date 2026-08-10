@@ -62,6 +62,18 @@ func (s *Simulator) EmergencyStop(context.Context) error {
 	}
 	return nil
 }
+func (s *Simulator) Status(context.Context) (station.Status, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := s.ensure(); err != nil {
+		return station.Status{}, err
+	}
+	power := "off"
+	if s.power {
+		power = "on"
+	}
+	return station.Status{TrackPower: power}, nil
+}
 func (s *Simulator) SetLocoSpeed(_ context.Context, address int, speed float64, direction station.Direction) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

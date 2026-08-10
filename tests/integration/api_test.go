@@ -94,8 +94,8 @@ func TestPublicAPIContract(t *testing.T) {
 	if err := alice.SetTrackPower(ctx, true); err != nil {
 		t.Fatal(err)
 	}
-	power, err := alice.TrackPowerStatus(ctx)
-	if err != nil || power.State != "on" {
+	power, err := alice.StationStatus(ctx)
+	if err != nil || power.TrackPower != "on" {
 		t.Fatalf("track power=%+v err=%v", power, err)
 	}
 	if err := alice.EmergencyStop(ctx); err != nil {

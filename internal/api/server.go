@@ -38,6 +38,7 @@ func (s *Server) register(testAPI bool) {
 	s.mux.Handle("POST /api/v1/auth/logout", s.requireAuth(http.HandlerFunc(s.logout)))
 	s.mux.Handle("GET /api/v1/me", s.requireAuth(http.HandlerFunc(s.me)))
 	s.mux.Handle("GET /api/v1/track-power", s.requireAuth(http.HandlerFunc(s.trackPowerStatus)))
+	s.mux.Handle("GET /api/v1/station/status", s.requireAuth(http.HandlerFunc(s.trackPowerStatus)))
 	s.mux.Handle("PUT /api/v1/track-power", s.requireAuth(http.HandlerFunc(s.setTrackPower)))
 	s.mux.Handle("POST /api/v1/emergency-stop", s.requireAuth(http.HandlerFunc(s.emergencyStop)))
 	s.mux.Handle("GET /api/v1/locomotives", s.requireAuth(http.HandlerFunc(s.listLocomotives)))

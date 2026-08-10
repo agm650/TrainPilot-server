@@ -120,8 +120,9 @@ func TestConcurrentLeaseAcquisitionAllowsOneWinner(t *testing.T) {
 func TestTrackPowerAndEmergencyStop(t *testing.T) {
 	ctx := context.Background()
 	control, _, sim, _, user, sess := newControlFixture(t)
-	if got := control.TrackPowerStatus().State; got != "unknown" {
-		t.Fatalf("initial power state=%q want unknown", got)
+	status, err := control.StationStatus(ctx)
+	if err != nil || status.TrackPower != "off" {
+		t.Fatalf("initial station status=%+v err=%v", status, err)
 	}
 	viewer := user
 	viewer.Role = model.RoleViewer
@@ -134,8 +135,9 @@ func TestTrackPowerAndEmergencyStop(t *testing.T) {
 	if err := control.SetTrackPower(ctx, user, true); err != nil {
 		t.Fatal(err)
 	}
-	if got := control.TrackPowerStatus().State; got != "on" {
-		t.Fatalf("power state=%q want on", got)
+	status, err = control.StationStatus(ctx)
+	if err != nil || status.TrackPower != "on" {
+		t.Fatalf("station status=%+v err=%v", status, err)
 	}
 	lease, err := control.Acquire(ctx, user, sess, "loco-bb26001")
 	if err != nil {
@@ -153,8 +155,9 @@ func TestTrackPowerAndEmergencyStop(t *testing.T) {
 	if err := control.SetTrackPower(ctx, user, false); err != nil {
 		t.Fatal(err)
 	}
-	if got := control.TrackPowerStatus().State; got != "off" {
-		t.Fatalf("power state=%q want off", got)
+	status, err = control.StationStatus(ctx)
+	if err != nil || status.TrackPower != "off" {
+		t.Fatalf("station status=%+v err=%v", status, err)
 	}
 }
 

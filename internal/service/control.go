@@ -26,10 +26,6 @@ type ControlService struct {
 	trackPower                   *bool
 }
 
-type TrackPowerStatus struct {
-	State string `json:"state"`
-}
-
 func NewControlService(s *store.Store, st station.CommandStation, b *events.Bus, c clock.Clock, leaseTTL, stopGrace, monitor time.Duration) *ControlService {
 	return &ControlService{store: s, station: st, events: b, clock: c, leaseTTL: leaseTTL, stopGrace: stopGrace, monitor: monitor, stop: make(chan struct{})}
 }
@@ -67,16 +63,19 @@ func (c *ControlService) SetTrackPower(ctx context.Context, user model.User, ena
 	return nil
 }
 
-func (c *ControlService) TrackPowerStatus() TrackPowerStatus {
+func (c *ControlService) StationStatus(ctx context.Context) (station.Status, error) {
+	if provider, ok := c.station.(station.StatusProvider); ok {
+		return provider.Status(ctx)
+	}
 	c.powerMu.RLock()
 	defer c.powerMu.RUnlock()
 	if c.trackPower == nil {
-		return TrackPowerStatus{State: "unknown"}
+		return station.Status{TrackPower: "unknown"}, nil
 	}
 	if *c.trackPower {
-		return TrackPowerStatus{State: "on"}
+		return station.Status{TrackPower: "on"}, nil
 	}
-	return TrackPowerStatus{State: "off"}
+	return station.Status{TrackPower: "off"}, nil
 }
 
 func (c *ControlService) EmergencyStop(ctx context.Context, user model.User) error {

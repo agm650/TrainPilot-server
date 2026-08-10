@@ -22,8 +22,13 @@ func (s *Server) setTrackPower(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) trackPowerStatus(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.control.TrackPowerStatus())
+func (s *Server) trackPowerStatus(w http.ResponseWriter, r *http.Request) {
+	status, err := s.control.StationStatus(r.Context())
+	if err != nil {
+		writeProblem(w, statusFor(err), "station_status_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
 }
 
 func (s *Server) emergencyStop(w http.ResponseWriter, r *http.Request) {

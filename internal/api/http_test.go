@@ -124,6 +124,7 @@ func TestHTTPHandlersCoverSuccessAndErrorPaths(t *testing.T) {
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/track-power", "Bearer "+viewer.AccessToken, []byte(`{"enabled":true}`), http.StatusForbidden)
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/track-power", "Bearer "+dispatcher.AccessToken, []byte(`{"enabled":true}`), http.StatusNoContent)
 	assertStatus(t, server.URL, http.MethodGet, "/api/v1/track-power", "Bearer "+viewer.AccessToken, nil, http.StatusOK)
+	assertStatus(t, server.URL, http.MethodGet, "/api/v1/station/status", "Bearer "+viewer.AccessToken, nil, http.StatusOK)
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/emergency-stop", "Bearer "+viewer.AccessToken, nil, http.StatusForbidden)
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/emergency-stop", "Bearer "+dispatcher.AccessToken, nil, http.StatusNoContent)
 

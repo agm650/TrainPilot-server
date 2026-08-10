@@ -74,13 +74,14 @@ paths:
   /api/v1/track-power:
     get:
       operationId: getTrackPowerStatus
-      description: Returns the track-power state confirmed by the latest successful command, or unknown after startup.
+      deprecated: true
+      description: Compatibility alias for the complete command-station status.
       responses:
         '200':
-          description: Current server-known track-power state.
+          description: Current command-station status.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/TrackPowerStatus' }
+              schema: { $ref: '#/components/schemas/StationStatus' }
     put:
       operationId: setTrackPower
       description: Enables or disables track power. Requires drive permission.
@@ -105,6 +106,17 @@ paths:
       responses:
         '204': { description: Emergency-stop command accepted by the station driver. }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/station/status:
+    get:
+      operationId: getStationStatus
+      description: Queries the command station for its current power, operating, fault and telemetry status.
+      responses:
+        '200':
+          description: Current command-station status.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StationStatus' }
         '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/auth/logout:
     post:
@@ -542,12 +554,25 @@ components:
         functions: { type: integer, minimum: 0 }
         accessoryControl: { type: boolean }
         feedback: { type: boolean }
-    TrackPowerStatus:
+    StationStatus:
       type: object
       additionalProperties: false
-      required: [state]
+      required: [trackPower, emergencyStop, shortCircuit, programmingMode, mainCurrentMilliAmps, programmingCurrentMilliAmps, filteredMainCurrentMilliAmps, temperatureCelsius, supplyVoltageMilliVolts, trackVoltageMilliVolts, highTemperature, powerLost, externalShortCircuit, internalShortCircuit]
       properties:
-        state: { type: string, enum: [on, off, unknown] }
+        trackPower: { type: string, enum: [on, off, unknown] }
+        emergencyStop: { type: boolean }
+        shortCircuit: { type: boolean }
+        programmingMode: { type: boolean }
+        mainCurrentMilliAmps: { type: integer }
+        programmingCurrentMilliAmps: { type: integer }
+        filteredMainCurrentMilliAmps: { type: integer }
+        temperatureCelsius: { type: integer }
+        supplyVoltageMilliVolts: { type: integer, minimum: 0 }
+        trackVoltageMilliVolts: { type: integer, minimum: 0 }
+        highTemperature: { type: boolean }
+        powerLost: { type: boolean }
+        externalShortCircuit: { type: boolean }
+        internalShortCircuit: { type: boolean }
     SystemInfo:
       type: object
       required: [serverVersion, apiVersion, minimumClientApiVersion, station]
