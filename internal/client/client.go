@@ -77,6 +77,25 @@ func (c *Client) Locomotives(ctx context.Context) ([]model.Locomotive, error) {
 	_, err := c.Do(ctx, "GET", "/api/v1/locomotives", nil, &out)
 	return out.Items, err
 }
+func (c *Client) Locomotive(ctx context.Context, id string) (model.Locomotive, error) {
+	var out model.Locomotive
+	_, err := c.Do(ctx, http.MethodGet, "/api/v1/locomotives/"+url.PathEscape(id), nil, &out)
+	return out, err
+}
+func (c *Client) CreateLocomotive(ctx context.Context, input model.LocomotiveInput) (model.Locomotive, error) {
+	var out model.Locomotive
+	_, err := c.Do(ctx, http.MethodPost, "/api/v1/locomotives", input, &out)
+	return out, err
+}
+func (c *Client) UpdateLocomotive(ctx context.Context, id string, input model.LocomotiveInput) (model.Locomotive, error) {
+	var out model.Locomotive
+	_, err := c.Do(ctx, http.MethodPut, "/api/v1/locomotives/"+url.PathEscape(id), input, &out)
+	return out, err
+}
+func (c *Client) DeleteLocomotive(ctx context.Context, id string) error {
+	_, err := c.Do(ctx, http.MethodDelete, "/api/v1/locomotives/"+url.PathEscape(id), nil, nil)
+	return err
+}
 func (c *Client) Acquire(ctx context.Context, loco string) (model.ControlLease, error) {
 	var out model.ControlLease
 	_, err := c.Do(ctx, "POST", "/api/v1/locomotives/"+url.PathEscape(loco)+"/control-lease", nil, &out)

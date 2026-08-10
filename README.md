@@ -182,6 +182,43 @@ Cette suite vérifie notamment :
 - l’export du parc ;
 - le refus d’un import par un rôle non administrateur.
 
+## Gestion du matériel roulant
+
+Le CRUD minimal des locomotives est disponible via l'API. La lecture est accessible à tout utilisateur authentifié ; la création, la modification et la suppression nécessitent le rôle `administrator`. Une locomotive possédant un lease actif ne peut pas être modifiée. Une locomotive référencée par l'historique des leases ne peut pas être supprimée.
+
+Créer rapidement une locomotive à adresse DCC courte pour un test matériel :
+
+```bash
+DCC_ADMIN_PASSWORD='correct-horse-admin' go run ./cmd/dccctl \
+  --server http://127.0.0.1:8080 --username admin \
+  --password-env DCC_ADMIN_PASSWORD \
+  locomotive-add 'Loco test z21' 3 short 128
+```
+
+Lister puis afficher une locomotive :
+
+```bash
+DCC_PASSWORD='correct-horse-1' go run ./cmd/dccctl \
+  --server http://127.0.0.1:8080 --username alice \
+  --password-env DCC_PASSWORD locomotives
+
+DCC_PASSWORD='correct-horse-1' go run ./cmd/dccctl \
+  --server http://127.0.0.1:8080 --username alice \
+  --password-env DCC_PASSWORD locomotive-show <locomotive-id>
+```
+
+Les routes correspondantes sont :
+
+```text
+GET    /api/v1/locomotives
+POST   /api/v1/locomotives
+GET    /api/v1/locomotives/{id}
+PUT    /api/v1/locomotives/{id}
+DELETE /api/v1/locomotives/{id}
+```
+
+Pour les premiers tests z21, une adresse courte (par exemple `3`) est recommandée afin d'isoler la validation de la conduite et de la rétrosignalisation des particularités des adresses DCC longues.
+
 ## Import et export
 
 Les exports sont des archives ZIP versionnées contenant un `manifest.json` et un document JSON. Les imports utilisent le mode `merge` par défaut ; `--replace` remplace la bibliothèque correspondante après validation.

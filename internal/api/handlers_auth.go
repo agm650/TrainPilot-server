@@ -8,7 +8,7 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 func (s *Server) systemInfo(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"serverVersion": "0.2.0", "apiVersion": "1.1.0", "minimumClientApiVersion": "1.0.0", "station": s.station.Capabilities()})
+	writeJSON(w, http.StatusOK, map[string]any{"serverVersion": "0.2.0", "apiVersion": "1.2.0", "minimumClientApiVersion": "1.0.0", "station": s.station.Capabilities()})
 }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	var req struct {

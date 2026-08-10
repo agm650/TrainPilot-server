@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: DCC Control Server API
-  version: 1.1.0
+  version: 1.2.0
   description: >-
     Contract for native DCC clients. User administration is deliberately absent
     from this public API and is available only over the local administration socket.
@@ -102,6 +102,61 @@ paths:
                   items:
                     type: array
                     items: { $ref: '#/components/schemas/Locomotive' }
+    post:
+      operationId: createLocomotive
+      description: Creates a locomotive. Requires the administrator role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LocomotiveInput' }
+      responses:
+        '201':
+          description: Locomotive created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Locomotive' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/locomotives/{locomotiveId}:
+    parameters:
+      - $ref: '#/components/parameters/LocomotiveId'
+    get:
+      operationId: getLocomotive
+      responses:
+        '200':
+          description: Locomotive details.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Locomotive' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateLocomotive
+      description: Replaces the writable locomotive properties. Requires the administrator role and no active control lease.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LocomotiveInput' }
+      responses:
+        '200':
+          description: Locomotive updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Locomotive' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      operationId: deleteLocomotive
+      description: Deletes an unused locomotive. Requires the administrator role. Locomotives referenced by control history are retained and return 409.
+      responses:
+        '204': { description: Locomotive deleted. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/locomotives/{locomotiveId}/control-lease:
     parameters:
       - $ref: '#/components/parameters/LocomotiveId'
@@ -457,17 +512,24 @@ components:
         apiVersion: { type: string }
         minimumClientApiVersion: { type: string }
         station: { $ref: '#/components/schemas/Capabilities' }
-    Locomotive:
+    LocomotiveInput:
       type: object
-      required: [id, name, dccAddress, addressKind, speedSteps]
+      additionalProperties: false
+      required: [name, dccAddress, addressKind, speedSteps]
       properties:
-        id: { type: string }
-        name: { type: string }
-        dccAddress: { type: integer, minimum: 1, maximum: 9999 }
+        name: { type: string, minLength: 1, maxLength: 128 }
+        dccAddress: { type: integer, minimum: 1, maximum: 10239 }
         addressKind: { type: string, enum: [short, long] }
         speedSteps: { type: integer, enum: [14, 28, 128] }
-        manufacturer: { type: string }
-        model: { type: string }
+        manufacturer: { type: string, maxLength: 128 }
+        model: { type: string, maxLength: 128 }
+    Locomotive:
+      allOf:
+        - $ref: '#/components/schemas/LocomotiveInput'
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string }
     ControlLease:
       type: object
       required: [id, locomotiveId, userId, sessionId, state, acquiredAt, renewedAt, expiresAt, heartbeatMillis]

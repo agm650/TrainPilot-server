@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/agm650/TrainPilot-server/internal/client"
+	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/station"
 )
 
@@ -23,7 +24,7 @@ func main() {
 	_ = fs.Parse(os.Args[1:])
 	args := fs.Args()
 	if len(args) == 0 {
-		fatal(errors.New("command required: locomotives | acquire | throttle | export-rolling-stock | import-rolling-stock | export-layout | import-layout"))
+		fatal(errors.New("command required: locomotives | locomotive-show | locomotive-add | locomotive-update | locomotive-delete | acquire | throttle | export-rolling-stock | import-rolling-stock | export-layout | import-layout"))
 	}
 	if *username == "" {
 		fatal(errors.New("--username is required"))
@@ -46,6 +47,39 @@ func main() {
 		}
 		for _, l := range items {
 			fmt.Printf("%s\t%d\t%s\n", l.ID, l.DCCAddress, l.Name)
+		}
+	case "locomotive-show":
+		if len(args) != 2 {
+			fatal(errors.New("locomotive-show requires locomotive ID"))
+		}
+		l, err := c.Locomotive(context.Background(), args[1])
+		if err != nil {
+			fatal(err)
+		}
+		printLocomotive(l)
+	case "locomotive-add":
+		input := locomotiveArgs(args, 1)
+		l, err := c.CreateLocomotive(context.Background(), input)
+		if err != nil {
+			fatal(err)
+		}
+		printLocomotive(l)
+	case "locomotive-update":
+		if len(args) < 4 {
+			fatal(errors.New("locomotive-update requires ID, name and DCC address"))
+		}
+		input := locomotiveArgs(args, 2)
+		l, err := c.UpdateLocomotive(context.Background(), args[1], input)
+		if err != nil {
+			fatal(err)
+		}
+		printLocomotive(l)
+	case "locomotive-delete":
+		if len(args) != 2 {
+			fatal(errors.New("locomotive-delete requires locomotive ID"))
+		}
+		if err := c.DeleteLocomotive(context.Background(), args[1]); err != nil {
+			fatal(err)
 		}
 	case "acquire":
 		if len(args) < 2 {
@@ -142,4 +176,41 @@ func writeFile(path string, data []byte) {
 		fatal(err)
 	}
 	fmt.Printf("wrote %s (%d bytes)\n", path, len(data))
+}
+
+func locomotiveArgs(args []string, offset int) model.LocomotiveInput {
+	if len(args) < offset+2 || len(args) > offset+6 {
+		fatal(errors.New("locomotive arguments: <name> <dcc-address> [short|long] [14|28|128] [manufacturer] [model]"))
+	}
+	address, err := strconv.Atoi(args[offset+1])
+	if err != nil {
+		fatal(fmt.Errorf("invalid DCC address: %w", err))
+	}
+	kind := "short"
+	if address >= 128 {
+		kind = "long"
+	}
+	if len(args) > offset+2 {
+		kind = args[offset+2]
+	}
+	steps := 128
+	if len(args) > offset+3 {
+		steps, err = strconv.Atoi(args[offset+3])
+		if err != nil {
+			fatal(fmt.Errorf("invalid speed steps: %w", err))
+		}
+	}
+	manufacturer := ""
+	if len(args) > offset+4 {
+		manufacturer = args[offset+4]
+	}
+	modelName := ""
+	if len(args) > offset+5 {
+		modelName = args[offset+5]
+	}
+	return model.LocomotiveInput{Name: args[offset], DCCAddress: address, AddressKind: kind, SpeedSteps: steps, Manufacturer: manufacturer, Model: modelName}
+}
+
+func printLocomotive(l model.Locomotive) {
+	fmt.Printf("%s\t%d\t%s\t%s\t%d\t%s\t%s\n", l.ID, l.DCCAddress, l.AddressKind, l.Name, l.SpeedSteps, l.Manufacturer, l.Model)
 }

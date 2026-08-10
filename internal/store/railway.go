@@ -33,6 +33,40 @@ func (s *Store) GetLocomotive(ctx context.Context, id string) (model.Locomotive,
 	}
 	return x, err
 }
+func (s *Store) CreateLocomotive(ctx context.Context, x model.Locomotive) error {
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO locomotives(id,name,dcc_address,address_kind,speed_steps,manufacturer,model) VALUES(?,?,?,?,?,?,?)`,
+		x.ID, x.Name, x.DCCAddress, x.AddressKind, x.SpeedSteps, x.Manufacturer, x.Model)
+	if isUnique(err) {
+		return ErrConflict
+	}
+	return err
+}
+
+func (s *Store) UpdateLocomotive(ctx context.Context, x model.Locomotive) error {
+	res, err := s.DB.ExecContext(ctx, `UPDATE locomotives SET name=?,dcc_address=?,address_kind=?,speed_steps=?,manufacturer=?,model=? WHERE id=?`,
+		x.Name, x.DCCAddress, x.AddressKind, x.SpeedSteps, x.Manufacturer, x.Model, x.ID)
+	if err != nil {
+		return err
+	}
+	return requireAffected(res)
+}
+
+func (s *Store) DeleteLocomotive(ctx context.Context, id string) error {
+	// Keep control history intact. A locomotive that has ever been referenced by
+	// a lease cannot be physically removed; callers may update it instead.
+	var leases int
+	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM control_leases WHERE locomotive_id=?`, id).Scan(&leases); err != nil {
+		return err
+	}
+	if leases > 0 {
+		return ErrConflict
+	}
+	res, err := s.DB.ExecContext(ctx, `DELETE FROM locomotives WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	return requireAffected(res)
+}
 func (s *Store) ListBlocks(ctx context.Context) ([]model.Block, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT id,name,occupied FROM blocks ORDER BY name`)
 	if err != nil {

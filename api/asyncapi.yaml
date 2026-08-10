@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: DCC Control Server Events
-  version: 1.1.0
+  version: 1.2.0
   description: WebSocket event contract for native clients.
 servers:
   local:
@@ -17,6 +17,9 @@ channels:
     address: /api/v1/events
     messages:
       systemSnapshot: { $ref: '#/components/messages/SystemSnapshot' }
+      locomotiveCreated: { $ref: '#/components/messages/LocomotiveCreated' }
+      locomotiveUpdated: { $ref: '#/components/messages/LocomotiveUpdated' }
+      locomotiveDeleted: { $ref: '#/components/messages/LocomotiveDeleted' }
       locomotiveControlAcquired: { $ref: '#/components/messages/LocomotiveControlAcquired' }
       locomotiveControlExpired: { $ref: '#/components/messages/LocomotiveControlExpired' }
       locomotiveControlReleased: { $ref: '#/components/messages/LocomotiveControlReleased' }
@@ -81,6 +84,30 @@ components:
         required: [type]
         properties:
           type: { const: client.heartbeat }
+    LocomotiveCreated:
+      name: locomotive.created
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: locomotive.created }
+    LocomotiveUpdated:
+      name: locomotive.updated
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: locomotive.updated }
+    LocomotiveDeleted:
+      name: locomotive.deleted
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: locomotive.deleted }
     LocomotiveControlAcquired:
       name: locomotive.control.acquired
       payload:
