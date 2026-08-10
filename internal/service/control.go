@@ -82,12 +82,9 @@ func (c *ControlService) Throttle(ctx context.Context, user model.User, sess mod
 	if speed < 0 || speed > 1 {
 		return errors.New("speed must be between 0 and 1")
 	}
-	lease, err := c.store.GetLease(ctx, leaseID)
-	if err != nil {
+	now := c.clock.Now()
+	if err := c.store.RenewActiveLeaseForCommand(ctx, leaseID, locoID, sess.ID, now, now.Add(c.leaseTTL)); err != nil {
 		return err
-	}
-	if lease.LocomotiveID != locoID || lease.SessionID != sess.ID || lease.State != model.LeaseActive {
-		return errors.New("active lease required")
 	}
 	loco, err := c.store.GetLocomotive(ctx, locoID)
 	if err != nil {
@@ -100,12 +97,9 @@ func (c *ControlService) Throttle(ctx context.Context, user model.User, sess mod
 	return nil
 }
 func (c *ControlService) Function(ctx context.Context, sess model.Session, locoID, leaseID string, fn int, on bool) error {
-	lease, err := c.store.GetLease(ctx, leaseID)
-	if err != nil {
+	now := c.clock.Now()
+	if err := c.store.RenewActiveLeaseForCommand(ctx, leaseID, locoID, sess.ID, now, now.Add(c.leaseTTL)); err != nil {
 		return err
-	}
-	if lease.LocomotiveID != locoID || lease.SessionID != sess.ID || lease.State != model.LeaseActive {
-		return errors.New("active lease required")
 	}
 	loco, err := c.store.GetLocomotive(ctx, locoID)
 	if err != nil {

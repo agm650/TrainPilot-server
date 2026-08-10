@@ -181,6 +181,7 @@ paths:
       - $ref: '#/components/parameters/LeaseId'
     put:
       operationId: heartbeatControlLease
+      description: Renews the lease inactivity deadline.
       responses:
         '200':
           description: Lease renewed.
@@ -204,6 +205,7 @@ paths:
       - $ref: '#/components/parameters/LocomotiveId'
     put:
       operationId: setLocomotiveThrottle
+      description: Sets speed and direction and renews the active lease inactivity deadline.
       requestBody:
         required: true
         content:
@@ -222,6 +224,7 @@ paths:
         schema: { type: integer, minimum: 0, maximum: 68 }
     put:
       operationId: setLocomotiveFunction
+      description: Sets a locomotive function and renews the active lease inactivity deadline.
       requestBody:
         required: true
         content:

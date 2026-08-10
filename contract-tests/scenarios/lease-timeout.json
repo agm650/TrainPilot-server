@@ -1,13 +1,13 @@
 {
   "id": "lease-timeout-stops-before-release",
-  "description": "La perte du heartbeat provoque l'arrêt avant la libération.",
+  "description": "L'inactivité du lease provoque l'arrêt avant la libération.",
   "given": [
     "Alice contrôle L1",
     "L1 roule à une vitesse supérieure à zéro",
-    "le lease expire après 15 secondes"
+    "le lease expire après 10 minutes d'inactivité"
   ],
   "when": [
-    "aucun heartbeat n'est reçu pendant plus de 15 secondes"
+    "aucun heartbeat ni aucune commande de conduite n'est reçu pendant plus de 10 minutes (configurable via le parametre du config.json leaseTTL)"
   ],
   "then": [
     "le lease passe à stopping",

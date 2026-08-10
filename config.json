@@ -22,7 +22,7 @@
     "refreshTokenTTL": "720h"
   },
   "control": {
-    "leaseTTL": "15s",
+    "leaseTTL": "10m",
     "stopGrace": "2s",
     "monitorPeriod": "250ms"
   },

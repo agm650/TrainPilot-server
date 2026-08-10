@@ -4,7 +4,7 @@
   "database": { "path": "/var/lib/dccd/dcc-control.db" },
   "station": { "driver": "simulator", "address": "127.0.0.1", "port": 21105, "transport": "tcp" },
   "security": { "accessTokenTTL": "15m", "refreshTokenTTL": "720h" },
-  "control": { "leaseTTL": "15s", "stopGrace": "2s", "monitorPeriod": "250ms" },
+  "control": { "leaseTTL": "10m", "stopGrace": "2s", "monitorPeriod": "250ms" },
   "testAPI": false,
   "seedDemo": false
 }

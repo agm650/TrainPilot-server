@@ -21,7 +21,7 @@ func TestDefault(t *testing.T) {
 	if cfg.Security.AccessTokenTTL != 15*time.Minute || cfg.Security.RefreshTokenTTL != 30*24*time.Hour {
 		t.Fatalf("security defaults=%v/%v", cfg.Security.AccessTokenTTL, cfg.Security.RefreshTokenTTL)
 	}
-	if cfg.Control.LeaseTTL != 15*time.Second || cfg.Control.StopGrace != 2*time.Second || cfg.Control.MonitorPeriod != 250*time.Millisecond {
+	if cfg.Control.LeaseTTL != 10*time.Minute || cfg.Control.StopGrace != 2*time.Second || cfg.Control.MonitorPeriod != 250*time.Millisecond {
 		t.Fatalf("control defaults=%v/%v/%v", cfg.Control.LeaseTTL, cfg.Control.StopGrace, cfg.Control.MonitorPeriod)
 	}
 }

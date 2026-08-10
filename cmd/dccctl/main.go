@@ -6,10 +6,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/client"
 	"github.com/agm650/TrainPilot-server/internal/model"
@@ -17,27 +19,34 @@ import (
 )
 
 func main() {
+	defaultState, err := defaultStatePath()
+	if err != nil {
+		fatal(err)
+	}
 	fs := flag.NewFlagSet("dccctl", flag.ExitOnError)
 	server := fs.String("server", "http://127.0.0.1:8080", "server URL")
 	username := fs.String("username", "", "username")
 	passwordEnv := fs.String("password-env", "", "environment variable containing password")
+	statePath := fs.String("state-file", defaultState, "persistent session and lease state file")
 	_ = fs.Parse(os.Args[1:])
 	args := fs.Args()
 	if len(args) == 0 {
-		fatal(errors.New("command required: locomotives | locomotive-show | locomotive-add | locomotive-update | locomotive-delete | acquire | throttle | export-rolling-stock | import-rolling-stock | export-layout | import-layout"))
+		fatal(errors.New("command required: locomotives | locomotive-show | locomotive-add | locomotive-update | locomotive-delete | acquire | throttle | release | export-rolling-stock | import-rolling-stock | export-layout | import-layout"))
 	}
 	if *username == "" {
 		fatal(errors.New("--username is required"))
 	}
-	password := ""
-	if *passwordEnv != "" {
-		password = os.Getenv(*passwordEnv)
-	} else {
-		password = readPassword()
+	state, err := loadState(*statePath)
+	if err != nil {
+		fatal(fmt.Errorf("load dccctl state: %w", err))
 	}
+	profile := state.profile(strings.TrimRight(*server, "/"), *username)
 	c := client.New(*server)
-	if _, err := c.Login(context.Background(), *username, password, "dccctl"); err != nil {
+	if err := authenticate(context.Background(), c, profile, *username, *passwordEnv); err != nil {
 		fatal(err)
+	}
+	if err := saveState(*statePath, state); err != nil {
+		fatal(fmt.Errorf("save dccctl state: %w", err))
 	}
 	switch args[0] {
 	case "locomotives":
@@ -89,21 +98,46 @@ func main() {
 		if err != nil {
 			fatal(err)
 		}
+		profile.setLease(lease)
+		if err := saveState(*statePath, state); err != nil {
+			fatal(fmt.Errorf("save lease: %w", err))
+		}
 		fmt.Println(lease.ID)
 	case "throttle":
-		if len(args) < 4 {
-			fatal(errors.New("throttle requires locomotive ID, lease ID and speed 0..1"))
+		if len(args) < 3 {
+			fatal(errors.New("throttle requires locomotive ID and speed 0..1"))
 		}
-		speed, err := strconv.ParseFloat(args[3], 64)
+		lease, ok := profile.Leases[args[1]]
+		if !ok || lease.ID == "" {
+			fatal(fmt.Errorf("no saved lease for locomotive %q; run acquire first", args[1]))
+		}
+		speed, err := strconv.ParseFloat(args[2], 64)
 		if err != nil {
 			fatal(err)
 		}
 		direction := station.Forward
-		if len(args) > 4 {
-			direction = station.Direction(args[4])
+		if len(args) > 3 {
+			direction = station.Direction(args[3])
 		}
-		if err := c.Throttle(context.Background(), args[1], args[2], speed, direction); err != nil {
+		if err := c.Throttle(context.Background(), args[1], lease.ID, speed, direction); err != nil {
+			forgetRejectedLease(*statePath, state, profile, args[1], err)
 			fatal(err)
+		}
+	case "release":
+		if len(args) != 2 {
+			fatal(errors.New("release requires locomotive ID"))
+		}
+		lease, ok := profile.Leases[args[1]]
+		if !ok || lease.ID == "" {
+			fatal(fmt.Errorf("no saved lease for locomotive %q", args[1]))
+		}
+		if err := c.Release(context.Background(), lease.ID); err != nil {
+			forgetRejectedLease(*statePath, state, profile, args[1], err)
+			fatal(err)
+		}
+		delete(profile.Leases, args[1])
+		if err := saveState(*statePath, state); err != nil {
+			fatal(fmt.Errorf("save lease state: %w", err))
 		}
 	case "export-rolling-stock":
 		if len(args) != 2 {
@@ -143,6 +177,44 @@ func main() {
 		}
 	default:
 		fatal(fmt.Errorf("unknown command %q", args[0]))
+	}
+}
+
+func authenticate(ctx context.Context, c *client.Client, profile *savedProfile, username, passwordEnv string) error {
+	now := time.Now()
+	if profile.AccessToken != "" && now.Before(profile.AccessExpiresAt) {
+		c.AccessToken = profile.AccessToken
+		c.RefreshToken = profile.RefreshToken
+		return nil
+	}
+	if profile.RefreshToken != "" && now.Before(profile.RefreshExpiresAt) {
+		pair, err := c.Refresh(ctx, profile.RefreshToken)
+		if err == nil {
+			profile.setTokens(pair)
+			return nil
+		}
+	}
+	password := ""
+	if passwordEnv != "" {
+		password = os.Getenv(passwordEnv)
+	} else {
+		password = readPassword()
+	}
+	pair, err := c.Login(ctx, username, password, "dccctl")
+	if err != nil {
+		return err
+	}
+	profile.setTokens(pair)
+	// A new session cannot own leases saved for an older session.
+	profile.Leases = make(map[string]savedLease)
+	return nil
+}
+
+func forgetRejectedLease(path string, state *cliState, profile *savedProfile, locomotiveID string, err error) {
+	var httpErr *client.HTTPError
+	if errors.As(err, &httpErr) && (httpErr.StatusCode == http.StatusNotFound || httpErr.StatusCode == http.StatusConflict) {
+		delete(profile.Leases, locomotiveID)
+		_ = saveState(path, state)
 	}
 }
 func readPassword() string {

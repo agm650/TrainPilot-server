@@ -219,6 +219,37 @@ DELETE /api/v1/locomotives/{id}
 
 Pour les premiers tests z21, une adresse courte (par exemple `3`) est recommandée afin d'isoler la validation de la conduite et de la rétrosignalisation des particularités des adresses DCC longues.
 
+### Contrôle avec `dccctl`
+
+`dccctl` conserve sa session et les leases acquis dans le répertoire de
+configuration de l'utilisateur (par exemple `~/.config/dccctl/state.json`
+sous Linux), avec des permissions `0600`. Le chemin peut être remplacé avec
+`--state-file`. Le mot de passe n'est pas enregistré. Après le premier login,
+les commandes suivantes réutilisent la même session et renouvellent
+automatiquement ses tokens si nécessaire.
+
+Le lease est retrouvé automatiquement à partir du serveur, de l'utilisateur
+et de la locomotive :
+
+```bash
+DCC_PASSWORD='correct-horse-1' go run ./cmd/dccctl \
+  --server http://127.0.0.1:8080 --username alice \
+  --password-env DCC_PASSWORD acquire loco-bb26001
+
+go run ./cmd/dccctl \
+  --server http://127.0.0.1:8080 --username alice \
+  throttle loco-bb26001 0.4 forward
+
+go run ./cmd/dccctl \
+  --server http://127.0.0.1:8080 --username alice \
+  release loco-bb26001
+```
+
+Une commande `throttle` ou de fonction valide repousse l'expiration du lease
+de 10 minutes. Sans activité ni heartbeat pendant ce délai, le serveur lance
+l'arrêt contrôlé puis libère le lease. `throttle` n'acquiert jamais
+implicitement une locomotive : `acquire` reste obligatoire.
+
 ## Import et export
 
 Les exports sont des archives ZIP versionnées contenant un `manifest.json` et un document JSON. Les imports utilisent le mode `merge` par défaut ; `--replace` remplace la bibliothèque correspondante après validation.
@@ -253,7 +284,7 @@ Règles structurantes :
 1. Le serveur est la source de vérité.
 2. Une commande de conduite nécessite une session valide et un lease actif appartenant à cette session.
 3. Une locomotive ne peut avoir qu’un lease vivant (`active` ou `stopping`).
-4. Un lease expiré passe d’abord à `stopping` ; une vitesse nulle est envoyée ; il ne devient `released` qu’après le délai de sécurité.
+4. Une commande de conduite valide renouvelle le lease ; après 10 minutes d'inactivité, il passe d’abord à `stopping`, une vitesse nulle est envoyée, puis il devient `released` après le délai de sécurité.
 5. Les actions d’itinéraire sont refusées si un canton est occupé ou si un itinéraire incompatible est actif.
 6. Les événements WebSocket possèdent une séquence monotone pendant la vie du processus.
 7. Les comptes utilisateurs ne sont administrables que par le socket local du système d’exploitation.

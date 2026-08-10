@@ -59,6 +59,18 @@ func (s *Store) HeartbeatLease(ctx context.Context, id, sessionID string, renewe
 	}
 	return requireAffected(res)
 }
+
+// RenewActiveLeaseForCommand validates ownership and extends an unexpired lease
+// in one statement. This prevents a command from reviving a lease which has
+// already reached its inactivity deadline but has not yet been swept.
+func (s *Store) RenewActiveLeaseForCommand(ctx context.Context, id, locomotiveID, sessionID string, now, expires time.Time) error {
+	res, err := s.DB.ExecContext(ctx, `UPDATE control_leases SET renewed_at=?,expires_at=? WHERE id=? AND locomotive_id=? AND session_id=? AND state='active' AND expires_at>?`,
+		timeText(now), timeText(expires), id, locomotiveID, sessionID, timeText(now))
+	if err != nil {
+		return err
+	}
+	return requireAffected(res)
+}
 func (s *Store) ExpiredActiveLeases(ctx context.Context, now time.Time) ([]model.ControlLease, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT id,locomotive_id,user_id,session_id,state,acquired_at,renewed_at,expires_at,release_after,release_reason FROM control_leases WHERE state='active' AND expires_at<=?`, timeText(now))
 	if err != nil {

@@ -116,3 +116,56 @@ func TestConcurrentLeaseAcquisitionAllowsOneWinner(t *testing.T) {
 		t.Fatalf("success=%d failure=%d", success, failure)
 	}
 }
+
+func TestThrottleExtendsLeaseFromLastUse(t *testing.T) {
+	ctx := context.Background()
+	control, db, _, clk, user, sess := newControlFixture(t)
+	lease, err := control.Acquire(ctx, user, sess, "loco-bb26001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clk.Advance(10 * time.Second)
+	if err := control.Throttle(ctx, user, sess, "loco-bb26001", lease.ID, 0.4, station.Forward); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := db.GetLease(ctx, lease.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantExpiry := clk.Now().Add(15 * time.Second)
+	if !stored.RenewedAt.Equal(clk.Now()) || !stored.ExpiresAt.Equal(wantExpiry) {
+		t.Fatalf("renewed=%v expires=%v want renewed=%v expires=%v", stored.RenewedAt, stored.ExpiresAt, clk.Now(), wantExpiry)
+	}
+	clk.Advance(10 * time.Second)
+	control.Sweep(ctx)
+	stored, err = db.GetLease(ctx, lease.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != model.LeaseActive {
+		t.Fatalf("state=%s want active", stored.State)
+	}
+}
+
+func TestThrottleCannotReviveExpiredUnsweptLease(t *testing.T) {
+	ctx := context.Background()
+	control, db, sim, clk, user, sess := newControlFixture(t)
+	lease, err := control.Acquire(ctx, user, sess, "loco-bb26001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clk.Advance(15 * time.Second)
+	if err := control.Throttle(ctx, user, sess, "loco-bb26001", lease.ID, 0.4, station.Forward); err == nil {
+		t.Fatal("throttle revived an expired lease")
+	}
+	if got := sim.Loco(2601).Speed; got != 0 {
+		t.Fatalf("speed=%v want 0", got)
+	}
+	stored, err := db.GetLease(ctx, lease.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stored.ExpiresAt.Equal(lease.ExpiresAt) {
+		t.Fatalf("expires=%v want %v", stored.ExpiresAt, lease.ExpiresAt)
+	}
+}

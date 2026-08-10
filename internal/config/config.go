@@ -53,7 +53,7 @@ func Default() Config {
 	c.Station.Driver = "simulator"
 	c.Security.AccessTokenTTL = 15 * time.Minute
 	c.Security.RefreshTokenTTL = 30 * 24 * time.Hour
-	c.Control.LeaseTTL = 15 * time.Second
+	c.Control.LeaseTTL = 10 * time.Minute
 	c.Control.StopGrace = 2 * time.Second
 	c.Control.MonitorPeriod = 250 * time.Millisecond
 	return c

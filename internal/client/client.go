@@ -23,6 +23,14 @@ type Client struct {
 	RefreshToken string
 }
 
+type HTTPError struct {
+	StatusCode int
+	Status     string
+	Body       string
+}
+
+func (e *HTTPError) Error() string { return fmt.Sprintf("%s: %s", e.Status, e.Body) }
+
 func New(base string) *Client {
 	return &Client{BaseURL: strings.TrimRight(base, "/"), HTTP: &http.Client{Timeout: 10 * time.Second}}
 }
@@ -52,7 +60,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) (in
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, fmt.Errorf("%s: %s", resp.Status, string(b))
+		return resp.StatusCode, &HTTPError{StatusCode: resp.StatusCode, Status: resp.Status, Body: string(b)}
 	}
 	if out != nil && resp.StatusCode != http.StatusNoContent {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
@@ -60,6 +68,15 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) (in
 		}
 	}
 	return resp.StatusCode, nil
+}
+func (c *Client) Refresh(ctx context.Context, refreshToken string) (service.TokenPair, error) {
+	var pair service.TokenPair
+	_, err := c.Do(ctx, http.MethodPost, "/api/v1/auth/refresh", map[string]any{"refreshToken": refreshToken}, &pair)
+	if err == nil {
+		c.AccessToken = pair.AccessToken
+		c.RefreshToken = pair.RefreshToken
+	}
+	return pair, err
 }
 func (c *Client) Login(ctx context.Context, username, password, clientID string) (service.TokenPair, error) {
 	var pair service.TokenPair
