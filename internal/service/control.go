@@ -24,6 +24,8 @@ type ControlService struct {
 	once                         sync.Once
 	powerMu                      sync.RWMutex
 	trackPower                   *bool
+	statusMu                     sync.Mutex
+	lastStationStatus            *station.Status
 }
 
 func NewControlService(s *store.Store, st station.CommandStation, b *events.Bus, c clock.Clock, leaseTTL, stopGrace, monitor time.Duration) *ControlService {
@@ -42,8 +44,83 @@ func (c *ControlService) Start() {
 			}
 		}
 	}()
+
+	if provider, ok := c.station.(station.StatusEventProvider); ok {
+		go func() {
+			for {
+				select {
+				case status, ok := <-provider.StatusEvents():
+					if !ok {
+						return
+					}
+					c.publishStationStatusChanges(status)
+				case <-c.stop:
+					return
+				}
+			}
+		}()
+	}
 }
 func (c *ControlService) Close() { c.once.Do(func() { close(c.stop) }) }
+
+func (c *ControlService) publishStationStatusChanges(status station.Status) {
+	c.statusMu.Lock()
+	defer c.statusMu.Unlock()
+
+	previous := c.lastStationStatus
+	current := status
+	c.lastStationStatus = &current
+
+	if previous == nil || previous.Connectivity != status.Connectivity {
+		c.events.Publish("station.status.changed", map[string]any{
+			"connectivity": status.Connectivity,
+			"lastSeen":     status.LastSeen,
+		})
+	}
+
+	if (status.TrackPower == "on" || status.TrackPower == "off") &&
+		(previous == nil || previous.TrackPower != status.TrackPower) {
+		c.events.Publish("track.power.changed", map[string]any{
+			"enabled": status.TrackPower == "on",
+		})
+	}
+
+	if previous == nil || previous.EmergencyStop != status.EmergencyStop {
+		c.events.Publish("track.emergency_stop", map[string]any{
+			"active": status.EmergencyStop,
+		})
+	}
+}
+
+func (c *ControlService) rememberTrackPower(enabled bool) {
+	c.statusMu.Lock()
+	defer c.statusMu.Unlock()
+
+	if c.lastStationStatus == nil {
+		c.lastStationStatus = &station.Status{
+			Connectivity: station.Degraded,
+			TrackPower:   "unknown",
+		}
+	}
+	if enabled {
+		c.lastStationStatus.TrackPower = "on"
+	} else {
+		c.lastStationStatus.TrackPower = "off"
+	}
+}
+
+func (c *ControlService) rememberEmergencyStop(active bool) {
+	c.statusMu.Lock()
+	defer c.statusMu.Unlock()
+
+	if c.lastStationStatus == nil {
+		c.lastStationStatus = &station.Status{
+			Connectivity: station.Degraded,
+			TrackPower:   "unknown",
+		}
+	}
+	c.lastStationStatus.EmergencyStop = active
+}
 
 func (c *ControlService) SetTrackPower(ctx context.Context, user model.User, enabled bool) error {
 	if !Allowed(user.Role, PermissionDrive) {
@@ -62,6 +139,12 @@ func (c *ControlService) SetTrackPower(ctx context.Context, user model.User, ena
 	c.trackPower = new(bool)
 	*c.trackPower = enabled
 	c.powerMu.Unlock()
+
+	// Keep the status-event deduplication cache aligned with commands issued
+	// by TrainPilot. If the station later reports a different real state, the
+	// corrective status event will still be emitted.
+	c.rememberTrackPower(enabled)
+
 	c.events.Publish("track.power.changed", map[string]any{"enabled": enabled, "userId": user.ID})
 	return nil
 }
@@ -91,7 +174,10 @@ func (c *ControlService) EmergencyStop(ctx context.Context, user model.User) err
 	if err := c.station.EmergencyStop(ctx); err != nil {
 		return err
 	}
-	c.events.Publish("track.emergency_stop", map[string]any{"userId": user.ID})
+
+	c.rememberEmergencyStop(true)
+
+	c.events.Publish("track.emergency_stop", map[string]any{"active": true, "userId": user.ID})
 	return nil
 }
 func (c *ControlService) Acquire(ctx context.Context, user model.User, sess model.Session, locoID string) (model.ControlLease, error) {

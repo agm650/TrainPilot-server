@@ -17,6 +17,7 @@ type Driver struct {
 	mu                 sync.Mutex
 	conn               *net.UDPConn
 	feedback           chan station.FeedbackEvent
+	statusEvents       chan station.Status
 	statusMu           sync.Mutex
 	xStatusWaiters     []chan byte
 	systemStateWaiters []chan systemState
@@ -33,7 +34,12 @@ type systemState struct {
 }
 
 func New(address string) *Driver {
-	return &Driver{address: address, feedback: make(chan station.FeedbackEvent, 64), done: make(chan struct{})}
+	return &Driver{
+		address:      address,
+		feedback:     make(chan station.FeedbackEvent, 64),
+		statusEvents: make(chan station.Status, 16),
+		done:         make(chan struct{}),
+	}
 }
 func (d *Driver) Connect(ctx context.Context) error {
 	remote, err := net.ResolveUDPAddr("udp", d.address)
@@ -172,6 +178,7 @@ func (d *Driver) SetLocoFunction(ctx context.Context, address, fn int, on bool) 
 }
 func (d *Driver) SetAccessory(context.Context, int, string) error { return station.ErrUnsupported }
 func (d *Driver) Feedback() <-chan station.FeedbackEvent          { return d.feedback }
+func (d *Driver) StatusEvents() <-chan station.Status             { return d.statusEvents }
 func (d *Driver) readLoop(c *net.UDPConn) {
 	buf := make([]byte, 2048)
 	for {
@@ -279,15 +286,22 @@ func (d *Driver) currentStatus() station.Status {
 	status.LastSeen = health.LastSeen
 	return status
 }
-
+func (d *Driver) publishStatusEvent(status station.Status) {
+	select {
+	case d.statusEvents <- status:
+	default:
+	}
+}
 func (d *Driver) statusLoop() {
-	_, _ = d.Status(context.Background())
+	status, _ := d.Status(context.Background())
+	d.publishStatusEvent(status)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			_, _ = d.Status(context.Background())
+			status, _ := d.Status(context.Background())
+			d.publishStatusEvent(status)
 		case <-d.done:
 			return
 		}

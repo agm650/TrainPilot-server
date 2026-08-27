@@ -17,6 +17,7 @@ channels:
     address: /api/v1/events
     messages:
       systemSnapshot: { $ref: '#/components/messages/SystemSnapshot' }
+      stationStatusChanged: { $ref: '#/components/messages/StationStatusChanged' }
       locomotiveCreated: { $ref: '#/components/messages/LocomotiveCreated' }
       locomotiveUpdated: { $ref: '#/components/messages/LocomotiveUpdated' }
       locomotiveDeleted: { $ref: '#/components/messages/LocomotiveDeleted' }
@@ -79,6 +80,20 @@ components:
             required: [station]
             properties:
               station: { type: object }
+    StationStatusChanged:
+      name: station.status.changed
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: station.status.changed }
+              payload:
+                type: object
+                required: [connectivity]
+                properties:
+                  connectivity: { type: string, enum: [online, degraded, offline] }
+                  lastSeen: { type: string, format: date-time }
     ClientHeartbeat:
       name: client.heartbeat
       payload:
@@ -178,7 +193,7 @@ components:
               type: { const: track.power.changed }
               payload:
                 type: object
-                required: [enabled, userId]
+                required: [enabled]
                 properties:
                   enabled: { type: boolean }
                   userId: { type: string, format: uuid }
@@ -192,8 +207,9 @@ components:
               type: { const: track.emergency_stop }
               payload:
                 type: object
-                required: [userId]
+                required: [active]
                 properties:
+                  active: { type: boolean }
                   userId: { type: string, format: uuid }
     BlockOccupancyChanged:
       name: block.occupancy.changed
@@ -238,7 +254,6 @@ components:
           - $ref: '#/components/schemas/EventEnvelope'
           - type: object
             properties: { type: { const: route.released } }
-
     RollingStockImported:
       name: rolling-stock.imported
       payload:

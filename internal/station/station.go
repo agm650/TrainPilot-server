@@ -68,6 +68,12 @@ type StatusProvider interface {
 	Status(context.Context) (Status, error)
 }
 
+// StatusEventProvider is implemented by station drivers that expose
+// asynchronous station status updates to the service layer.
+type StatusEventProvider interface {
+	StatusEvents() <-chan Status
+}
+
 type HealthProvider interface {
 	Health() Health
 }

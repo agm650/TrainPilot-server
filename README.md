@@ -30,7 +30,6 @@ Fonctions incluses :
 Limites assumées du MVP :
 
 - l’édition graphique complète du réseau n’est pas encore implémentée ; les archives couvrent les locomotives, cantons, aiguillages, itinéraires et mappings de rétrosignalisation, sans ressources graphiques pour le moment ;
-- le pilote Z21 doit encore recevoir des tests matériels et la commande des accessoires ;
 - le décodage R-BUS doit être validé sur une z21 blanche réelle et les modules choisis ;
 - la confirmation physique de l’arrêt d’une locomotive n’est pas disponible sur toutes les centrales : une temporisation de sécurité est utilisée ;
 - le serveur ne pilote qu’une centrale par processus ;
