@@ -27,6 +27,20 @@ func TestPublishDeliversOrderedEvents(t *testing.T) {
 	}
 }
 
+func TestCurrentSequenceTracksPublishedEvents(t *testing.T) {
+	bus := New()
+	if got := bus.CurrentSequence(); got != 0 {
+		t.Fatalf("initial sequence=%d want 0", got)
+	}
+
+	bus.Publish("first", nil)
+	bus.Publish("second", nil)
+
+	if got := bus.CurrentSequence(); got != 2 {
+		t.Fatalf("current sequence=%d want 2", got)
+	}
+}
+
 func TestSlowSubscriberDoesNotBlockPublisher(t *testing.T) {
 	bus := New()
 	_, unsubscribe := bus.Subscribe(0)

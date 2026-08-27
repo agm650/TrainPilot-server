@@ -21,6 +21,10 @@ type Bus struct {
 
 func New() *Bus { return &Bus{subs: make(map[chan Event]struct{})} }
 
+func (b *Bus) CurrentSequence() uint64 {
+	return b.seq.Load()
+}
+
 func (b *Bus) Publish(eventType string, payload any) Event {
 	e := Event{Type: eventType, Sequence: b.seq.Add(1), Timestamp: time.Now().UTC(), Payload: payload}
 	b.mu.RLock()
