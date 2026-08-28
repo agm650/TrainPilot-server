@@ -1,8 +1,8 @@
 asyncapi: 3.0.0
 info:
   title: DCC Control Server Events
-  version: 1.2.0
-  description: WebSocket event contract for native clients.
+  version: 1.3.0
+  description: WebSocket event contract for native clients, including sequenced snapshots and explicit resynchronization requests.
 servers:
   local:
     host: 127.0.0.1:8080
@@ -35,15 +35,42 @@ channels:
       routeReleased: { $ref: '#/components/messages/RouteReleased' }
       rollingStockImported: { $ref: '#/components/messages/RollingStockImported' }
       layoutImported: { $ref: '#/components/messages/LayoutImported' }
+      clientHeartbeat: { $ref: '#/components/messages/ClientHeartbeat' }
+      clientSnapshotRequest: { $ref: '#/components/messages/ClientSnapshotRequest' }
 operations:
   receiveEvents:
     action: receive
     channel: { $ref: '#/channels/events' }
+    messages:
+      - $ref: '#/channels/events/messages/systemSnapshot'
+      - $ref: '#/channels/events/messages/stationStatusChanged'
+      - $ref: '#/channels/events/messages/locomotiveCreated'
+      - $ref: '#/channels/events/messages/locomotiveUpdated'
+      - $ref: '#/channels/events/messages/locomotiveDeleted'
+      - $ref: '#/channels/events/messages/locomotiveControlAcquired'
+      - $ref: '#/channels/events/messages/locomotiveControlExpired'
+      - $ref: '#/channels/events/messages/locomotiveControlReleased'
+      - $ref: '#/channels/events/messages/locomotiveSpeedChanged'
+      - $ref: '#/channels/events/messages/locomotiveFunctionChanged'
+      - $ref: '#/channels/events/messages/trackPowerChanged'
+      - $ref: '#/channels/events/messages/trackEmergencyStop'
+      - $ref: '#/channels/events/messages/blockOccupancyChanged'
+      - $ref: '#/channels/events/messages/turnoutStateChanged'
+      - $ref: '#/channels/events/messages/routeReserved'
+      - $ref: '#/channels/events/messages/routeActivated'
+      - $ref: '#/channels/events/messages/routeReleased'
+      - $ref: '#/channels/events/messages/rollingStockImported'
+      - $ref: '#/channels/events/messages/layoutImported'
   sendHeartbeat:
     action: send
     channel: { $ref: '#/channels/events' }
     messages:
-      - $ref: '#/components/messages/ClientHeartbeat'
+      - $ref: '#/channels/events/messages/clientHeartbeat'
+  requestSnapshot:
+    action: send
+    channel: { $ref: '#/channels/events' }
+    messages:
+      - $ref: '#/channels/events/messages/clientSnapshotRequest'
 components:
   schemas:
     EventEnvelope:
@@ -54,6 +81,51 @@ components:
         sequence: { type: integer, minimum: 1 }
         timestamp: { type: string, format: date-time }
         payload: { type: object }
+    StationCapabilities:
+      type: object
+      required: [driver, trackPower, locomotiveControl, functions, accessoryControl, feedback]
+      properties:
+        driver: { type: string, enum: [simulator, dccex, z21] }
+        trackPower: { type: boolean }
+        locomotiveControl: { type: boolean }
+        functions: { type: integer, minimum: 0 }
+        accessoryControl: { type: boolean }
+        feedback: { type: boolean }
+    StationStatus:
+      type: object
+      required:
+        - connectivity
+        - trackPower
+        - emergencyStop
+        - shortCircuit
+        - programmingMode
+        - mainCurrentMilliAmps
+        - programmingCurrentMilliAmps
+        - filteredMainCurrentMilliAmps
+        - temperatureCelsius
+        - supplyVoltageMilliVolts
+        - trackVoltageMilliVolts
+        - highTemperature
+        - powerLost
+        - externalShortCircuit
+        - internalShortCircuit
+      properties:
+        connectivity: { type: string, enum: [online, degraded, offline] }
+        lastSeen: { type: string, format: date-time }
+        trackPower: { type: string, enum: [unknown, 'on', 'off'] }
+        emergencyStop: { type: boolean }
+        shortCircuit: { type: boolean }
+        programmingMode: { type: boolean }
+        mainCurrentMilliAmps: { type: integer }
+        programmingCurrentMilliAmps: { type: integer }
+        filteredMainCurrentMilliAmps: { type: integer }
+        temperatureCelsius: { type: integer }
+        supplyVoltageMilliVolts: { type: integer, minimum: 0 }
+        trackVoltageMilliVolts: { type: integer, minimum: 0 }
+        highTemperature: { type: boolean }
+        powerLost: { type: boolean }
+        externalShortCircuit: { type: boolean }
+        internalShortCircuit: { type: boolean }
     LeasePayload:
       type: object
       required: [id, locomotiveId, userId, sessionId, state, acquiredAt, renewedAt, expiresAt]
@@ -74,12 +146,16 @@ components:
         required: [type, sequence, payload]
         properties:
           type: { const: system.snapshot }
-          sequence: { const: 0 }
+          sequence:
+            type: integer
+            minimum: 0
+            description: Current global event sequence captured before the snapshot state is read.
           payload:
             type: object
-            required: [station]
+            required: [station, stationStatus]
             properties:
-              station: { type: object }
+              station: { $ref: '#/components/schemas/StationCapabilities' }
+              stationStatus: { $ref: '#/components/schemas/StationStatus' }
     StationStatusChanged:
       name: station.status.changed
       payload:
@@ -96,11 +172,24 @@ components:
                   lastSeen: { type: string, format: date-time }
     ClientHeartbeat:
       name: client.heartbeat
+      description: Keeps the authenticated session alive without consuming a server event sequence.
       payload:
         type: object
         required: [type]
         properties:
           type: { const: client.heartbeat }
+    ClientSnapshotRequest:
+      name: client.snapshot_request
+      description: Requests a fresh system snapshot, typically after the client detects a sequence gap.
+      payload:
+        type: object
+        required: [type]
+        properties:
+          type: { const: client.snapshot_request }
+          lastSequence:
+            type: integer
+            minimum: 0
+            description: Last sequence successfully applied by the client. It is informational in version 1.3.0.
     LocomotiveCreated:
       name: locomotive.created
       payload:

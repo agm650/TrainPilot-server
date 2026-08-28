@@ -1,14 +1,26 @@
-# Validation effectuée sur le dépôt généré
+# Validation du dépôt
 
-+Environnement de validation de référence : Linux x86-64, Go 1.23 ou supérieur, `CGO_ENABLED=0`, pilote SQLite `modernc.org/sqlite`.
+Environnements de référence : Linux et macOS, Go 1.26 ou supérieur, pilote SQLite pur Go `modernc.org/sqlite`. Les livrables distribués sont construits avec `CGO_ENABLED=0`.
 
-+Commandes attendues :
+## Contrôles de référence
 
 ```bash
 go mod download
-gofmt -w .
+test -z "$(gofmt -l .)"
 go test ./...
+CGO_ENABLED=0 go test ./...
 go test -race ./...
 go vet ./...
-make build
+goreleaser check
+goreleaser release --snapshot --clean --skip=publish
 ```
+
+Le détecteur de concurrence Go nécessite CGO, contrairement aux binaires de distribution. Il est donc exécuté séparément de la validation `CGO_ENABLED=0`.
+
+Sur macOS, les sockets Unix ont une longueur de chemin limitée. Si `TestUserAdministrationOverUnixSocket` échoue avec `bind: invalid argument` dans un chemin temporaire long, relancer les tests avec :
+
+```bash
+TMPDIR=/tmp go test ./...
+```
+
+La CI exécute formatage, tests, détecteur de concurrence et `go vet` sur Linux et macOS. Un job Linux supplémentaire construit une release snapshot GoReleaser pour valider les trois binaires et le contenu des archives.

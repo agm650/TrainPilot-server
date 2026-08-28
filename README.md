@@ -10,7 +10,7 @@ Fonctions incluses :
 
 - serveur HTTP JSON en Go ;
 - contrat OpenAPI et contrat d’événements AsyncAPI ;
-- WebSocket sans dépendance Go externe ;
+- WebSocket sans dépendance Go externe, avec séquence monotone, snapshot initial et resynchronisation à la demande ;
 - base SQLite via `modernc.org/sqlite`, sans CGO ;
 - utilisateurs, rôles, sessions, access tokens et refresh tokens révocables ;
 - administration des utilisateurs uniquement par socket Unix local ;
@@ -31,6 +31,7 @@ Limites assumées du MVP :
 
 - l’édition graphique complète du réseau n’est pas encore implémentée ; les archives couvrent les locomotives, cantons, aiguillages, itinéraires et mappings de rétrosignalisation, sans ressources graphiques pour le moment ;
 - le décodage R-BUS doit être validé sur une z21 blanche réelle et les modules choisis ;
+- le pilote DCC-EX fournit les commandes et retours de base, mais sa surveillance de disponibilité, sa reconnexion et sa validation sur matériel réel restent à compléter ;
 - la confirmation physique de l’arrêt d’une locomotive n’est pas disponible sur toutes les centrales : une temporisation de sécurité est utilisée ;
 - le serveur ne pilote qu’une centrale par processus ;
 - la programmation des CV n’est pas incluse ;
@@ -53,16 +54,17 @@ internal/transfer/           archives versionnées et validation d’import
 internal/sqlite/             SQLite via database/sql et modernc.org/sqlite
 internal/websocket/          implémentation RFC 6455 minimale
 internal/*_test.go           tests unitaires
+tests/contract/              validation des scénarios contractuels versionnés
 tests/integration/           tests d’intégration
-scripts/                     outils de maintenance du dépôt
-deploy/                     exemple systemd et configuration Linux
+contract-tests/              scénarios métier lisibles par plusieurs clients
+deploy/                      exemple systemd et configuration Linux
 ```
 
 ## Prérequis
 
 ### Linux et macOS
 
-- Go 1.23 ou supérieur ;
+- Go 1.26 ou supérieur ;
 - GoReleaser 2.17 ou supérieur pour produire les binaires et archives.
 
 La persistance utilise `modernc.org/sqlite`, un pilote `database/sql` sans CGO. Aucun compilateur C ni paquet système SQLite n'est nécessaire. Les binaires peuvent donc être compilés nativement ou en cross-compilation avec `CGO_ENABLED=0`.
@@ -72,7 +74,9 @@ La persistance utilise `modernc.org/sqlite`, un pilote `database/sql` sans CGO. 
 ```bash
 go mod download
 go test ./...
+CGO_ENABLED=0 go test ./...
 go test -race ./...
+go vet ./...
 goreleaser check
 goreleaser release --snapshot --clean --skip=publish
 ```
@@ -84,7 +88,7 @@ bin/dccd
 bin/dccctl
 bin/dcc-api-conformance
 README.md
-config.example.json
+config.json
 api/
 docs/
 deploy/
@@ -96,20 +100,11 @@ Pour ne construire que les trois binaires de la plateforme courante :
 goreleaser build --single-target --snapshot
 ```
 
-Le chemin de module fourni est volontairement générique. Avant de publier le dépôt :
-
-```bash
-./scripts/rename-module.sh github.com/votre-organisation/dcc-control-server
-```
-
 ## Démarrage rapide avec le simulateur
 
-```bash
-cp config.example.json config.json
-goreleaser build --single-target --snapshot
+Le fichier `config.json` versionné est une configuration de développement utilisant le simulateur et une écoute locale.
 
-# GoReleaser place les artefacts dans dist/. Pour un lancement de développement
-# sans rechercher leur chemin, go run reste le plus simple :
+```bash
 go run ./cmd/dccd serve --config config.json
 ```
 
@@ -315,6 +310,17 @@ Règles structurantes :
 6. Les événements WebSocket possèdent une séquence monotone pendant la vie du processus.
 7. Les comptes utilisateurs ne sont administrables que par le socket local du système d’exploitation.
 
+À l’ouverture du WebSocket, le serveur envoie un événement `system.snapshot` dont `sequence` est la séquence courante du bus. Si le client détecte un trou, il envoie :
+
+```json
+{
+  "type": "client.snapshot_request",
+  "lastSequence": 42
+}
+```
+
+Le serveur répond par un nouveau `system.snapshot`. `lastSequence` est informatif dans la version actuelle : le serveur renvoie toujours l’état courant complet. Les messages `client.heartbeat` maintiennent la session authentifiée mais ne créent pas d’événement serveur et ne consomment donc pas de numéro de séquence. Aucun replay des événements intermédiaires n’est conservé actuellement.
+
 ## Configuration des centrales
 
 ### Simulateur
@@ -368,9 +374,10 @@ Le socket Unix d’administration doit être protégé par les permissions du sy
 ## Étapes suivantes proposées
 
 1. Valider les pilotes sur DCC-EX et z21 blanche réels.
-2. Ajouter le CRUD complet du parc et du plan de réseau.
-3. Étendre les archives aux ressources graphiques, images et futures migrations de format.
-4. Ajouter les signaux, les conflits d’itinéraires explicites et la libération progressive.
-5. Ajouter un instantané/replay des événements après reconnexion.
-6. Ajouter les tests matériels exécutés sur un banc dédié.
-7. Développer ensuite les clients Swift et Linux contre le simulateur et les contrats fournis.
+2. Ajouter la surveillance de disponibilité et la reconnexion au pilote DCC-EX.
+3. Étendre le parc au-delà des locomotives et compléter l’édition du plan de réseau.
+4. Ajouter les tests WebSocket de trou de séquence, reconnexion, duplication et snapshot concurrent.
+5. Étendre les archives aux ressources graphiques, images et futures migrations de format.
+6. Ajouter les signaux, les conflits d’itinéraires explicites et la libération progressive.
+7. Ajouter les tests matériels exécutés sur un banc dédié.
+8. Développer ensuite les clients Swift et Linux contre le simulateur et les contrats fournis.
