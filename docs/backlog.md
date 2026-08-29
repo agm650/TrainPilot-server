@@ -28,7 +28,6 @@ Ordre suggéré parmi les tâches P0 détaillées ci-dessous :
 ### Centrales
 
 - [ ] Vérifier les reconnexions répétées et les réponses z21 intermittentes. **En attente d'une z21 disponible ; conserver la tâche ouverte.**
-- [x] Rendre le délai avant `offline` configurable et documenter sa valeur par défaut, son unité et son effet.
 - [ ] Appliquer au pilote DCC-EX le suivi de santé, le blocage des commandes hors ligne, la reconnexion et l'absence de reprise automatique.
 
 ### Conformité
