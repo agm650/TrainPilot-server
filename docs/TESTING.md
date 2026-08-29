@@ -36,6 +36,7 @@
 - un client WebSocket trop lent est déconnecté lorsque sa file déborde ou que l'écriture expire ;
 - une déconnexion WebSocket ne libère pas le lease, qui reste soumis à son heartbeat et à son expiration normale ;
 - le refresh fait tourner les deux jetons, invalide immédiatement les anciens et le logout révoque la session ;
+- la conformité opt-in distingue un access token expiré avec refresh encore valide d'un refresh token naturellement expiré ;
 - chaque problème HTTP possède une catégorie et un code stable, et les erreurs internes sont masquées ;
 - les sens et numéros de fonctions sont validés avant le pilote selon ses capacités déclarées ;
 - les archives parc/circuit passent un aller-retour sans perte ;
@@ -66,6 +67,32 @@ serveur. Les scénarios qui commandent la centrale exigent
 `--allow-active-commands`. Le CRUD temporaire et les imports exigent aussi
 `--allow-configuration-mutations` et un compte administrateur. Ces deux modes
 ne doivent être utilisés que sur une instance de test explicitement choisie.
+
+L'expiration naturelle des sessions est volontairement absente du lancement
+standard. Elle nécessite une instance de test avec des TTL courtes :
+
+```json
+"security": {
+  "accessTokenTTL": "2s",
+  "refreshTokenTTL": "5s"
+}
+```
+
+```bash
+go run ./cmd/dcc-api-conformance \
+  --server http://127.0.0.1:8080 \
+  --user1 alice --pass1 correct-horse-1 \
+  --user2 bob --pass2 correct-horse-2 \
+  --check-session-expiration \
+  --session-expiration-max-wait 15s
+```
+
+Le scénario emploie une session dédiée à l'expiration de l'access token et une
+autre à celle du refresh token. Il utilise les dates d'expiration retournées
+par le serveur, ajoute une courte marge et attend avec un timer interruptible
+par le contexte. `--session-expiration-max-wait`, égal à `15s` par défaut,
+refuse immédiatement une expiration trop éloignée ; il faut alors raccourcir
+les TTL du serveur de test ou augmenter explicitement cette limite.
 
 Sur macOS, utiliser `TMPDIR=/tmp go test ./...` si le chemin temporaire par défaut rend le nom du socket Unix d’administration trop long.
 

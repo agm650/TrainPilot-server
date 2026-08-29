@@ -8,10 +8,16 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/client"
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/station"
+)
+
+const (
+	defaultSessionExpirationMaxWait = 15 * time.Second
+	sessionExpirationMargin         = 150 * time.Millisecond
 )
 
 type result struct {
@@ -20,15 +26,17 @@ type result struct {
 }
 
 type configuration struct {
-	server              string
-	user1               string
-	pass1               string
-	user2               string
-	pass2               string
-	admin               string
-	adminPass           string
-	allowActiveCommands bool
-	allowConfigChanges  bool
+	server                   string
+	user1                    string
+	pass1                    string
+	user2                    string
+	pass2                    string
+	admin                    string
+	adminPass                string
+	allowActiveCommands      bool
+	allowConfigChanges       bool
+	checkSessionExpiration   bool
+	sessionExpirationMaxWait time.Duration
 }
 
 func main() {
@@ -41,6 +49,8 @@ func main() {
 	adminPass := flag.String("admin-pass", "", "administrator password")
 	allowActive := flag.Bool("allow-active-commands", false, "explicitly allow power, lease, throttle and function commands")
 	allowConfig := flag.Bool("allow-configuration-mutations", false, "explicitly allow temporary CRUD and archive import checks")
+	checkSessionExpiration := flag.Bool("check-session-expiration", false, "check natural access-token and refresh-token expiration using dedicated sessions")
+	sessionExpirationMaxWait := flag.Duration("session-expiration-max-wait", defaultSessionExpirationMaxWait, "maximum wait for each session-expiration boundary")
 	listEndpoints := flag.Bool("list-endpoints", false, "list the public endpoint inventory and its conformance class")
 	flag.Parse()
 	if *listEndpoints {
@@ -49,15 +59,17 @@ func main() {
 	}
 
 	failed := run(context.Background(), configuration{
-		server:              *server,
-		user1:               *user1,
-		pass1:               *pass1,
-		user2:               *user2,
-		pass2:               *pass2,
-		admin:               *admin,
-		adminPass:           *adminPass,
-		allowActiveCommands: *allowActive,
-		allowConfigChanges:  *allowConfig,
+		server:                   *server,
+		user1:                    *user1,
+		pass1:                    *pass1,
+		user2:                    *user2,
+		pass2:                    *pass2,
+		admin:                    *admin,
+		adminPass:                *adminPass,
+		allowActiveCommands:      *allowActive,
+		allowConfigChanges:       *allowConfig,
+		checkSessionExpiration:   *checkSessionExpiration,
+		sessionExpirationMaxWait: *sessionExpirationMaxWait,
 	}, os.Stdout)
 	if failed > 0 {
 		os.Exit(1)
@@ -174,6 +186,13 @@ func run(ctx context.Context, cfg configuration, output io.Writer) int {
 	_, revokedErr := revokedClient.Me(ctx)
 	add("logged-out access token is rejected", expectHTTPError(revokedErr, http.StatusUnauthorized, "authentication", "invalid_token"))
 
+	if cfg.checkSessionExpiration {
+		runSessionExpirationChecks(ctx, cfg, add)
+	} else {
+		fmt.Fprintln(output, "SKIP session expiration checks")
+		fmt.Fprintln(output, "(use --check-session-expiration with a server configured with short token TTLs)")
+	}
+
 	failed := 0
 	for _, result := range results {
 		if result.err != nil {
@@ -185,6 +204,113 @@ func run(ctx context.Context, cfg configuration, output io.Writer) int {
 	}
 	fmt.Fprintf(output, "\nResult: %d passed, %d failed\n", len(results)-failed, failed)
 	return failed
+}
+
+type expirationWaitTooLongError struct {
+	untilExpiry time.Duration
+	maxWait     time.Duration
+}
+
+func (e *expirationWaitTooLongError) Error() string {
+	return fmt.Sprintf("expiry in %s exceeds maximum wait %s", e.untilExpiry.Round(time.Millisecond), e.maxWait)
+}
+
+func sessionExpirationWait(now, expiry time.Time, margin, maxWait time.Duration) (time.Duration, error) {
+	if maxWait <= 0 {
+		return 0, errors.New("session expiration maximum wait must be greater than zero")
+	}
+	untilExpiry := expiry.Sub(now)
+	if untilExpiry <= 0 {
+		return 0, nil
+	}
+	wait := untilExpiry + margin
+	if wait > maxWait {
+		return 0, &expirationWaitTooLongError{untilExpiry: untilExpiry, maxWait: maxWait}
+	}
+	return wait, nil
+}
+
+func waitUntil(ctx context.Context, expiry time.Time, margin, maxWait time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	wait, err := sessionExpirationWait(time.Now(), expiry, margin, maxWait)
+	if err != nil || wait == 0 {
+		return err
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func waitForSessionExpiration(ctx context.Context, tokenName, configParameter string, expiry time.Time, maxWait time.Duration) error {
+	err := waitUntil(ctx, expiry, sessionExpirationMargin, maxWait)
+	var tooLong *expirationWaitTooLongError
+	if errors.As(err, &tooLong) {
+		return fmt.Errorf("session expiration test requires %s expiry in %s; configure shorter %s or increase --session-expiration-max-wait", tokenName, tooLong.untilExpiry.Round(time.Millisecond), configParameter)
+	}
+	if err != nil {
+		return fmt.Errorf("wait for %s expiry: %w", tokenName, err)
+	}
+	return nil
+}
+
+func runSessionExpirationChecks(ctx context.Context, cfg configuration, add func(string, error)) {
+	accessClient := client.New(cfg.server)
+	accessPair, err := accessClient.Login(ctx, cfg.user1, cfg.pass1, "conformance-expiration-access")
+	if err != nil {
+		add("access token is accepted before expiration", fmt.Errorf("dedicated access-expiration session login: %w", err))
+		return
+	}
+	_, err = accessClient.Me(ctx)
+	add("access token is accepted before expiration", err)
+	if err != nil {
+		return
+	}
+	if !accessPair.RefreshExpiresAt.After(accessPair.AccessExpiresAt.Add(sessionExpirationMargin)) {
+		add("refresh token remains valid after access-token expiration", fmt.Errorf("refresh token expires too soon to test the access/refresh distinction; configure security.refreshTokenTTL greater than security.accessTokenTTL"))
+		return
+	}
+	if err := waitForSessionExpiration(ctx, "access token", "security.accessTokenTTL", accessPair.AccessExpiresAt, cfg.sessionExpirationMaxWait); err != nil {
+		add("expired access token is rejected", err)
+		return
+	}
+	expiredAccessClient := client.New(cfg.server)
+	expiredAccessClient.AccessToken = accessPair.AccessToken
+	_, expiredAccessErr := expiredAccessClient.Me(ctx)
+	add("expired access token is rejected", expectHTTPError(expiredAccessErr, http.StatusUnauthorized, "authentication", "expired_token"))
+
+	_, refreshErr := accessClient.Refresh(ctx, accessPair.RefreshToken)
+	add("refresh token remains valid after access-token expiration", refreshErr)
+	if refreshErr == nil {
+		_, refreshedAccessErr := accessClient.Me(ctx)
+		add("refreshed access token is accepted", refreshedAccessErr)
+	} else {
+		add("refreshed access token is accepted", fmt.Errorf("refresh failed: %w", refreshErr))
+	}
+
+	refreshClient := client.New(cfg.server)
+	refreshPair, err := refreshClient.Login(ctx, cfg.user1, cfg.pass1, "conformance-expiration-refresh")
+	if err != nil {
+		add("expired refresh token is rejected", fmt.Errorf("dedicated refresh-expiration session login: %w", err))
+		return
+	}
+	originalRefreshToken := refreshPair.RefreshToken
+	if err := waitForSessionExpiration(ctx, "refresh token", "security.refreshTokenTTL", refreshPair.RefreshExpiresAt, cfg.sessionExpirationMaxWait); err != nil {
+		add("expired refresh token is rejected", err)
+		return
+	}
+	unexpectedPair, expiredRefreshErr := refreshClient.Refresh(ctx, originalRefreshToken)
+	expiredRefreshResult := expectHTTPError(expiredRefreshErr, http.StatusUnauthorized, "authentication", "expired_refresh_token")
+	if expiredRefreshResult == nil && (unexpectedPair.AccessToken != "" || unexpectedPair.RefreshToken != "" || unexpectedPair.SessionID != "") {
+		expiredRefreshResult = errors.New("server returned a token pair for an expired refresh token")
+	}
+	add("expired refresh token is rejected", expiredRefreshResult)
 }
 
 func runActiveDrivingChecks(ctx context.Context, c1, c2 *client.Client, info client.SystemInfo, locomotiveID string, add func(string, error)) {

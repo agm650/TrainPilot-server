@@ -178,6 +178,35 @@ Les commandes de voie ne sont exécutées qu'avec
 en plus `--allow-configuration-mutations`, `--admin` et `--admin-pass` ; elles
 doivent être réservées à une instance jetable utilisant le simulateur.
 
+L'expiration naturelle des access tokens et refresh tokens est vérifiée
+uniquement avec `--check-session-expiration`. Utilisez une instance de test
+configurée avec des TTL courtes, par exemple :
+
+```json
+"security": {
+  "accessTokenTTL": "2s",
+  "refreshTokenTTL": "5s"
+}
+```
+
+Puis lancez :
+
+```bash
+go run ./cmd/dcc-api-conformance \
+  --server http://127.0.0.1:8080 \
+  --user1 alice --pass1 correct-horse-1 \
+  --user2 bob   --pass2 correct-horse-2 \
+  --check-session-expiration \
+  --session-expiration-max-wait 15s
+```
+
+Le maximum vaut `15s` par défaut et empêche une attente accidentelle avec les
+TTL de production. Le scénario utilise deux sessions dédiées : il vérifie
+d'abord qu'un access token expiré est refusé tandis que son refresh token reste
+valide, puis qu'un refresh token naturellement expiré ne peut plus produire de
+nouvelle paire. Sans l'option, ces contrôles sont ignorés sans ralentir la suite
+standard.
+
 La suite active vérifie notamment :
 
 - l’authentification des deux utilisateurs ;

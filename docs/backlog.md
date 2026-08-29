@@ -20,8 +20,7 @@ Priorités :
 
 Ordre suggéré parmi les tâches P0 détaillées ci-dessous :
 
-1. ajouter l'expiration de session à la conformité ;
-2. implémenter le suivi de santé et la reconnexion DCC-EX avec un faux serveur TCP.
+1. implémenter le suivi de santé et la reconnexion DCC-EX avec un faux serveur TCP.
 
 ## P0 — Fiabilité du socle
 
@@ -32,7 +31,6 @@ Ordre suggéré parmi les tâches P0 détaillées ci-dessous :
 
 ### Conformité
 
-- [ ] Couvrir explicitement l'expiration d'une session dans `dcc-api-conformance`.
 - [ ] Vérifier que le scénario de conflit de réservation reste exécuté avec deux sessions distinctes.
 
 ## P1 — Compléter le MVP serveur
