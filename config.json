@@ -15,7 +15,8 @@
     "driver": "simulator",
     "address": "127.0.0.1",
     "port": 21105,
-    "transport": "tcp"
+    "transport": "tcp",
+    "offlineAfter": "10s"
   },
   "security": {
     "accessTokenTTL": "15m",

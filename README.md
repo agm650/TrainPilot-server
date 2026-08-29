@@ -273,12 +273,16 @@ de `LAN_X_GET_STATUS` et `LAN_SYSTEMSTATE_GETDATA`. Pour un pilote ne proposant
 pas encore de lecture d'état, l'alimentation vaut `unknown` jusqu'au premier
 ordre `power on` ou `power off` réussi.
 
-La connectivité Z21 vaut `online` après toute réponse UDP valide, `degraded`
-après la première erreur ou expiration de délai, puis `offline` si aucune
-réponse valide ne revient pendant 10 secondes. Les interrogations de statut
-continuent en permanence, y compris hors ligne. Les commandes actives sont
-refusées en état `offline` avec HTTP 503 et le code `station_offline`, mais
-restent autorisées en état `degraded`.
+La connectivité Z21 vaut `online` après toute réponse UDP valide et `degraded`
+dès la première erreur ou expiration de délai. Le paramètre optionnel
+`station.offlineAfter`, au format de durée Go (`ms`, `s`, `m`, etc.), définit
+le temps maximal passé dans cet état ; sa valeur par défaut est `10s`. Le délai
+démarre à la première erreur de communication. Une réponse valide reçue avant
+son expiration remet immédiatement la centrale `online` ; sinon elle devient
+`offline` une fois le délai écoulé. Les interrogations de statut continuent en
+permanence, y compris hors ligne. Les commandes actives sont refusées en état
+`offline` avec HTTP 503 et le code `station_offline`, mais restent autorisées
+en état `degraded`.
 
 Les commandes de sécurité sont arbitrées avant les commandes ordinaires : un
 arrêt d'urgence, une coupure de puissance ou un `throttle` à vitesse zéro déjà
@@ -396,9 +400,14 @@ heartbeat, qui déclenche l'arrêt contrôlé habituel.
 "station": {
   "driver": "z21",
   "address": "192.168.0.111",
-  "port": 21105
+  "port": 21105,
+  "offlineAfter": "10s"
 }
 ```
+
+`offlineAfter` accepte la syntaxe de `time.ParseDuration`, par exemple `500ms`,
+`5s`, `30s` ou `1m`. Une valeur invalide, nulle ou négative empêche le
+démarrage du serveur.
 
 Le pilote Z21 est volontairement conservateur : alimentation, arrêt, conduite et fonctions sont présents ; les accessoires et certains retours doivent être complétés après validation sur le matériel réel.
 

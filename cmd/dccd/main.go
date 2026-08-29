@@ -144,7 +144,7 @@ func buildStation(cfg config.Config) (station.CommandStation, *simulator.Simulat
 		if port == 0 {
 			port = 21105
 		}
-		return z21.New(fmt.Sprintf("%s:%d", addr, port)), nil, nil
+		return z21.New(fmt.Sprintf("%s:%d", addr, port), cfg.Station.OfflineAfter), nil, nil
 	default:
 		return nil, nil, fmt.Errorf("unknown station driver %q", cfg.Station.Driver)
 	}

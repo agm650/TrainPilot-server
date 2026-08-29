@@ -33,11 +33,12 @@ type systemState struct {
 	centralState, centralStateEx, capabilities                        byte
 }
 
-func New(address string) *Driver {
+func New(address string, offlineAfter time.Duration) *Driver {
 	return &Driver{
 		address:      address,
 		feedback:     make(chan station.FeedbackEvent, 64),
 		statusEvents: make(chan station.Status, 16),
+		health:       station.NewHealthTracker(offlineAfter),
 		done:         make(chan struct{}),
 	}
 }

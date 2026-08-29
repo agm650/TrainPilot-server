@@ -5,13 +5,21 @@ import (
 	"time"
 )
 
-const OfflineAfter = 10 * time.Second
+const DefaultOfflineAfter = 10 * time.Second
 
 type HealthTracker struct {
 	mu           sync.RWMutex
 	startedAt    time.Time
 	lastSeen     time.Time
 	failureSince time.Time
+	offlineAfter time.Duration
+}
+
+func NewHealthTracker(offlineAfter time.Duration) HealthTracker {
+	if offlineAfter <= 0 {
+		offlineAfter = DefaultOfflineAfter
+	}
+	return HealthTracker{offlineAfter: offlineAfter}
 }
 
 func (h *HealthTracker) Connected() {
@@ -39,17 +47,16 @@ func (h *HealthTracker) CommunicationError() {
 
 func (h *HealthTracker) Health() Health {
 	h.mu.RLock()
-	started, seen, failed := h.startedAt, h.lastSeen, h.failureSince
+	started, seen, failed, offlineAfter := h.startedAt, h.lastSeen, h.failureSince, h.offlineAfter
 	h.mu.RUnlock()
+	if offlineAfter <= 0 {
+		offlineAfter = DefaultOfflineAfter
+	}
 	now := time.Now()
 	connectivity := Online
 	if !failed.IsZero() {
 		connectivity = Degraded
-		reference := seen
-		if reference.IsZero() {
-			reference = started
-		}
-		if !reference.IsZero() && now.Sub(reference) >= OfflineAfter {
+		if now.Sub(failed) >= offlineAfter {
 			connectivity = Offline
 		}
 	}

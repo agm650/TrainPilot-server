@@ -9,7 +9,7 @@ import (
 )
 
 func TestCapabilitiesAndCommandBounds(t *testing.T) {
-	d := New("unused")
+	d := New("unused", station.DefaultOfflineAfter)
 	caps := d.Capabilities()
 	if caps.Functions != 29 || caps.MaxFunctionNumber != 28 {
 		t.Fatalf("capabilities=%+v", caps)
@@ -62,7 +62,7 @@ func TestParseSystemState(t *testing.T) {
 }
 
 func TestParseDispatchesStatusReplies(t *testing.T) {
-	d := New("unused")
+	d := New("unused", station.DefaultOfflineAfter)
 	d.health.Connected()
 	xReply := make(chan byte, 1)
 	systemReply := make(chan systemState, 1)
@@ -87,7 +87,7 @@ func TestParseDispatchesStatusReplies(t *testing.T) {
 }
 
 func TestInvalidXBusChecksumDoesNotRestoreHealth(t *testing.T) {
-	d := New("unused")
+	d := New("unused", station.DefaultOfflineAfter)
 	d.health.Connected()
 	d.health.CommunicationError()
 	record := []byte{0x08, 0x00, 0x40, 0x00, 0x62, 0x22, 0x02, 0x00}

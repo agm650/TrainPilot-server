@@ -1,6 +1,6 @@
 # Backlog restant — TrainPilot-server
 
-Dernière mise à jour : 29 août 2026.
+Dernière mise à jour : 30 août 2026.
 
 Ce document ne contient que les travaux restant à réaliser. Les fonctionnalités
 terminées et leur historique restent consignés dans `DCC_BACKLOG.md`. Avant de
@@ -20,16 +20,15 @@ Priorités :
 
 Ordre suggéré parmi les tâches P0 détaillées ci-dessous :
 
-1. rendre le délai `degraded -> offline` configurable ;
-2. ajouter l'expiration de session à la conformité ;
-3. implémenter le suivi de santé et la reconnexion DCC-EX avec un faux serveur TCP.
+1. ajouter l'expiration de session à la conformité ;
+2. implémenter le suivi de santé et la reconnexion DCC-EX avec un faux serveur TCP.
 
 ## P0 — Fiabilité du socle
 
 ### Centrales
 
 - [ ] Vérifier les reconnexions répétées et les réponses z21 intermittentes. **En attente d'une z21 disponible ; conserver la tâche ouverte.**
-- [ ] Rendre le délai avant `offline` configurable et documenter sa valeur par défaut, son unité et son effet.
+- [x] Rendre le délai avant `offline` configurable et documenter sa valeur par défaut, son unité et son effet.
 - [ ] Appliquer au pilote DCC-EX le suivi de santé, le blocage des commandes hors ligne, la reconnexion et l'absence de reprise automatique.
 
 ### Conformité

@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"time"
 )
@@ -21,10 +22,12 @@ type Config struct {
 		Path string `json:"path"`
 	} `json:"database"`
 	Station struct {
-		Driver    string `json:"driver"`
-		Address   string `json:"address"`
-		Port      int    `json:"port"`
-		Transport string `json:"transport"`
+		Driver           string        `json:"driver"`
+		Address          string        `json:"address"`
+		Port             int           `json:"port"`
+		Transport        string        `json:"transport"`
+		OfflineAfter     time.Duration `json:"-"`
+		OfflineAfterText string        `json:"offlineAfter"`
 	} `json:"station"`
 	Security struct {
 		AccessTokenTTL      time.Duration `json:"-"`
@@ -51,6 +54,7 @@ func Default() Config {
 	c.Admin.Mode = 0o660
 	c.Database.Path = "./dcc-control.db"
 	c.Station.Driver = "simulator"
+	c.Station.OfflineAfter = 10 * time.Second
 	c.Security.AccessTokenTTL = 15 * time.Minute
 	c.Security.RefreshTokenTTL = 30 * 24 * time.Hour
 	c.Control.LeaseTTL = 10 * time.Minute
@@ -96,6 +100,12 @@ func Load(path string) (Config, error) {
 	}
 	if err := parse(c.Control.MonitorPeriodText, &c.Control.MonitorPeriod); err != nil {
 		return c, err
+	}
+	if err := parse(c.Station.OfflineAfterText, &c.Station.OfflineAfter); err != nil {
+		return c, fmt.Errorf("station.offlineAfter: %w", err)
+	}
+	if c.Station.OfflineAfter <= 0 {
+		return c, errors.New("station.offlineAfter must be greater than zero")
 	}
 	if c.HTTP.Listen == "" || c.Admin.Socket == "" || c.Database.Path == "" {
 		return c, errors.New("http.listen, admin.socket and database.path are required")

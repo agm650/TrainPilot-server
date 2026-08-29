@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -17,6 +18,9 @@ func TestDefault(t *testing.T) {
 	}
 	if cfg.Database.Path != "./dcc-control.db" || cfg.Station.Driver != "simulator" {
 		t.Fatalf("database/station defaults=%q/%q", cfg.Database.Path, cfg.Station.Driver)
+	}
+	if cfg.Station.OfflineAfter != 10*time.Second {
+		t.Fatalf("station offlineAfter=%v", cfg.Station.OfflineAfter)
 	}
 	if cfg.Security.AccessTokenTTL != 15*time.Minute || cfg.Security.RefreshTokenTTL != 30*24*time.Hour {
 		t.Fatalf("security defaults=%v/%v", cfg.Security.AccessTokenTTL, cfg.Security.RefreshTokenTTL)
@@ -33,6 +37,30 @@ func TestLoadEmptyPathReturnsDefaults(t *testing.T) {
 	}
 	if cfg.HTTP.Listen != Default().HTTP.Listen {
 		t.Fatalf("listen=%q", cfg.HTTP.Listen)
+	}
+	if cfg.Station.OfflineAfter != 10*time.Second {
+		t.Fatalf("station offlineAfter=%v", cfg.Station.OfflineAfter)
+	}
+}
+
+func TestLoadParsesStationOfflineAfter(t *testing.T) {
+	for _, tc := range []struct {
+		text string
+		want time.Duration
+	}{
+		{"500ms", 500 * time.Millisecond},
+		{"30s", 30 * time.Second},
+		{"1m", time.Minute},
+	} {
+		t.Run(tc.text, func(t *testing.T) {
+			cfg, err := Load(writeConfig(t, `{"station":{"offlineAfter":"`+tc.text+`"}}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Station.OfflineAfter != tc.want {
+				t.Fatalf("station offlineAfter=%v want %v", cfg.Station.OfflineAfter, tc.want)
+			}
+		})
 	}
 }
 
@@ -91,6 +119,18 @@ func TestLoadErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := Load(writeConfig(t, tc.json)); err == nil {
 				t.Fatal("expected duration error")
+			}
+		})
+	}
+
+	for _, value := range []string{"bad", "0s", "-1s"} {
+		t.Run("station offline after "+value, func(t *testing.T) {
+			_, err := Load(writeConfig(t, `{"station":{"offlineAfter":"`+value+`"}}`))
+			if err == nil {
+				t.Fatal("expected duration error")
+			}
+			if !strings.Contains(err.Error(), "station.offlineAfter") {
+				t.Fatalf("error=%q does not identify station.offlineAfter", err)
 			}
 		})
 	}
