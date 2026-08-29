@@ -11,6 +11,7 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/service"
 	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/agm650/TrainPilot-server/internal/store"
+	"github.com/agm650/TrainPilot-server/internal/transfer"
 )
 
 type contextKey string
@@ -21,11 +22,12 @@ const (
 )
 
 type problem struct {
-	Type   string `json:"type"`
-	Title  string `json:"title"`
-	Status int    `json:"status"`
-	Detail string `json:"detail,omitempty"`
-	Code   string `json:"code,omitempty"`
+	Type     string `json:"type"`
+	Title    string `json:"title"`
+	Status   int    `json:"status"`
+	Detail   string `json:"detail,omitempty"`
+	Code     string `json:"code"`
+	Category string `json:"category"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -34,22 +36,74 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 func writeProblem(w http.ResponseWriter, status int, code, detail string) {
-	writeJSON(w, status, problem{Type: "about:blank", Title: http.StatusText(status), Status: status, Detail: detail, Code: code})
+	category := categoryForStatus(status)
+	if status >= 500 {
+		code = "internal_error"
+		detail = "internal server error"
+		category = "internal"
+	}
+	writeProblemJSON(w, status, problem{Type: "about:blank", Title: http.StatusText(status), Status: status, Detail: detail, Code: code, Category: category})
 }
 func writeOperationProblem(w http.ResponseWriter, err error, code string) {
+	status := statusFor(err)
+	category := categoryForStatus(status)
 	switch {
 	case errors.Is(err, station.ErrOffline):
 		code = "station_offline"
+		category = "station_unavailable"
 	case errors.Is(err, service.ErrEmergencyStopActive):
 		code = "emergency_stop_active"
+		category = "safety"
 	case errors.Is(err, service.ErrTrackPowerOff):
 		code = "track_power_off"
+		category = "safety"
 	case errors.Is(err, service.ErrTrackPowerUnknown):
 		code = "track_power_unknown"
+		category = "safety"
 	case errors.Is(err, service.ErrSafetyPreempted):
 		code = "safety_command_preempted"
+		category = "safety"
+	case errors.Is(err, service.ErrLeaseNotOwned):
+		code = "lease_not_owned"
+	case errors.Is(err, service.ErrPermissionDenied):
+		code = "permission_denied"
+	case errors.Is(err, service.ErrValidation):
+		code = "validation_failed"
+	case errors.Is(err, transfer.ErrInvalidArchive):
+		code = "invalid_archive"
 	}
-	writeProblem(w, statusFor(err), code, err.Error())
+	detail := err.Error()
+	if status >= 500 && status != http.StatusServiceUnavailable {
+		code = "internal_error"
+		category = "internal"
+		detail = "internal server error"
+	}
+	writeProblemJSON(w, status, problem{Type: "about:blank", Title: http.StatusText(status), Status: status, Detail: detail, Code: code, Category: category})
+}
+
+func writeProblemJSON(w http.ResponseWriter, status int, value problem) {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func categoryForStatus(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return "validation"
+	case http.StatusUnauthorized:
+		return "authentication"
+	case http.StatusForbidden:
+		return "authorization"
+	case http.StatusNotFound:
+		return "not_found"
+	case http.StatusConflict:
+		return "conflict"
+	case http.StatusServiceUnavailable:
+		return "station_unavailable"
+	default:
+		return "internal"
+	}
 }
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
@@ -72,7 +126,13 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 		}
 		user, sess, err := s.auth.Authenticate(r.Context(), parts[1])
 		if err != nil {
-			writeProblem(w, http.StatusUnauthorized, "invalid_token", err.Error())
+			code := "invalid_token"
+			detail := "authentication failed"
+			if errors.Is(err, service.ErrAccessTokenExpired) {
+				code = "expired_token"
+				detail = "access token expired"
+			}
+			writeProblem(w, http.StatusUnauthorized, code, detail)
 			return
 		}
 		ctx := context.WithValue(r.Context(), userKey, user)
@@ -86,29 +146,21 @@ func statusFor(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, store.ErrConflict):
 		return http.StatusConflict
+	case errors.Is(err, service.ErrPermissionDenied):
+		return http.StatusForbidden
+	case errors.Is(err, service.ErrValidation), errors.Is(err, transfer.ErrInvalidArchive):
+		return http.StatusBadRequest
 	case errors.Is(err, station.ErrOffline):
 		return http.StatusServiceUnavailable
+	case errors.Is(err, station.ErrUnsupported), errors.Is(err, service.ErrLeaseNotOwned):
+		return http.StatusConflict
 	case errors.Is(err, service.ErrEmergencyStopActive),
 		errors.Is(err, service.ErrTrackPowerOff),
 		errors.Is(err, service.ErrTrackPowerUnknown),
 		errors.Is(err, service.ErrSafetyPreempted):
 		return http.StatusConflict
-	case strings.Contains(err.Error(), "permission denied"):
-		return http.StatusForbidden
-	case strings.Contains(err.Error(), "required") ||
-		strings.Contains(err.Error(), "must be") ||
-		strings.Contains(err.Error(), "range") ||
-		strings.Contains(err.Error(), "invalid") ||
-		strings.Contains(err.Error(), "unsupported archive") ||
-		strings.Contains(err.Error(), "duplicate") ||
-		strings.Contains(err.Error(), "unknown block") ||
-		strings.Contains(err.Error(), "unknown turnout") ||
-		strings.Contains(err.Error(), "unknown conflict") ||
-		strings.Contains(err.Error(), "unsafe archive") ||
-		strings.Contains(err.Error(), "archive is missing"):
-		return http.StatusBadRequest
 	default:
-		return http.StatusConflict
+		return http.StatusInternalServerError
 	}
 }
 func securityHeaders(next http.Handler) http.Handler {

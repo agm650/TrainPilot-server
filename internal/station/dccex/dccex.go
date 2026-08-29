@@ -49,13 +49,13 @@ func (d *Driver) Close() error {
 	return nil
 }
 func (d *Driver) Capabilities() station.Capabilities {
-	return station.Capabilities{Driver: "dccex", TrackPower: true, LocomotiveControl: true, Functions: 68, AccessoryControl: true, Feedback: true}
+	return station.Capabilities{Driver: "dccex", TrackPower: true, LocomotiveControl: true, Functions: 69, MaxFunctionNumber: 68, AccessoryControl: true, Feedback: true}
 }
 func (d *Driver) send(ctx context.Context, command string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.conn == nil {
-		return fmt.Errorf("DCC-EX is not connected")
+		return station.ErrOffline
 	}
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = d.conn.SetWriteDeadline(deadline)
@@ -74,6 +74,9 @@ func (d *Driver) SetLocoSpeed(ctx context.Context, address int, speed float64, d
 	if speed < 0 || speed > 1 {
 		return fmt.Errorf("speed out of range")
 	}
+	if !direction.Valid() {
+		return station.ErrUnsupported
+	}
 	step := int(math.Round(speed * 126))
 	dir := 0
 	if direction == station.Forward {
@@ -82,6 +85,9 @@ func (d *Driver) SetLocoSpeed(ctx context.Context, address int, speed float64, d
 	return d.send(ctx, fmt.Sprintf("<t %d %d %d>\n", address, step, dir))
 }
 func (d *Driver) SetLocoFunction(ctx context.Context, address, fn int, on bool) error {
+	if fn < 0 || fn > d.Capabilities().MaxFunctionNumber {
+		return station.ErrUnsupported
+	}
 	state := 0
 	if on {
 		state = 1

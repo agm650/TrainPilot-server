@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"errors"
+	"fmt"
 
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
@@ -23,14 +23,14 @@ func (r *RouteService) List(ctx context.Context) ([]model.Route, error) {
 }
 func (r *RouteService) Reserve(ctx context.Context, user model.User, sess model.Session, id string) error {
 	if !Allowed(user.Role, PermissionDispatch) {
-		return errors.New("permission denied")
+		return ErrPermissionDenied
 	}
 	occ, err := r.store.RouteBlocksOccupied(ctx, id)
 	if err != nil {
 		return err
 	}
 	if occ {
-		return errors.New("route contains an occupied block")
+		return fmt.Errorf("route contains an occupied block: %w", store.ErrConflict)
 	}
 	conflict, err := r.store.RouteHasActiveConflict(ctx, id)
 	if err != nil {
@@ -47,7 +47,7 @@ func (r *RouteService) Reserve(ctx context.Context, user model.User, sess model.
 }
 func (r *RouteService) Activate(ctx context.Context, user model.User, sess model.Session, id string) error {
 	if !Allowed(user.Role, PermissionDispatch) {
-		return errors.New("permission denied")
+		return ErrPermissionDenied
 	}
 	requirements, err := r.store.RouteTurnoutRequirements(ctx, id)
 	if err != nil {

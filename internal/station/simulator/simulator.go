@@ -36,7 +36,7 @@ func (s *Simulator) Connect(context.Context) error {
 }
 func (s *Simulator) Close() error { s.mu.Lock(); s.connected = false; s.mu.Unlock(); return nil }
 func (s *Simulator) Capabilities() station.Capabilities {
-	return station.Capabilities{Driver: "simulator", TrackPower: true, LocomotiveControl: true, Functions: 68, AccessoryControl: true, Feedback: true}
+	return station.Capabilities{Driver: "simulator", TrackPower: true, LocomotiveControl: true, Functions: 69, MaxFunctionNumber: 68, AccessoryControl: true, Feedback: true}
 }
 func (s *Simulator) ensure() error {
 	if !s.connected {
@@ -102,6 +102,9 @@ func (s *Simulator) SetLocoSpeed(_ context.Context, address int, speed float64, 
 	if speed < 0 || speed > 1 {
 		return fmt.Errorf("speed out of range")
 	}
+	if !direction.Valid() {
+		return station.ErrUnsupported
+	}
 	l := s.locos[address]
 	if l == nil {
 		l = &LocoState{Functions: map[int]bool{}}
@@ -116,6 +119,9 @@ func (s *Simulator) SetLocoFunction(_ context.Context, address, fn int, on bool)
 	defer s.mu.Unlock()
 	if err := s.ensure(); err != nil {
 		return err
+	}
+	if fn < 0 || fn > s.Capabilities().MaxFunctionNumber {
+		return station.ErrUnsupported
 	}
 	l := s.locos[address]
 	if l == nil {

@@ -29,11 +29,16 @@ const (
 	Reverse Direction = "reverse"
 )
 
+func (d Direction) Valid() bool {
+	return d == Forward || d == Reverse
+}
+
 type Capabilities struct {
 	Driver            string `json:"driver"`
 	TrackPower        bool   `json:"trackPower"`
 	LocomotiveControl bool   `json:"locomotiveControl"`
 	Functions         int    `json:"functions"`
+	MaxFunctionNumber int    `json:"maxFunctionNumber"`
 	AccessoryControl  bool   `json:"accessoryControl"`
 	Feedback          bool   `json:"feedback"`
 }

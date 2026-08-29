@@ -221,7 +221,7 @@ func newBlockingCommandStation() *blockingCommandStation {
 func (s *blockingCommandStation) Connect(context.Context) error { return nil }
 func (s *blockingCommandStation) Close() error                  { return nil }
 func (s *blockingCommandStation) Capabilities() station.Capabilities {
-	return station.Capabilities{TrackPower: true, LocomotiveControl: true, Functions: 68}
+	return station.Capabilities{TrackPower: true, LocomotiveControl: true, Functions: 69, MaxFunctionNumber: 68}
 }
 func (s *blockingCommandStation) SetTrackPower(_ context.Context, enabled bool) error {
 	command := "power-off"

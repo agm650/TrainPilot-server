@@ -15,6 +15,7 @@
 - un viewer ne peut pas conduire ;
 - le propriétaire du lease peut commander la vitesse ;
 - une commande valide renouvelle le lease et une commande tardive ne peut pas le réactiver ;
+- un heartbeat juste avant l'expiration renouvelle le lease, tandis qu'un heartbeat à l'expiration ou après celle-ci est refusé ;
 - une réservation expirée commande l’arrêt avant la libération ;
 - la locomotive reste indisponible pendant l’état `stopping` ;
 - une session étrangère ou un lease libéré ne peut pas commander la locomotive ;
@@ -30,6 +31,11 @@
 - les paquets de puissance et de statut Z21 ont la forme attendue et les réponses d’état sont décodées ;
 - une commande de vitesse DCC-EX est encodée correctement ;
 - le bus attribue des séquences monotones, expose sa séquence courante et ne bloque pas sur un abonné lent ;
+- le WebSocket fournit un snapshot complet, permet la resynchronisation après un trou de séquence, supporte la reconnexion et ferme la connexion à l'expiration du jeton ou à la révocation de la session ;
+- une déconnexion WebSocket ne libère pas le lease, qui reste soumis à son heartbeat et à son expiration normale ;
+- le refresh fait tourner les deux jetons, invalide immédiatement les anciens et le logout révoque la session ;
+- chaque problème HTTP possède une catégorie et un code stable, et les erreurs internes sont masquées ;
+- les sens et numéros de fonctions sont validés avant le pilote selon ses capacités déclarées ;
 - les archives parc/circuit passent un aller-retour sans perte ;
 - un rôle driver peut exporter mais ne peut pas importer ;
 - un import invalide ou contenant des références cassées est rejeté sans modification partielle.
@@ -44,13 +50,27 @@ go test -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out
 ```
 
+La conformité HTTP passive, sans commande de voie, s'exécute contre un serveur
+déjà démarré avec :
+
+```bash
+go run ./cmd/dcc-api-conformance --server http://127.0.0.1:8080 \
+  --user1 alice --pass1 correct-horse-1 \
+  --user2 bob --pass2 correct-horse-2
+```
+
+`--list-endpoints` affiche l'inventaire vérifié avec OpenAPI et les routes du
+serveur. Les scénarios qui commandent la centrale exigent
+`--allow-active-commands`. Le CRUD temporaire et les imports exigent aussi
+`--allow-configuration-mutations` et un compte administrateur. Ces deux modes
+ne doivent être utilisés que sur une instance de test explicitement choisie.
+
 Sur macOS, utiliser `TMPDIR=/tmp go test ./...` si le chemin temporaire par défaut rend le nom du socket Unix d’administration trop long.
 
 ## Couverture restant à ajouter
 
-- tests WebSocket bout en bout du snapshot initial et de `client.snapshot_request` ;
-- trou de séquence, doublon, événement ancien et événement concurrent avec un snapshot ;
-- reconnexion WebSocket et comportement d’un client lent ;
+- événements WebSocket dupliqués, anciens ou publiés pendant la génération d'un snapshot ;
+- stratégie de backpressure et comportement d’un client WebSocket lent ;
 - surveillance de disponibilité, perte de connexion et reconnexion DCC-EX ;
 - couverture DCC-EX des commandes autres que la vitesse et des retours de capteurs ;
 - scénarios de rétrosignalisation simultanée, répétée et présente au démarrage ;

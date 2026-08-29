@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -62,18 +63,10 @@ func TestDecodeJSONAndStatusMapping(t *testing.T) {
 	}{
 		{store.ErrNotFound, http.StatusNotFound},
 		{store.ErrConflict, http.StatusConflict},
-		{errors.New("permission denied"), http.StatusForbidden},
-		{errors.New("value is required"), http.StatusBadRequest},
-		{errors.New("speed must be in range"), http.StatusBadRequest},
-		{errors.New("invalid role"), http.StatusBadRequest},
-		{errors.New("unsupported archive"), http.StatusBadRequest},
-		{errors.New("duplicate identifier"), http.StatusBadRequest},
-		{errors.New("unknown block"), http.StatusBadRequest},
-		{errors.New("unknown turnout"), http.StatusBadRequest},
-		{errors.New("unknown conflict"), http.StatusBadRequest},
-		{errors.New("unsafe archive path"), http.StatusBadRequest},
-		{errors.New("archive is missing manifest"), http.StatusBadRequest},
-		{errors.New("station disconnected"), http.StatusConflict},
+		{service.ErrPermissionDenied, http.StatusForbidden},
+		{fmt.Errorf("%w: value is required", service.ErrValidation), http.StatusBadRequest},
+		{station.ErrUnsupported, http.StatusConflict},
+		{errors.New("unexpected database failure"), http.StatusInternalServerError},
 		{station.ErrOffline, http.StatusServiceUnavailable},
 		{service.ErrEmergencyStopActive, http.StatusConflict},
 		{service.ErrTrackPowerOff, http.StatusConflict},
@@ -93,16 +86,23 @@ func TestOperationProblemsUseStableCodes(t *testing.T) {
 		err        error
 		wantStatus int
 		wantCode   string
+		wantCat    string
 	}{
-		{"station offline", station.ErrOffline, http.StatusServiceUnavailable, "station_offline"},
-		{"emergency stop", service.ErrEmergencyStopActive, http.StatusConflict, "emergency_stop_active"},
-		{"track power off", service.ErrTrackPowerOff, http.StatusConflict, "track_power_off"},
-		{"track power unknown", service.ErrTrackPowerUnknown, http.StatusConflict, "track_power_unknown"},
-		{"safety preemption", service.ErrSafetyPreempted, http.StatusConflict, "safety_command_preempted"},
+		{"station offline", station.ErrOffline, http.StatusServiceUnavailable, "station_offline", "station_unavailable"},
+		{"emergency stop", service.ErrEmergencyStopActive, http.StatusConflict, "emergency_stop_active", "safety"},
+		{"track power off", service.ErrTrackPowerOff, http.StatusConflict, "track_power_off", "safety"},
+		{"track power unknown", service.ErrTrackPowerUnknown, http.StatusConflict, "track_power_unknown", "safety"},
+		{"safety preemption", service.ErrSafetyPreempted, http.StatusConflict, "safety_command_preempted", "safety"},
+		{"permission", service.ErrPermissionDenied, http.StatusForbidden, "permission_denied", "authorization"},
+		{"validation", service.ErrValidation, http.StatusBadRequest, "validation_failed", "validation"},
+		{"internal", errors.New("database password secret"), http.StatusInternalServerError, "internal_error", "internal"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			writeOperationProblem(recorder, tc.err, "operation_failed")
+			if got := recorder.Header().Get("Content-Type"); got != "application/problem+json" {
+				t.Fatalf("content type=%q", got)
+			}
 			if recorder.Code != tc.wantStatus {
 				t.Fatalf("status=%d want=%d", recorder.Code, tc.wantStatus)
 			}
@@ -110,8 +110,15 @@ func TestOperationProblemsUseStableCodes(t *testing.T) {
 			if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
 				t.Fatal(err)
 			}
-			if got.Code != tc.wantCode || got.Detail != tc.err.Error() {
+			if got.Code != tc.wantCode || got.Category != tc.wantCat {
 				t.Fatalf("problem=%+v", got)
+			}
+			if tc.wantStatus >= 500 && tc.wantStatus != http.StatusServiceUnavailable {
+				if got.Detail != "internal server error" || strings.Contains(got.Detail, "secret") {
+					t.Fatalf("internal detail leaked: %+v", got)
+				}
+			} else if got.Detail != tc.err.Error() {
+				t.Fatalf("problem detail=%q want=%q", got.Detail, tc.err.Error())
 			}
 		})
 	}

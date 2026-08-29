@@ -25,6 +25,8 @@ const (
 	MaxEntrySize   = 10 << 20
 )
 
+var ErrInvalidArchive = errors.New("invalid archive")
+
 type Manifest struct {
 	Format      string    `json:"format"`
 	Version     int       `json:"version"`
@@ -66,14 +68,14 @@ func (s *Service) ExportLayout(ctx context.Context) ([]byte, error) {
 
 func (s *Service) ImportRollingStock(ctx context.Context, user model.User, data []byte, replace bool) error {
 	if !service.Allowed(user.Role, service.PermissionConfigure) {
-		return errors.New("permission denied")
+		return service.ErrPermissionDenied
 	}
 	var doc RollingStockDocument
 	if err := readArchive(data, "rolling-stock", "rolling-stock.json", &doc); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrInvalidArchive, err)
 	}
 	if err := validateLocomotives(doc.Locomotives); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrInvalidArchive, err)
 	}
 	if err := s.store.ReplaceLocomotives(ctx, doc.Locomotives, replace); err != nil {
 		return err
@@ -83,14 +85,14 @@ func (s *Service) ImportRollingStock(ctx context.Context, user model.User, data 
 }
 func (s *Service) ImportLayout(ctx context.Context, user model.User, data []byte, replace bool) error {
 	if !service.Allowed(user.Role, service.PermissionConfigure) {
-		return errors.New("permission denied")
+		return service.ErrPermissionDenied
 	}
 	var doc LayoutDocument
 	if err := readArchive(data, "layout", "layout.json", &doc); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrInvalidArchive, err)
 	}
 	if err := validateLayout(doc.Layout); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrInvalidArchive, err)
 	}
 	if err := s.store.ImportLayout(ctx, doc.Layout, replace); err != nil {
 		return err

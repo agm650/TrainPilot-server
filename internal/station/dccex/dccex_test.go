@@ -11,6 +11,20 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/station"
 )
 
+func TestCapabilitiesAndCommandBounds(t *testing.T) {
+	d := NewTCP("unused")
+	caps := d.Capabilities()
+	if caps.Functions != 69 || caps.MaxFunctionNumber != 68 {
+		t.Fatalf("capabilities=%+v", caps)
+	}
+	if err := d.SetLocoSpeed(context.Background(), 3, 0.5, station.Direction("sideways")); err != station.ErrUnsupported {
+		t.Fatalf("invalid direction error=%v", err)
+	}
+	if err := d.SetLocoFunction(context.Background(), 3, 69, true); err != station.ErrUnsupported {
+		t.Fatalf("out-of-range function error=%v", err)
+	}
+}
+
 func TestThrottleCommand(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

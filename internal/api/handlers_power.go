@@ -25,7 +25,7 @@ func (s *Server) setTrackPower(w http.ResponseWriter, r *http.Request) {
 func (s *Server) trackPowerStatus(w http.ResponseWriter, r *http.Request) {
 	status, err := s.control.StationStatus(r.Context())
 	if err != nil {
-		writeProblem(w, statusFor(err), "station_status_failed", err.Error())
+		writeOperationProblem(w, err, "station_status_failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, status)

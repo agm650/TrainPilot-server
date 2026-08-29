@@ -1,14 +1,32 @@
 package api
 
 import (
+	"errors"
 	"net/http"
+
+	"github.com/agm650/TrainPilot-server/internal/service"
+)
+
+const (
+	serverVersion                = "0.2.0"
+	apiVersion                   = "1.3.0"
+	minimumClientAPIVersion      = "1.0.0"
+	eventAPIVersion              = "1.4.0"
+	minimumClientEventAPIVersion = "1.3.0"
 )
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 func (s *Server) systemInfo(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"serverVersion": "0.2.0", "apiVersion": "1.2.0", "minimumClientApiVersion": "1.0.0", "station": s.station.Capabilities()})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"serverVersion":                serverVersion,
+		"apiVersion":                   apiVersion,
+		"minimumClientApiVersion":      minimumClientAPIVersion,
+		"eventApiVersion":              eventAPIVersion,
+		"minimumClientEventApiVersion": minimumClientEventAPIVersion,
+		"station":                      s.station.Capabilities(),
+	})
 }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -41,7 +59,13 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 	}
 	pair, err := s.auth.Refresh(r.Context(), req.RefreshToken)
 	if err != nil {
-		writeProblem(w, http.StatusUnauthorized, "invalid_refresh_token", err.Error())
+		code := "invalid_refresh_token"
+		detail := "refresh token is invalid"
+		if errors.Is(err, service.ErrRefreshTokenExpired) {
+			code = "expired_refresh_token"
+			detail = "refresh token expired"
+		}
+		writeProblem(w, http.StatusUnauthorized, code, detail)
 		return
 	}
 	writeJSON(w, http.StatusOK, pair)

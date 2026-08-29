@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/auth"
@@ -55,19 +54,22 @@ func (a *AuthService) newSession(ctx context.Context, user model.User, clientID,
 }
 func (a *AuthService) Authenticate(ctx context.Context, token string) (model.User, model.Session, error) {
 	if token == "" {
-		return model.User{}, model.Session{}, errors.New("missing token")
+		return model.User{}, model.Session{}, ErrInvalidAccessToken
 	}
 	sess, err := a.store.SessionByAccessHash(ctx, auth.HashToken(token))
 	if err != nil {
-		return model.User{}, model.Session{}, errors.New("invalid token")
+		return model.User{}, model.Session{}, ErrInvalidAccessToken
 	}
 	now := a.clock.Now()
-	if sess.RevokedAt != nil || !now.Before(sess.AccessExpiry) {
-		return model.User{}, model.Session{}, errors.New("expired token")
+	if sess.RevokedAt != nil {
+		return model.User{}, model.Session{}, ErrInvalidAccessToken
+	}
+	if !now.Before(sess.AccessExpiry) {
+		return model.User{}, model.Session{}, ErrAccessTokenExpired
 	}
 	found, err := a.store.GetUserByID(ctx, sess.UserID)
 	if err != nil || !found.User.Enabled {
-		return model.User{}, model.Session{}, errors.New("invalid user")
+		return model.User{}, model.Session{}, ErrInvalidAccessToken
 	}
 	_ = a.store.TouchSession(ctx, sess.ID, now)
 	return found.User, sess, nil
@@ -75,15 +77,18 @@ func (a *AuthService) Authenticate(ctx context.Context, token string) (model.Use
 func (a *AuthService) Refresh(ctx context.Context, token string) (TokenPair, error) {
 	sess, err := a.store.SessionByRefreshHash(ctx, auth.HashToken(token))
 	if err != nil {
-		return TokenPair{}, errors.New("invalid refresh token")
+		return TokenPair{}, ErrInvalidRefreshToken
 	}
 	now := a.clock.Now()
-	if sess.RevokedAt != nil || !now.Before(sess.RefreshExpiry) {
-		return TokenPair{}, errors.New("expired refresh token")
+	if sess.RevokedAt != nil {
+		return TokenPair{}, ErrInvalidRefreshToken
+	}
+	if !now.Before(sess.RefreshExpiry) {
+		return TokenPair{}, ErrRefreshTokenExpired
 	}
 	found, err := a.store.GetUserByID(ctx, sess.UserID)
 	if err != nil || !found.User.Enabled {
-		return TokenPair{}, errors.New("invalid user")
+		return TokenPair{}, ErrInvalidRefreshToken
 	}
 	at, ah, err := auth.NewToken()
 	if err != nil {

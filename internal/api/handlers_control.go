@@ -10,7 +10,7 @@ import (
 func (s *Server) listLocomotives(w http.ResponseWriter, r *http.Request) {
 	items, err := s.railway.Locomotives(r.Context())
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "list_failed", err.Error())
+		writeOperationProblem(w, err, "locomotive_list_failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
@@ -18,7 +18,7 @@ func (s *Server) listLocomotives(w http.ResponseWriter, r *http.Request) {
 func (s *Server) acquireLease(w http.ResponseWriter, r *http.Request) {
 	lease, err := s.control.Acquire(r.Context(), userFrom(r), sessionFrom(r), r.PathValue("id"))
 	if err != nil {
-		writeProblem(w, statusFor(err), "lease_acquisition_failed", err.Error())
+		writeOperationProblem(w, err, "lease_acquisition_failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, lease)
@@ -26,7 +26,7 @@ func (s *Server) acquireLease(w http.ResponseWriter, r *http.Request) {
 func (s *Server) heartbeatLease(w http.ResponseWriter, r *http.Request) {
 	lease, err := s.control.Heartbeat(r.Context(), r.PathValue("id"), sessionFrom(r))
 	if err != nil {
-		writeProblem(w, statusFor(err), "lease_heartbeat_failed", err.Error())
+		writeOperationProblem(w, err, "lease_heartbeat_failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, lease)

@@ -2,10 +2,25 @@ package z21
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/agm650/TrainPilot-server/internal/station"
 )
+
+func TestCapabilitiesAndCommandBounds(t *testing.T) {
+	d := New("unused")
+	caps := d.Capabilities()
+	if caps.Functions != 29 || caps.MaxFunctionNumber != 28 {
+		t.Fatalf("capabilities=%+v", caps)
+	}
+	if err := d.SetLocoSpeed(context.Background(), 3, 0.5, station.Direction("sideways")); err != station.ErrUnsupported {
+		t.Fatalf("invalid direction error=%v", err)
+	}
+	if err := d.SetLocoFunction(context.Background(), 3, 29, true); err != station.ErrUnsupported {
+		t.Fatalf("out-of-range function error=%v", err)
+	}
+}
 
 func TestTrackPowerPacket(t *testing.T) {
 	on := xbus(0x21, 0x81)

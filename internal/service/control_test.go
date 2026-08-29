@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -227,5 +228,33 @@ func TestThrottleCannotReviveExpiredUnsweptLease(t *testing.T) {
 	}
 	if !stored.ExpiresAt.Equal(lease.ExpiresAt) {
 		t.Fatalf("expires=%v want %v", stored.ExpiresAt, lease.ExpiresAt)
+	}
+}
+
+func TestHeartbeatCannotReviveExpiredUnsweptLease(t *testing.T) {
+	ctx := context.Background()
+	control, db, _, clk, user, sess := newControlFixture(t)
+	lease, err := control.Acquire(ctx, user, sess, "loco-bb26001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clk.Advance(14 * time.Second)
+	renewed, err := control.Heartbeat(ctx, lease.ID, sess)
+	if err != nil {
+		t.Fatalf("heartbeat before expiry: %v", err)
+	}
+	if !renewed.ExpiresAt.Equal(clk.Now().Add(15 * time.Second)) {
+		t.Fatalf("renewed expiry=%v", renewed.ExpiresAt)
+	}
+	clk.Advance(15 * time.Second)
+	if _, err := control.Heartbeat(ctx, lease.ID, sess); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("heartbeat after expiry error=%v", err)
+	}
+	stored, err := db.GetLease(ctx, lease.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stored.ExpiresAt.Equal(renewed.ExpiresAt) {
+		t.Fatalf("expired lease was modified: expires=%v want=%v", stored.ExpiresAt, renewed.ExpiresAt)
 	}
 }

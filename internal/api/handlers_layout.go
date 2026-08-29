@@ -5,7 +5,7 @@ import "net/http"
 func (s *Server) listBlocks(w http.ResponseWriter, r *http.Request) {
 	items, err := s.railway.Blocks(r.Context())
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "list_failed", err.Error())
+		writeOperationProblem(w, err, "block_list_failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
@@ -13,7 +13,7 @@ func (s *Server) listBlocks(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listTurnouts(w http.ResponseWriter, r *http.Request) {
 	items, err := s.railway.Turnouts(r.Context())
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "list_failed", err.Error())
+		writeOperationProblem(w, err, "turnout_list_failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
@@ -34,28 +34,28 @@ func (s *Server) setTurnout(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listRoutes(w http.ResponseWriter, r *http.Request) {
 	items, err := s.routes.List(r.Context())
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "list_failed", err.Error())
+		writeOperationProblem(w, err, "route_list_failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 func (s *Server) reserveRoute(w http.ResponseWriter, r *http.Request) {
 	if err := s.routes.Reserve(r.Context(), userFrom(r), sessionFrom(r), r.PathValue("id")); err != nil {
-		writeProblem(w, statusFor(err), "route_reservation_failed", err.Error())
+		writeOperationProblem(w, err, "route_reservation_failed")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 func (s *Server) activateRoute(w http.ResponseWriter, r *http.Request) {
 	if err := s.routes.Activate(r.Context(), userFrom(r), sessionFrom(r), r.PathValue("id")); err != nil {
-		writeProblem(w, statusFor(err), "route_activation_failed", err.Error())
+		writeOperationProblem(w, err, "route_activation_failed")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 func (s *Server) releaseRoute(w http.ResponseWriter, r *http.Request) {
 	if err := s.routes.Release(r.Context(), sessionFrom(r), r.PathValue("id")); err != nil {
-		writeProblem(w, statusFor(err), "route_release_failed", err.Error())
+		writeOperationProblem(w, err, "route_release_failed")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -68,7 +68,7 @@ func (s *Server) testBlockOccupancy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.railway.SetBlockFeedback(r.Context(), r.PathValue("id"), req.Occupied); err != nil {
-		writeProblem(w, statusFor(err), "feedback_failed", err.Error())
+		writeOperationProblem(w, err, "feedback_failed")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

@@ -22,6 +22,22 @@ La validation de sécurité de la conduite inclut les tests de concurrence de
 attente préempte les nouveaux ordres de traction sans qu'ils atteignent le
 pilote, et qu'une reprise exige une action explicite.
 
+La validation contractuelle inclut également :
+
+- la parité entre les routes publiques, OpenAPI et l'inventaire de
+  `dcc-api-conformance` ;
+- la conformité passive et active exécutée en test contre le simulateur ;
+- la rotation/révocation des jetons et l'expiration WebSocket ;
+- le snapshot complet, la resynchronisation après trou de séquence et la
+  reconnexion ;
+- les catégories/codes d'erreur stables et le masquage des erreurs internes ;
+- les bornes de fonctions propres aux capacités du simulateur, de z21 et de
+  DCC-EX.
+
+Les commandes de conformité actives et les mutations de configuration ne sont
+jamais lancées implicitement contre une centrale réelle : elles exigent les
+options explicites documentées dans `docs/TESTING.md`.
+
 Sur macOS, les sockets Unix ont une longueur de chemin limitée. Si `TestUserAdministrationOverUnixSocket` échoue avec `bind: invalid argument` dans un chemin temporaire long, relancer les tests avec :
 
 ```bash

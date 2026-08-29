@@ -55,6 +55,10 @@ paths:
     post:
       security: []
       operationId: refreshSession
+      description: >-
+        Rotates both tokens. The previous access and refresh tokens become invalid
+        immediately. Existing WebSocket connections close no later than the
+        original access-token expiry and must reconnect with the new access token.
       requestBody:
         required: true
         content:
@@ -236,7 +240,9 @@ paths:
       - $ref: '#/components/parameters/LeaseId'
     put:
       operationId: heartbeatControlLease
-      description: Renews the lease inactivity deadline.
+      description: >-
+        Renews the lease inactivity deadline. A heartbeat received at or after
+        expiresAt is rejected and never revives an expired unswept lease.
       responses:
         '200':
           description: Lease renewed.
@@ -461,8 +467,11 @@ paths:
     get:
       operationId: openEventWebSocket
       description: >-
-        Upgrades to WebSocket. The first message is system.snapshot. Clients may
-        send {"type":"client.heartbeat"}. Event schemas are defined in asyncapi.yaml.
+        Upgrades to WebSocket. The first message is a complete system.snapshot.
+        Clients ignore events whose sequence is less than or equal to the latest
+        snapshot sequence and request another snapshot after a gap. The connection
+        closes when its access token expires or its session is revoked. Event
+        schemas are defined in asyncapi.yaml.
       responses:
         '101': { description: WebSocket established. }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -531,13 +540,16 @@ components:
   schemas:
     Problem:
       type: object
-      required: [type, title, status]
+      required: [type, title, status, code, category]
       properties:
         type: { type: string }
         title: { type: string }
         status: { type: integer }
         detail: { type: string }
         code: { type: string }
+        category:
+          type: string
+          enum: [authentication, authorization, validation, not_found, conflict, safety, station_unavailable, internal]
     LoginRequest:
       type: object
       additionalProperties: false
@@ -573,12 +585,19 @@ components:
         lastLoginAt: { type: string, format: date-time }
     Capabilities:
       type: object
-      required: [driver, trackPower, locomotiveControl, functions, accessoryControl, feedback]
+      required: [driver, trackPower, locomotiveControl, functions, maxFunctionNumber, accessoryControl, feedback]
       properties:
         driver: { type: string, enum: [simulator, dccex, z21] }
         trackPower: { type: boolean }
         locomotiveControl: { type: boolean }
-        functions: { type: integer, minimum: 0 }
+        functions:
+          type: integer
+          minimum: 0
+          description: Number of supported function numbers, retained for compatibility.
+        maxFunctionNumber:
+          type: integer
+          minimum: 0
+          description: Inclusive maximum function number accepted by the current driver.
         accessoryControl: { type: boolean }
         feedback: { type: boolean }
     StationStatus:
@@ -604,11 +623,13 @@ components:
         internalShortCircuit: { type: boolean }
     SystemInfo:
       type: object
-      required: [serverVersion, apiVersion, minimumClientApiVersion, station]
+      required: [serverVersion, apiVersion, minimumClientApiVersion, eventApiVersion, minimumClientEventApiVersion, station]
       properties:
         serverVersion: { type: string }
         apiVersion: { type: string }
         minimumClientApiVersion: { type: string }
+        eventApiVersion: { type: string }
+        minimumClientEventApiVersion: { type: string }
         station: { $ref: '#/components/schemas/Capabilities' }
     LocomotiveInput:
       type: object

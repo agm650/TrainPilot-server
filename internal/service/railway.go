@@ -30,7 +30,7 @@ func (r *RailwayService) Locomotive(ctx context.Context, id string) (model.Locom
 
 func (r *RailwayService) CreateLocomotive(ctx context.Context, user model.User, input model.LocomotiveInput) (model.Locomotive, error) {
 	if !Allowed(user.Role, PermissionConfigure) {
-		return model.Locomotive{}, errors.New("permission denied")
+		return model.Locomotive{}, ErrPermissionDenied
 	}
 	x, err := locomotiveFromInput(newID(), input)
 	if err != nil {
@@ -45,7 +45,7 @@ func (r *RailwayService) CreateLocomotive(ctx context.Context, user model.User, 
 
 func (r *RailwayService) UpdateLocomotive(ctx context.Context, user model.User, id string, input model.LocomotiveInput) (model.Locomotive, error) {
 	if !Allowed(user.Role, PermissionConfigure) {
-		return model.Locomotive{}, errors.New("permission denied")
+		return model.Locomotive{}, ErrPermissionDenied
 	}
 	if _, err := r.store.GetLocomotive(ctx, id); err != nil {
 		return model.Locomotive{}, err
@@ -68,7 +68,7 @@ func (r *RailwayService) UpdateLocomotive(ctx context.Context, user model.User, 
 
 func (r *RailwayService) DeleteLocomotive(ctx context.Context, user model.User, id string) error {
 	if !Allowed(user.Role, PermissionConfigure) {
-		return errors.New("permission denied")
+		return ErrPermissionDenied
 	}
 	if _, err := r.store.GetLocomotive(ctx, id); err != nil {
 		return err
@@ -92,36 +92,36 @@ func locomotiveFromInput(id string, input model.LocomotiveInput) (model.Locomoti
 	input.Model = strings.TrimSpace(input.Model)
 
 	if input.Name == "" {
-		return model.Locomotive{}, errors.New("name is required")
+		return model.Locomotive{}, invalid("name is required")
 	}
 	if len(input.Name) > 128 {
-		return model.Locomotive{}, errors.New("name must be at most 128 characters")
+		return model.Locomotive{}, invalid("name must be at most 128 characters")
 	}
 	if len(input.Manufacturer) > 128 {
-		return model.Locomotive{}, errors.New("manufacturer must be at most 128 characters")
+		return model.Locomotive{}, invalid("manufacturer must be at most 128 characters")
 	}
 	if len(input.Model) > 128 {
-		return model.Locomotive{}, errors.New("model must be at most 128 characters")
+		return model.Locomotive{}, invalid("model must be at most 128 characters")
 	}
 	if input.DCCAddress < 1 || input.DCCAddress > 10239 {
-		return model.Locomotive{}, errors.New("dccAddress must be in range 1..10239")
+		return model.Locomotive{}, invalid("dccAddress must be in range 1..10239")
 	}
 	switch input.AddressKind {
 	case "short":
 		if input.DCCAddress > 127 {
-			return model.Locomotive{}, errors.New("short dccAddress must be in range 1..127")
+			return model.Locomotive{}, invalid("short dccAddress must be in range 1..127")
 		}
 	case "long":
 		if input.DCCAddress < 128 {
-			return model.Locomotive{}, errors.New("long dccAddress must be in range 128..10239")
+			return model.Locomotive{}, invalid("long dccAddress must be in range 128..10239")
 		}
 	default:
-		return model.Locomotive{}, errors.New("addressKind must be short or long")
+		return model.Locomotive{}, invalid("addressKind must be short or long")
 	}
 	switch input.SpeedSteps {
 	case 14, 28, 128:
 	default:
-		return model.Locomotive{}, errors.New("speedSteps must be one of 14, 28 or 128")
+		return model.Locomotive{}, invalid("speedSteps must be one of 14, 28 or 128")
 	}
 
 	return model.Locomotive{
@@ -142,10 +142,10 @@ func (r *RailwayService) Turnouts(ctx context.Context) ([]model.Turnout, error) 
 }
 func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, state string) error {
 	if !Allowed(user.Role, PermissionDispatch) {
-		return errors.New("permission denied")
+		return ErrPermissionDenied
 	}
 	if state != "straight" && state != "diverging" {
-		return errors.New("state must be straight or diverging")
+		return invalid("state must be straight or diverging")
 	}
 	if err := station.CheckCommandAllowed(r.station); err != nil {
 		return err

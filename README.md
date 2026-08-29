@@ -164,7 +164,21 @@ go run ./cmd/dcc-api-conformance \
   --user2 bob   --pass2 correct-horse-2
 ```
 
-Cette suite vérifie notamment :
+Sans option destructive, cette suite vérifie l'état de santé, les versions de
+contrat, l'authentification, la rotation et la révocation des jetons, les
+lectures publiques authentifiées, les erreurs structurées et les exports.
+L'inventaire complet est disponible avec :
+
+```bash
+go run ./cmd/dcc-api-conformance --list-endpoints
+```
+
+Les commandes de voie ne sont exécutées qu'avec
+`--allow-active-commands`. Les mutations temporaires de configuration exigent
+en plus `--allow-configuration-mutations`, `--admin` et `--admin-pass` ; elles
+doivent être réservées à une instance jetable utilisant le simulateur.
+
+La suite active vérifie notamment :
 
 - l’authentification des deux utilisateurs ;
 - la lecture du parc ;
@@ -308,6 +322,8 @@ La taille totale d’une archive est limitée à 25 Mio et chaque entrée à 10 
 ## Contrat des futurs clients
 
 Le contrat HTTP est dans [`api/openapi.yaml`](api/openapi.yaml). Le contrat WebSocket est dans [`api/asyncapi.yaml`](api/asyncapi.yaml). Le format des archives est détaillé dans [`docs/ARCHIVE_FORMAT.md`](docs/ARCHIVE_FORMAT.md).
+La politique de version, de dépréciation et de migration est décrite dans
+[`docs/API_COMPATIBILITY.md`](docs/API_COMPATIBILITY.md).
 
 Règles structurantes :
 
@@ -320,7 +336,12 @@ Règles structurantes :
 7. Les événements WebSocket possèdent une séquence monotone pendant la vie du processus.
 8. Les comptes utilisateurs ne sont administrables que par le socket local du système d’exploitation.
 
-À l’ouverture du WebSocket, le serveur envoie un événement `system.snapshot` dont `sequence` est la séquence courante du bus. Si le client détecte un trou, il envoie :
+À l’ouverture du WebSocket, le serveur envoie un événement `system.snapshot`
+complet dont `sequence` est la séquence courante du bus. Il contient la
+centrale, son état, les locomotives, les leases de la session connectée, les
+cantons, les aiguillages et les itinéraires. Le client ignore tout événement
+de séquence inférieure ou égale au snapshot. S'il détecte ensuite un trou, il
+envoie :
 
 ```json
 {
@@ -329,7 +350,19 @@ Règles structurantes :
 }
 ```
 
-Le serveur répond par un nouveau `system.snapshot`. `lastSequence` est informatif dans la version actuelle : le serveur renvoie toujours l’état courant complet. Les messages `client.heartbeat` maintiennent la session authentifiée mais ne créent pas d’événement serveur et ne consomment donc pas de numéro de séquence. Aucun replay des événements intermédiaires n’est conservé actuellement.
+Le serveur répond par un nouveau `system.snapshot`. `lastSequence` est
+informatif dans la version actuelle : le serveur renvoie toujours l’état
+courant complet. Les messages `client.heartbeat` n'étendent ni le jeton
+d'accès ni un lease et ne consomment pas de numéro de séquence. Le WebSocket
+est fermé à l'expiration du jeton utilisé lors de son ouverture ; après un
+refresh, le client ouvre donc une nouvelle connexion avec le nouveau jeton.
+Un logout ou une révocation de session ferme également la connexion. Aucun
+replay des événements intermédiaires n’est conservé actuellement.
+
+La fermeture d'un WebSocket ne libère pas immédiatement les leases : une
+brève coupure réseau ne doit pas provoquer une perte de contrôle. Ils restent
+valides jusqu'à une libération explicite ou leur expiration par absence de
+heartbeat, qui déclenche l'arrêt contrôlé habituel.
 
 ## Configuration des centrales
 
@@ -386,7 +419,7 @@ Le socket Unix d’administration doit être protégé par les permissions du sy
 1. Valider les pilotes sur DCC-EX et z21 blanche réels.
 2. Ajouter la surveillance de disponibilité et la reconnexion au pilote DCC-EX.
 3. Étendre le parc au-delà des locomotives et compléter l’édition du plan de réseau.
-4. Ajouter les tests WebSocket de trou de séquence, reconnexion, duplication et snapshot concurrent.
+4. Ajouter les tests WebSocket restants pour doublons, événements anciens, snapshot concurrent et client lent.
 5. Étendre les archives aux ressources graphiques, images et futures migrations de format.
 6. Ajouter les signaux, les conflits d’itinéraires explicites et la libération progressive.
 7. Ajouter les tests matériels exécutés sur un banc dédié.

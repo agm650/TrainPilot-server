@@ -242,7 +242,7 @@ func (c *ControlService) rememberEmergencyStop(active bool) {
 
 func (c *ControlService) SetTrackPower(ctx context.Context, user model.User, enabled bool) error {
 	if !Allowed(user.Role, PermissionDrive) {
-		return errors.New("permission denied")
+		return ErrPermissionDenied
 	}
 	if !c.station.Capabilities().TrackPower {
 		return station.ErrUnsupported
@@ -302,7 +302,7 @@ func (c *ControlService) StationStatus(ctx context.Context) (station.Status, err
 
 func (c *ControlService) EmergencyStop(ctx context.Context, user model.User) error {
 	if !Allowed(user.Role, PermissionDrive) {
-		return errors.New("permission denied")
+		return ErrPermissionDenied
 	}
 	release, err := c.commands.acquire(ctx, true)
 	if err != nil {
@@ -324,7 +324,7 @@ func (c *ControlService) EmergencyStop(ctx context.Context, user model.User) err
 }
 func (c *ControlService) Acquire(ctx context.Context, user model.User, sess model.Session, locoID string) (model.ControlLease, error) {
 	if !Allowed(user.Role, PermissionDrive) {
-		return model.ControlLease{}, errors.New("permission denied")
+		return model.ControlLease{}, ErrPermissionDenied
 	}
 	if _, err := c.store.GetLocomotive(ctx, locoID); err != nil {
 		return model.ControlLease{}, err
@@ -348,19 +348,33 @@ func (c *ControlService) Heartbeat(ctx context.Context, id string, sess model.Se
 	}
 	return lease, err
 }
+
+func (c *ControlService) LeasesForSession(ctx context.Context, sess model.Session) ([]model.ControlLease, error) {
+	leases, err := c.store.LiveLeasesForSession(ctx, sess.ID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range leases {
+		leases[i].HeartbeatMillis = c.leaseTTL.Milliseconds() / 3
+	}
+	return leases, nil
+}
 func (c *ControlService) Release(ctx context.Context, id string, sess model.Session) error {
 	lease, err := c.store.GetLease(ctx, id)
 	if err != nil {
 		return err
 	}
 	if lease.SessionID != sess.ID {
-		return errors.New("lease is owned by another session")
+		return ErrLeaseNotOwned
 	}
 	return c.stopAndScheduleRelease(ctx, lease, "client_release")
 }
 func (c *ControlService) Throttle(ctx context.Context, user model.User, sess model.Session, locoID, leaseID string, speed int, direction station.Direction) error {
 	if speed < 0 || speed > 100 {
-		return errors.New("speed must be between 0 and 100")
+		return invalid("speed must be between 0 and 100")
+	}
+	if !direction.Valid() {
+		return invalid("direction must be forward or reverse")
 	}
 	loco, err := c.store.GetLocomotive(ctx, locoID)
 	if err != nil {
@@ -403,6 +417,13 @@ func (c *ControlService) Throttle(ctx context.Context, user model.User, sess mod
 	return nil
 }
 func (c *ControlService) Function(ctx context.Context, sess model.Session, locoID, leaseID string, fn int, on bool) error {
+	caps := c.station.Capabilities()
+	if caps.Functions <= 0 {
+		return invalid("station does not support locomotive functions")
+	}
+	if fn < 0 || fn > caps.MaxFunctionNumber {
+		return invalid(fmt.Sprintf("function must be between 0 and %d", caps.MaxFunctionNumber))
+	}
 	loco, err := c.store.GetLocomotive(ctx, locoID)
 	if err != nil {
 		return err

@@ -50,6 +50,15 @@ func (s *Store) SessionByAccessHash(ctx context.Context, hash string) (model.Ses
 	return sess, err
 }
 
+func (s *Store) SessionByID(ctx context.Context, id string) (model.Session, error) {
+	row := s.DB.QueryRowContext(ctx, `SELECT id,user_id,client_id,client_name,platform,access_token_hash,refresh_token_hash,access_expires_at,refresh_expires_at,created_at,last_seen_at,revoked_at FROM sessions WHERE id=?`, id)
+	sess, err := scanSession(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return sess, ErrNotFound
+	}
+	return sess, err
+}
+
 func (s *Store) SessionByRefreshHash(ctx context.Context, hash string) (model.Session, error) {
 	row := s.DB.QueryRowContext(ctx, `SELECT id,user_id,client_id,client_name,platform,access_token_hash,refresh_token_hash,access_expires_at,refresh_expires_at,created_at,last_seen_at,revoked_at FROM sessions WHERE refresh_token_hash=?`, hash)
 	sess, err := scanSession(row)

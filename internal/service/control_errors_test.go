@@ -9,8 +9,18 @@ import (
 
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/station"
+	"github.com/agm650/TrainPilot-server/internal/station/simulator"
 	"github.com/agm650/TrainPilot-server/internal/store"
 )
+
+type noFunctionStation struct{ *simulator.Simulator }
+
+func (s noFunctionStation) Capabilities() station.Capabilities {
+	capabilities := s.Simulator.Capabilities()
+	capabilities.Functions = 0
+	capabilities.MaxFunctionNumber = 0
+	return capabilities
+}
 
 func TestControlAcquireAndHeartbeatErrors(t *testing.T) {
 	ctx := context.Background()
@@ -58,6 +68,15 @@ func TestControlThrottleAndFunctionErrors(t *testing.T) {
 	}
 	if err := control.Throttle(ctx, user, sess, "loco-bb26001", "missing", 101, station.Forward); err == nil {
 		t.Fatal("speed above one accepted")
+	}
+	if err := control.Throttle(ctx, user, sess, "loco-bb26001", "missing", 50, station.Direction("sideways")); !errors.Is(err, ErrValidation) {
+		t.Fatalf("invalid direction error=%v", err)
+	}
+	if err := control.Function(ctx, sess, "loco-bb26001", "missing", -1, true); !errors.Is(err, ErrValidation) {
+		t.Fatalf("negative function error=%v", err)
+	}
+	if err := control.Function(ctx, sess, "loco-bb26001", "missing", 69, true); !errors.Is(err, ErrValidation) {
+		t.Fatalf("function above capabilities error=%v", err)
 	}
 	if err := control.SetTrackPower(ctx, user, true); err != nil {
 		t.Fatal(err)
@@ -110,6 +129,17 @@ func TestControlThrottleAndFunctionErrors(t *testing.T) {
 	}
 	if err := control.Function(ctx, sess, "loco-bb26001", lease.ID, 1, false); err == nil {
 		t.Fatal("released lease used for function")
+	}
+}
+
+func TestControlRejectsFunctionsWhenStationHasNoFunctionCapability(t *testing.T) {
+	sim := simulator.New()
+	if err := sim.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	control, _, _, _, _ := newControlFixtureWithStation(t, noFunctionStation{sim})
+	if err := control.Function(context.Background(), model.Session{ID: "session-1"}, "loco-bb26001", "missing", 0, true); !errors.Is(err, ErrValidation) {
+		t.Fatalf("function without capability error=%v", err)
 	}
 }
 

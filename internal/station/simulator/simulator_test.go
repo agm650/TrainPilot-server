@@ -35,7 +35,7 @@ func TestSimulatorLifecycleAndLocomotiveState(t *testing.T) {
 	if err := sim.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if caps := sim.Capabilities(); caps.Driver != "simulator" || !caps.TrackPower || !caps.LocomotiveControl || !caps.AccessoryControl || !caps.Feedback || caps.Functions != 68 {
+	if caps := sim.Capabilities(); caps.Driver != "simulator" || !caps.TrackPower || !caps.LocomotiveControl || !caps.AccessoryControl || !caps.Feedback || caps.Functions != 69 || caps.MaxFunctionNumber != 68 {
 		t.Fatalf("capabilities=%+v", caps)
 	}
 	if err := sim.SetTrackPower(ctx, true); err != nil {
@@ -47,11 +47,17 @@ func TestSimulatorLifecycleAndLocomotiveState(t *testing.T) {
 	if err := sim.SetLocoSpeed(ctx, 2601, 1.1, station.Forward); err == nil {
 		t.Fatal("speed above one accepted")
 	}
+	if err := sim.SetLocoSpeed(ctx, 2601, 0.5, station.Direction("sideways")); err != station.ErrUnsupported {
+		t.Fatalf("invalid direction error=%v", err)
+	}
 	if err := sim.SetLocoSpeed(ctx, 2601, 0.6, station.Reverse); err != nil {
 		t.Fatal(err)
 	}
 	if err := sim.SetLocoFunction(ctx, 2601, 2, true); err != nil {
 		t.Fatal(err)
+	}
+	if err := sim.SetLocoFunction(ctx, 2601, 69, true); err == nil {
+		t.Fatal("unsupported function accepted")
 	}
 	if err := sim.SetAccessory(ctx, 12, "diverging"); err != nil {
 		t.Fatal(err)

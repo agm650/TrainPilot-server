@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -62,20 +63,20 @@ func TestAuthenticationLifecycle(t *testing.T) {
 	if refreshed.AccessToken == pair.AccessToken || refreshed.RefreshToken == pair.RefreshToken || refreshed.SessionID != pair.SessionID {
 		t.Fatalf("refresh did not rotate tokens: old=%+v new=%+v", pair, refreshed)
 	}
-	if _, err := authSvc.Refresh(ctx, pair.RefreshToken); err == nil {
-		t.Fatal("old refresh token remained valid")
+	if _, err := authSvc.Refresh(ctx, pair.RefreshToken); !errors.Is(err, ErrInvalidRefreshToken) {
+		t.Fatalf("old refresh token error=%v", err)
 	}
-	if _, _, err := authSvc.Authenticate(ctx, pair.AccessToken); err == nil {
-		t.Fatal("old access token remained valid")
+	if _, _, err := authSvc.Authenticate(ctx, pair.AccessToken); !errors.Is(err, ErrInvalidAccessToken) {
+		t.Fatalf("old access token error=%v", err)
 	}
 	if err := authSvc.Logout(ctx, refreshed.SessionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := authSvc.Authenticate(ctx, refreshed.AccessToken); err == nil {
-		t.Fatal("revoked access token accepted")
+	if _, _, err := authSvc.Authenticate(ctx, refreshed.AccessToken); !errors.Is(err, ErrInvalidAccessToken) {
+		t.Fatalf("revoked access token error=%v", err)
 	}
-	if _, err := authSvc.Refresh(ctx, refreshed.RefreshToken); err == nil {
-		t.Fatal("revoked refresh token accepted")
+	if _, err := authSvc.Refresh(ctx, refreshed.RefreshToken); !errors.Is(err, ErrInvalidRefreshToken) {
+		t.Fatalf("revoked refresh token error=%v", err)
 	}
 }
 
@@ -87,12 +88,12 @@ func TestAuthenticationExpiryAndDisabledUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	clk.Advance(time.Second)
-	if _, _, err := authSvc.Authenticate(ctx, pair.AccessToken); err == nil {
-		t.Fatal("expired access token accepted")
+	if _, _, err := authSvc.Authenticate(ctx, pair.AccessToken); !errors.Is(err, ErrAccessTokenExpired) {
+		t.Fatalf("expired access token error=%v", err)
 	}
 	clk.Advance(time.Second)
-	if _, err := authSvc.Refresh(ctx, pair.RefreshToken); err == nil {
-		t.Fatal("expired refresh token accepted")
+	if _, err := authSvc.Refresh(ctx, pair.RefreshToken); !errors.Is(err, ErrRefreshTokenExpired) {
+		t.Fatalf("expired refresh token error=%v", err)
 	}
 
 	pair, err = authSvc.Login(ctx, "alice", "correct-horse-1", "client-2", "Client 2", "test")

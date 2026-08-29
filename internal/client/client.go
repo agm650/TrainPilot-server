@@ -28,9 +28,33 @@ type HTTPError struct {
 	StatusCode int
 	Status     string
 	Body       string
+	Problem    *Problem
 }
 
-func (e *HTTPError) Error() string { return fmt.Sprintf("%s: %s", e.Status, e.Body) }
+type Problem struct {
+	Type     string `json:"type"`
+	Title    string `json:"title"`
+	Status   int    `json:"status"`
+	Detail   string `json:"detail"`
+	Code     string `json:"code"`
+	Category string `json:"category"`
+}
+
+type SystemInfo struct {
+	ServerVersion                string               `json:"serverVersion"`
+	APIVersion                   string               `json:"apiVersion"`
+	MinimumClientAPIVersion      string               `json:"minimumClientApiVersion"`
+	EventAPIVersion              string               `json:"eventApiVersion"`
+	MinimumClientEventAPIVersion string               `json:"minimumClientEventApiVersion"`
+	Station                      station.Capabilities `json:"station"`
+}
+
+func (e *HTTPError) Error() string {
+	if e.Problem != nil && e.Problem.Code != "" {
+		return fmt.Sprintf("%s [%s]: %s", e.Status, e.Problem.Code, e.Problem.Detail)
+	}
+	return fmt.Sprintf("%s: %s", e.Status, e.Body)
+}
 
 func New(base string) *Client {
 	return &Client{BaseURL: strings.TrimRight(base, "/"), HTTP: &http.Client{Timeout: 10 * time.Second}}
@@ -61,7 +85,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) (in
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, &HTTPError{StatusCode: resp.StatusCode, Status: resp.Status, Body: string(b)}
+		return resp.StatusCode, newHTTPError(resp.StatusCode, resp.Status, b)
 	}
 	if out != nil && resp.StatusCode != http.StatusNoContent {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
@@ -69,6 +93,25 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) (in
 		}
 	}
 	return resp.StatusCode, nil
+}
+
+func newHTTPError(statusCode int, status string, body []byte) *HTTPError {
+	httpErr := &HTTPError{StatusCode: statusCode, Status: status, Body: string(body)}
+	var problem Problem
+	if json.Unmarshal(body, &problem) == nil && problem.Status != 0 {
+		httpErr.Problem = &problem
+	}
+	return httpErr
+}
+func (c *Client) SystemInfo(ctx context.Context) (SystemInfo, error) {
+	var out SystemInfo
+	_, err := c.Do(ctx, http.MethodGet, "/api/v1/system/info", nil, &out)
+	return out, err
+}
+func (c *Client) Me(ctx context.Context) (model.User, error) {
+	var out model.User
+	_, err := c.Do(ctx, http.MethodGet, "/api/v1/me", nil, &out)
+	return out, err
 }
 func (c *Client) Refresh(ctx context.Context, refreshToken string) (service.TokenPair, error) {
 	var pair service.TokenPair
@@ -131,6 +174,19 @@ func (c *Client) Release(ctx context.Context, lease string) error {
 	_, err := c.Do(ctx, "DELETE", "/api/v1/control-leases/"+url.PathEscape(lease), nil, nil)
 	return err
 }
+func (c *Client) Heartbeat(ctx context.Context, lease string) (model.ControlLease, error) {
+	var out model.ControlLease
+	_, err := c.Do(ctx, http.MethodPut, "/api/v1/control-leases/"+url.PathEscape(lease)+"/heartbeat", nil, &out)
+	return out, err
+}
+func (c *Client) Logout(ctx context.Context) error {
+	_, err := c.Do(ctx, http.MethodPost, "/api/v1/auth/logout", nil, nil)
+	if err == nil {
+		c.AccessToken = ""
+		c.RefreshToken = ""
+	}
+	return err
+}
 func (c *Client) SetTrackPower(ctx context.Context, enabled bool) error {
 	_, err := c.Do(ctx, http.MethodPut, "/api/v1/track-power", map[string]any{"enabled": enabled}, nil)
 	return err
@@ -140,8 +196,57 @@ func (c *Client) StationStatus(ctx context.Context) (station.Status, error) {
 	_, err := c.Do(ctx, http.MethodGet, "/api/v1/station/status", nil, &out)
 	return out, err
 }
+func (c *Client) TrackPowerStatus(ctx context.Context) (station.Status, error) {
+	var out station.Status
+	_, err := c.Do(ctx, http.MethodGet, "/api/v1/track-power", nil, &out)
+	return out, err
+}
 func (c *Client) EmergencyStop(ctx context.Context) error {
 	_, err := c.Do(ctx, http.MethodPost, "/api/v1/emergency-stop", nil, nil)
+	return err
+}
+
+func (c *Client) Blocks(ctx context.Context) ([]model.Block, error) {
+	var out struct {
+		Items []model.Block `json:"items"`
+	}
+	_, err := c.Do(ctx, http.MethodGet, "/api/v1/blocks", nil, &out)
+	return out.Items, err
+}
+
+func (c *Client) Turnouts(ctx context.Context) ([]model.Turnout, error) {
+	var out struct {
+		Items []model.Turnout `json:"items"`
+	}
+	_, err := c.Do(ctx, http.MethodGet, "/api/v1/turnouts", nil, &out)
+	return out.Items, err
+}
+
+func (c *Client) SetTurnout(ctx context.Context, id, state string) error {
+	_, err := c.Do(ctx, http.MethodPut, "/api/v1/turnouts/"+url.PathEscape(id), map[string]any{"state": state}, nil)
+	return err
+}
+
+func (c *Client) Routes(ctx context.Context) ([]model.Route, error) {
+	var out struct {
+		Items []model.Route `json:"items"`
+	}
+	_, err := c.Do(ctx, http.MethodGet, "/api/v1/routes", nil, &out)
+	return out.Items, err
+}
+
+func (c *Client) ReserveRoute(ctx context.Context, id string) error {
+	_, err := c.Do(ctx, http.MethodPost, "/api/v1/routes/"+url.PathEscape(id)+"/reserve", nil, nil)
+	return err
+}
+
+func (c *Client) ActivateRoute(ctx context.Context, id string) error {
+	_, err := c.Do(ctx, http.MethodPost, "/api/v1/routes/"+url.PathEscape(id)+"/activate", nil, nil)
+	return err
+}
+
+func (c *Client) ReleaseRoute(ctx context.Context, id string) error {
+	_, err := c.Do(ctx, http.MethodPost, "/api/v1/routes/"+url.PathEscape(id)+"/release", nil, nil)
 	return err
 }
 
@@ -177,7 +282,7 @@ func (c *Client) download(ctx context.Context, path string) ([]byte, error) {
 		return nil, err
 	}
 	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("%s: %s", resp.Status, string(data))
+		return nil, newHTTPError(resp.StatusCode, resp.Status, data)
 	}
 	return data, nil
 }
@@ -196,7 +301,7 @@ func (c *Client) upload(ctx context.Context, path string, archive []byte) error 
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		data, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("%s: %s", resp.Status, string(data))
+		return newHTTPError(resp.StatusCode, resp.Status, data)
 	}
 	return nil
 }

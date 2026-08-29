@@ -4,11 +4,13 @@
 - Les access tokens et refresh tokens sont aléatoires et seuls leurs condensats SHA-256 sont persistés.
 - Les refresh tokens sont tournés à chaque renouvellement.
 - La désactivation d’un utilisateur révoque toutes ses sessions.
+- Un WebSocket ferme à l'expiration de son jeton d'ouverture ou après la révocation de sa session.
 - L’administration des utilisateurs n’est pas routée sur le serveur HTTP public.
 - Le socket Unix utilise les permissions du système d’exploitation comme frontière d’administration.
 - Les commandes de conduite vérifient le propriétaire du lease et la session.
 - Les corps HTTP sont limités à 1 Mio et les champs JSON inconnus sont refusés sur les commandes sensibles.
 - Les messages WebSocket sont limités à 1 Mio.
+- Les erreurs publiques utilisent des catégories et codes stables ; les détails d'erreur interne sont masqués.
 
 ## Durcissements avant production
 

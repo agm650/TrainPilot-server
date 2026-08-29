@@ -52,8 +52,25 @@ func (s *Store) LiveLeaseForLoco(ctx context.Context, locoID string) (model.Cont
 	}
 	return l, err
 }
+
+func (s *Store) LiveLeasesForSession(ctx context.Context, sessionID string) ([]model.ControlLease, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT id,locomotive_id,user_id,session_id,state,acquired_at,renewed_at,expires_at,release_after,release_reason FROM control_leases WHERE session_id=? AND state IN ('active','stopping') ORDER BY acquired_at`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	leases := make([]model.ControlLease, 0)
+	for rows.Next() {
+		lease, err := scanLease(rows)
+		if err != nil {
+			return nil, err
+		}
+		leases = append(leases, lease)
+	}
+	return leases, rows.Err()
+}
 func (s *Store) HeartbeatLease(ctx context.Context, id, sessionID string, renewed, expires time.Time) error {
-	res, err := s.DB.ExecContext(ctx, `UPDATE control_leases SET renewed_at=?,expires_at=? WHERE id=? AND session_id=? AND state='active'`, timeText(renewed), timeText(expires), id, sessionID)
+	res, err := s.DB.ExecContext(ctx, `UPDATE control_leases SET renewed_at=?,expires_at=? WHERE id=? AND session_id=? AND state='active' AND expires_at>?`, timeText(renewed), timeText(expires), id, sessionID, timeText(renewed))
 	if err != nil {
 		return err
 	}

@@ -10,6 +10,8 @@ All notable changes to this project will be documented in this file.
 - Les heartbeats WebSocket client ne consomment plus de séquence d’événement serveur.
 - Les arrêts d'urgence, coupures de puissance et vitesses nulles préemptent désormais les commandes de traction ou de fonctions en attente.
 - Les commandes de conduite sont explicitement inhibées tant que l'arrêt d'urgence reste actif ou que la puissance est coupée ou inconnue.
+- Un heartbeat de lease envoyé à son instant d'expiration ne peut plus réactiver une réservation expirée.
+- Les jetons révoqués sont distingués des jetons réellement expirés sans exposer de détail interne.
 
 ### Added
 
@@ -27,6 +29,10 @@ All notable changes to this project will be documented in this file.
 - Snapshot WebSocket à la connexion et resynchronisation via `client.snapshot_request`.
 - Construction macOS/Linux sans CGO et archives GoReleaser v2.
 - Exemple de service systemd et configuration Linux.
+- Snapshot WebSocket complet et filtré par session, tests de trou de séquence, resynchronisation, reconnexion et expiration du jeton.
+- Catégories et codes d'erreur stables pour l'authentification, l'autorisation, la validation, la sécurité et l'indisponibilité de la centrale.
+- Inventaire vérifié des endpoints publics et scénarios de conformité passifs, actifs et de mutation de configuration.
+- Politique de compatibilité et de migration séparée pour HTTP et WebSocket.
 
 ### Changed
 
@@ -34,6 +40,9 @@ All notable changes to this project will be documented in this file.
 - Une commande de traction ou de fonction valide renouvelle désormais le lease de conduite.
 - Le snapshot WebSocket inclut les capacités et l’état courant de la centrale.
 - Le contrat OpenAPI passe à la version 1.3.0 et documente les codes d'erreur de sécurité stables.
+- Le contrat AsyncAPI passe à la version 1.4.0 et décrit tous les payloads d'événements ainsi que la resynchronisation complète.
+- Les capacités de centrale exposent désormais `maxFunctionNumber` ; `functions` reste le nombre de fonctions pour compatibilité.
+- Une connexion WebSocket expire avec le jeton d'accès utilisé à son ouverture et ferme après révocation de session ; sa fermeture ne libère pas automatiquement les leases.
 
 ## v0.0.1
 

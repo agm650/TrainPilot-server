@@ -13,7 +13,7 @@ const archiveContentType = "application/vnd.dcc-control.package+zip"
 func (s *Server) exportRollingStock(w http.ResponseWriter, r *http.Request) {
 	data, err := s.transfer.ExportRollingStock(r.Context())
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "export_failed", err.Error())
+		writeOperationProblem(w, err, "rolling_stock_export_failed")
 		return
 	}
 	writeArchive(w, "rolling-stock.dcclib", data)
@@ -29,7 +29,7 @@ func (s *Server) importRollingStock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.transfer.ImportRollingStock(r.Context(), userFrom(r), data, replace); err != nil {
-		writeProblem(w, statusFor(err), "import_failed", err.Error())
+		writeOperationProblem(w, err, "rolling_stock_import_failed")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -38,7 +38,7 @@ func (s *Server) importRollingStock(w http.ResponseWriter, r *http.Request) {
 func (s *Server) exportLayout(w http.ResponseWriter, r *http.Request) {
 	data, err := s.transfer.ExportLayout(r.Context())
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "export_failed", err.Error())
+		writeOperationProblem(w, err, "layout_export_failed")
 		return
 	}
 	writeArchive(w, "layout.dcclayout", data)
@@ -54,7 +54,7 @@ func (s *Server) importLayout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.transfer.ImportLayout(r.Context(), userFrom(r), data, replace); err != nil {
-		writeProblem(w, statusFor(err), "import_failed", err.Error())
+		writeOperationProblem(w, err, "layout_import_failed")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

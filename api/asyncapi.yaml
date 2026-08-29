@@ -1,8 +1,13 @@
 asyncapi: 3.0.0
 info:
   title: DCC Control Server Events
-  version: 1.3.0
-  description: WebSocket event contract for native clients, including sequenced snapshots and explicit resynchronization requests.
+  version: 1.4.0
+  description: >-
+    WebSocket event contract for native clients, including complete sequenced
+    snapshots and explicit resynchronization requests. After a snapshot, clients
+    ignore queued events whose sequence is less than or equal to the snapshot
+    sequence. A sequence gap requires client.snapshot_request. The connection
+    closes when the opening access token expires or the session is revoked.
 servers:
   local:
     host: 127.0.0.1:8080
@@ -83,12 +88,13 @@ components:
         payload: { type: object }
     StationCapabilities:
       type: object
-      required: [driver, trackPower, locomotiveControl, functions, accessoryControl, feedback]
+      required: [driver, trackPower, locomotiveControl, functions, maxFunctionNumber, accessoryControl, feedback]
       properties:
         driver: { type: string, enum: [simulator, dccex, z21] }
         trackPower: { type: boolean }
         locomotiveControl: { type: boolean }
         functions: { type: integer, minimum: 0 }
+        maxFunctionNumber: { type: integer, minimum: 0 }
         accessoryControl: { type: boolean }
         feedback: { type: boolean }
     StationStatus:
@@ -138,24 +144,81 @@ components:
         acquiredAt: { type: string, format: date-time }
         renewedAt: { type: string, format: date-time }
         expiresAt: { type: string, format: date-time }
+        releaseAfter: { type: string, format: date-time }
+        releaseReason: { type: string }
+        heartbeatMillis: { type: integer, minimum: 0 }
+    Locomotive:
+      type: object
+      required: [id, name, dccAddress, addressKind, speedSteps]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        dccAddress: { type: integer, minimum: 1, maximum: 10239 }
+        addressKind: { type: string, enum: [short, long] }
+        speedSteps: { type: integer, enum: [14, 28, 128] }
+        manufacturer: { type: string }
+        model: { type: string }
+    Block:
+      type: object
+      required: [id, name, occupied]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        occupied: { type: boolean }
+    Turnout:
+      type: object
+      required: [id, name, dccAddress, desiredState, reportedState]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        dccAddress: { type: integer, minimum: 1 }
+        desiredState: { type: string, enum: [straight, diverging] }
+        reportedState: { type: string, enum: [straight, diverging, unknown] }
+    Route:
+      type: object
+      required: [id, name, state]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        state: { type: string, enum: [idle, reserved, active] }
+        reservedBySession: { type: string }
   messages:
     SystemSnapshot:
       name: system.snapshot
+      description: >-
+        Complete state required by an authenticated client. controlLeases contains
+        only live leases owned by the authenticated session.
       payload:
         type: object
-        required: [type, sequence, payload]
+        required: [type, sequence, capturedAt, payload]
         properties:
           type: { const: system.snapshot }
           sequence:
             type: integer
             minimum: 0
             description: Current global event sequence captured before the snapshot state is read.
+          capturedAt: { type: string, format: date-time }
           payload:
             type: object
-            required: [station, stationStatus]
+            required: [station, stationStatus, locomotives, controlLeases, blocks, turnouts, routes]
             properties:
               station: { $ref: '#/components/schemas/StationCapabilities' }
               stationStatus: { $ref: '#/components/schemas/StationStatus' }
+              locomotives:
+                type: array
+                items: { $ref: '#/components/schemas/Locomotive' }
+              controlLeases:
+                type: array
+                items: { $ref: '#/components/schemas/LeasePayload' }
+              blocks:
+                type: array
+                items: { $ref: '#/components/schemas/Block' }
+              turnouts:
+                type: array
+                items: { $ref: '#/components/schemas/Turnout' }
+              routes:
+                type: array
+                items: { $ref: '#/components/schemas/Route' }
     StationStatusChanged:
       name: station.status.changed
       payload:
@@ -172,7 +235,9 @@ components:
                   lastSeen: { type: string, format: date-time }
     ClientHeartbeat:
       name: client.heartbeat
-      description: Keeps the authenticated session alive without consuming a server event sequence.
+      description: >-
+        Updates session activity without extending access-token expiry and without
+        consuming a server event sequence. It does not renew locomotive leases.
       payload:
         type: object
         required: [type]
@@ -189,7 +254,7 @@ components:
           lastSequence:
             type: integer
             minimum: 0
-            description: Last sequence successfully applied by the client. It is informational in version 1.3.0.
+            description: Last sequence successfully applied by the client. It is diagnostic in version 1.4.0.
     LocomotiveCreated:
       name: locomotive.created
       payload:
@@ -198,6 +263,7 @@ components:
           - type: object
             properties:
               type: { const: locomotive.created }
+              payload: { $ref: '#/components/schemas/Locomotive' }
     LocomotiveUpdated:
       name: locomotive.updated
       payload:
@@ -206,6 +272,7 @@ components:
           - type: object
             properties:
               type: { const: locomotive.updated }
+              payload: { $ref: '#/components/schemas/Locomotive' }
     LocomotiveDeleted:
       name: locomotive.deleted
       payload:
@@ -214,6 +281,11 @@ components:
           - type: object
             properties:
               type: { const: locomotive.deleted }
+              payload:
+                type: object
+                required: [locomotiveId]
+                properties:
+                  locomotiveId: { type: string }
     LocomotiveControlAcquired:
       name: locomotive.control.acquired
       payload:
@@ -272,6 +344,13 @@ components:
           - type: object
             properties:
               type: { const: locomotive.function.changed }
+              payload:
+                type: object
+                required: [locomotiveId, function, enabled]
+                properties:
+                  locomotiveId: { type: string }
+                  function: { type: integer, minimum: 0 }
+                  enabled: { type: boolean }
     TrackPowerChanged:
       name: track.power.changed
       description: >-
@@ -328,27 +407,52 @@ components:
           - type: object
             properties:
               type: { const: turnout.state.changed }
+              payload:
+                type: object
+                required: [turnoutId, state]
+                properties:
+                  turnoutId: { type: string }
+                  state: { type: string, enum: [straight, diverging] }
     RouteReserved:
       name: route.reserved
       payload:
         allOf:
           - $ref: '#/components/schemas/EventEnvelope'
           - type: object
-            properties: { type: { const: route.reserved } }
+            properties:
+              type: { const: route.reserved }
+              payload:
+                type: object
+                required: [routeId, sessionId]
+                properties:
+                  routeId: { type: string }
+                  sessionId: { type: string, format: uuid }
     RouteActivated:
       name: route.activated
       payload:
         allOf:
           - $ref: '#/components/schemas/EventEnvelope'
           - type: object
-            properties: { type: { const: route.activated } }
+            properties:
+              type: { const: route.activated }
+              payload:
+                type: object
+                required: [routeId]
+                properties:
+                  routeId: { type: string }
     RouteReleased:
       name: route.released
       payload:
         allOf:
           - $ref: '#/components/schemas/EventEnvelope'
           - type: object
-            properties: { type: { const: route.released } }
+            properties:
+              type: { const: route.released }
+              payload:
+                type: object
+                required: [routeId]
+                properties:
+                  routeId: { type: string }
     RollingStockImported:
       name: rolling-stock.imported
       payload:
