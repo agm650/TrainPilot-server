@@ -274,6 +274,9 @@ components:
               type: { const: locomotive.function.changed }
     TrackPowerChanged:
       name: track.power.changed
+      description: >-
+        Reports a power command or observed power change. A successful power-on is
+        the explicit action that clears the server emergency-stop interlock.
       payload:
         allOf:
           - $ref: '#/components/schemas/EventEnvelope'
@@ -288,6 +291,9 @@ components:
                   userId: { type: string, format: uuid }
     TrackEmergencyStop:
       name: track.emergency_stop
+      description: >-
+        Reports activation of the emergency-stop interlock, or its release after a
+        successful explicit power-on command.
       payload:
         allOf:
           - $ref: '#/components/schemas/EventEnvelope'

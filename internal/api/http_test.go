@@ -75,6 +75,10 @@ func TestDecodeJSONAndStatusMapping(t *testing.T) {
 		{errors.New("archive is missing manifest"), http.StatusBadRequest},
 		{errors.New("station disconnected"), http.StatusConflict},
 		{station.ErrOffline, http.StatusServiceUnavailable},
+		{service.ErrEmergencyStopActive, http.StatusConflict},
+		{service.ErrTrackPowerOff, http.StatusConflict},
+		{service.ErrTrackPowerUnknown, http.StatusConflict},
+		{service.ErrSafetyPreempted, http.StatusConflict},
 	}
 	for _, tc := range cases {
 		if got := statusFor(tc.err); got != tc.want {
@@ -83,18 +87,33 @@ func TestDecodeJSONAndStatusMapping(t *testing.T) {
 	}
 }
 
-func TestStationOfflineProblem(t *testing.T) {
-	recorder := httptest.NewRecorder()
-	writeOperationProblem(recorder, station.ErrOffline, "throttle_failed")
-	if recorder.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status=%d", recorder.Code)
-	}
-	var got problem
-	if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Code != "station_offline" || got.Detail != "command station is offline" {
-		t.Fatalf("problem=%+v", got)
+func TestOperationProblemsUseStableCodes(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{"station offline", station.ErrOffline, http.StatusServiceUnavailable, "station_offline"},
+		{"emergency stop", service.ErrEmergencyStopActive, http.StatusConflict, "emergency_stop_active"},
+		{"track power off", service.ErrTrackPowerOff, http.StatusConflict, "track_power_off"},
+		{"track power unknown", service.ErrTrackPowerUnknown, http.StatusConflict, "track_power_unknown"},
+		{"safety preemption", service.ErrSafetyPreempted, http.StatusConflict, "safety_command_preempted"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			writeOperationProblem(recorder, tc.err, "operation_failed")
+			if recorder.Code != tc.wantStatus {
+				t.Fatalf("status=%d want=%d", recorder.Code, tc.wantStatus)
+			}
+			var got problem
+			if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if got.Code != tc.wantCode || got.Detail != tc.err.Error() {
+				t.Fatalf("problem=%+v", got)
+			}
+		})
 	}
 }
 
@@ -153,6 +172,11 @@ func TestHTTPHandlersCoverSuccessAndErrorPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertProblemCode(t, server.URL, http.MethodPut, "/api/v1/locomotives/"+locos[0].ID+"/throttle", "Bearer "+dispatcher.AccessToken, []byte(`{"leaseId":"`+lease.ID+`","speed":30,"direction":"forward"}`), http.StatusConflict, "emergency_stop_active")
+	assertStatus(t, server.URL, http.MethodPut, "/api/v1/track-power", "Bearer "+dispatcher.AccessToken, []byte(`{"enabled":true}`), http.StatusNoContent)
+	assertStatus(t, server.URL, http.MethodPut, "/api/v1/locomotives/"+locos[0].ID+"/throttle", "Bearer "+dispatcher.AccessToken, []byte(`{"leaseId":"`+lease.ID+`","speed":30,"direction":"forward"}`), http.StatusNoContent)
+	assertStatus(t, server.URL, http.MethodPut, "/api/v1/track-power", "Bearer "+dispatcher.AccessToken, []byte(`{"enabled":false}`), http.StatusNoContent)
+	assertProblemCode(t, server.URL, http.MethodPut, "/api/v1/locomotives/"+locos[0].ID+"/functions/1", "Bearer "+dispatcher.AccessToken, []byte(`{"leaseId":"`+lease.ID+`","enabled":true}`), http.StatusConflict, "track_power_off")
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/locomotives/"+locos[0].ID+"/throttle", "Bearer "+dispatcher.AccessToken, []byte(`{"leaseId":"`+lease.ID+`","speed":0.5,"direction":"forward"}`), http.StatusBadRequest)
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/locomotives/"+locos[0].ID+"/throttle", "Bearer "+dispatcher.AccessToken, []byte(`{"leaseId":"`+lease.ID+`","speed":101,"direction":"forward"}`), http.StatusBadRequest)
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/locomotives/"+locos[0].ID+"/throttle", "Bearer "+dispatcher.AccessToken, []byte(`{"leaseId":"`+lease.ID+`","speed":30,"direction":"sideways"}`), http.StatusBadRequest)
@@ -163,6 +187,28 @@ func TestHTTPHandlersCoverSuccessAndErrorPaths(t *testing.T) {
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/auth/refresh", "", []byte(`{"refreshToken":"invalid"}`), http.StatusUnauthorized)
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/auth/logout", "Bearer "+dispatcher.AccessToken, nil, http.StatusNoContent)
 	assertStatus(t, server.URL, http.MethodGet, "/api/v1/me", "Bearer "+dispatcher.AccessToken, nil, http.StatusUnauthorized)
+}
+
+func assertProblemCode(t *testing.T, baseURL, method, path, authorization string, body []byte, wantStatus int, wantCode string) {
+	t.Helper()
+	req, err := http.NewRequest(method, baseURL+path, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", authorization)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var got problem
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != wantStatus || got.Code != wantCode {
+		t.Fatalf("%s %s status=%d code=%q want status=%d code=%q", method, path, resp.StatusCode, got.Code, wantStatus, wantCode)
+	}
 }
 
 func newHTTPFixture(t *testing.T) (*httptest.Server, *client.Client, *client.Client) {

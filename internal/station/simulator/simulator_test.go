@@ -75,6 +75,23 @@ func TestSimulatorLifecycleAndLocomotiveState(t *testing.T) {
 	if got := sim.Loco(2601).Speed; got != 0 {
 		t.Fatalf("speed after emergency stop=%v", got)
 	}
+	status, err := sim.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.EmergencyStop {
+		t.Fatal("emergency stop is not reflected in simulator status")
+	}
+	if err := sim.SetTrackPower(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	status, err = sim.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.EmergencyStop {
+		t.Fatal("power-on did not clear the simulator emergency-stop latch")
+	}
 	if err := sim.Close(); err != nil {
 		t.Fatal(err)
 	}

@@ -19,6 +19,7 @@ type Simulator struct {
 	mu          sync.RWMutex
 	connected   bool
 	power       bool
+	emergency   bool
 	locos       map[int]*LocoState
 	accessories map[int]string
 	feedback    chan station.FeedbackEvent
@@ -50,6 +51,9 @@ func (s *Simulator) SetTrackPower(_ context.Context, on bool) error {
 		return err
 	}
 	s.power = on
+	if on {
+		s.emergency = false
+	}
 	return nil
 }
 func (s *Simulator) EmergencyStop(context.Context) error {
@@ -61,6 +65,7 @@ func (s *Simulator) EmergencyStop(context.Context) error {
 	for _, l := range s.locos {
 		l.Speed = 0
 	}
+	s.emergency = true
 	return nil
 }
 func (s *Simulator) Status(context.Context) (station.Status, error) {
@@ -74,7 +79,7 @@ func (s *Simulator) Status(context.Context) (station.Status, error) {
 		power = "on"
 	}
 	health := s.healthLocked()
-	return station.Status{Connectivity: health.Connectivity, LastSeen: health.LastSeen, TrackPower: power}, nil
+	return station.Status{Connectivity: health.Connectivity, LastSeen: health.LastSeen, TrackPower: power, EmergencyStop: s.emergency}, nil
 }
 func (s *Simulator) Health() station.Health {
 	s.mu.RLock()

@@ -59,6 +59,9 @@ func TestControlThrottleAndFunctionErrors(t *testing.T) {
 	if err := control.Throttle(ctx, user, sess, "loco-bb26001", "missing", 101, station.Forward); err == nil {
 		t.Fatal("speed above one accepted")
 	}
+	if err := control.SetTrackPower(ctx, user, true); err != nil {
+		t.Fatal(err)
+	}
 	if err := control.Throttle(ctx, user, sess, "loco-bb26001", "missing", 50, station.Forward); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("missing lease error=%v", err)
 	}

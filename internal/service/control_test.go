@@ -17,6 +17,17 @@ import (
 func newControlFixture(t *testing.T) (*ControlService, *store.Store, *simulator.Simulator, *clock.Fake, model.User, model.Session) {
 	t.Helper()
 	ctx := context.Background()
+	sim := simulator.New()
+	if err := sim.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	control, db, clk, user, sess := newControlFixtureWithStation(t, sim)
+	return control, db, sim, clk, user, sess
+}
+
+func newControlFixtureWithStation(t *testing.T, commandStation station.CommandStation) (*ControlService, *store.Store, *clock.Fake, model.User, model.Session) {
+	t.Helper()
+	ctx := context.Background()
 	db, err := store.Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -35,17 +46,16 @@ func newControlFixture(t *testing.T) (*ControlService, *store.Store, *simulator.
 	if err := db.CreateSession(ctx, sess); err != nil {
 		t.Fatal(err)
 	}
-	sim := simulator.New()
-	if err := sim.Connect(ctx); err != nil {
-		t.Fatal(err)
-	}
-	control := NewControlService(db, sim, events.New(), clk, 15*time.Second, 2*time.Second, time.Hour)
-	return control, db, sim, clk, user, sess
+	control := NewControlService(db, commandStation, events.New(), clk, 15*time.Second, 2*time.Second, time.Hour)
+	return control, db, clk, user, sess
 }
 
 func TestLeaseExpirationStopsBeforeRelease(t *testing.T) {
 	ctx := context.Background()
 	control, db, sim, clk, user, sess := newControlFixture(t)
+	if err := control.SetTrackPower(ctx, user, true); err != nil {
+		t.Fatal(err)
+	}
 	lease, err := control.Acquire(ctx, user, sess, "loco-bb26001")
 	if err != nil {
 		t.Fatal(err)
@@ -164,6 +174,9 @@ func TestTrackPowerAndEmergencyStop(t *testing.T) {
 func TestThrottleExtendsLeaseFromLastUse(t *testing.T) {
 	ctx := context.Background()
 	control, db, _, clk, user, sess := newControlFixture(t)
+	if err := control.SetTrackPower(ctx, user, true); err != nil {
+		t.Fatal(err)
+	}
 	lease, err := control.Acquire(ctx, user, sess, "loco-bb26001")
 	if err != nil {
 		t.Fatal(err)
@@ -194,6 +207,9 @@ func TestThrottleExtendsLeaseFromLastUse(t *testing.T) {
 func TestThrottleCannotReviveExpiredUnsweptLease(t *testing.T) {
 	ctx := context.Background()
 	control, db, sim, clk, user, sess := newControlFixture(t)
+	if err := control.SetTrackPower(ctx, user, true); err != nil {
+		t.Fatal(err)
+	}
 	lease, err := control.Acquire(ctx, user, sess, "loco-bb26001")
 	if err != nil {
 		t.Fatal(err)

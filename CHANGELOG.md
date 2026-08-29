@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 - Les snapshots WebSocket utilisent la séquence courante du bus au lieu d’une valeur constante.
 - Les heartbeats WebSocket client ne consomment plus de séquence d’événement serveur.
+- Les arrêts d'urgence, coupures de puissance et vitesses nulles préemptent désormais les commandes de traction ou de fonctions en attente.
+- Les commandes de conduite sont explicitement inhibées tant que l'arrêt d'urgence reste actif ou que la puissance est coupée ou inconnue.
 
 ### Added
 
@@ -31,7 +33,7 @@ All notable changes to this project will be documented in this file.
 - SQLite utilise le pilote pur Go `modernc.org/sqlite`.
 - Une commande de traction ou de fonction valide renouvelle désormais le lease de conduite.
 - Le snapshot WebSocket inclut les capacités et l’état courant de la centrale.
-- Le contrat AsyncAPI passe à la version 1.3.0.
+- Le contrat OpenAPI passe à la version 1.3.0 et documente les codes d'erreur de sécurité stables.
 
 ## v0.0.1
 

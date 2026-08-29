@@ -266,6 +266,15 @@ continuent en permanence, y compris hors ligne. Les commandes actives sont
 refusées en état `offline` avec HTTP 503 et le code `station_offline`, mais
 restent autorisées en état `degraded`.
 
+Les commandes de sécurité sont arbitrées avant les commandes ordinaires : un
+arrêt d'urgence, une coupure de puissance ou un `throttle` à vitesse zéro déjà
+en attente passe avant les nouveaux ordres de traction ou de fonctions. Après
+un arrêt d'urgence, les vitesses positives et les fonctions restent inhibées
+jusqu'à la réussite d'un ordre explicite `power on`. Elles sont également
+refusées lorsque la puissance est coupée ou encore inconnue. L'API retourne
+alors HTTP 409 avec un code stable parmi `emergency_stop_active`,
+`track_power_off`, `track_power_unknown` et `safety_command_preempted`.
+
 Une commande `throttle` ou de fonction valide repousse l'expiration du lease
 de 10 minutes. Sans activité ni heartbeat pendant ce délai, le serveur lance
 l'arrêt contrôlé puis libère le lease. `throttle` n'acquiert jamais
@@ -306,9 +315,10 @@ Règles structurantes :
 2. Une commande de conduite nécessite une session valide et un lease actif appartenant à cette session.
 3. Une locomotive ne peut avoir qu’un lease vivant (`active` ou `stopping`).
 4. Une commande de conduite valide renouvelle le lease ; après 10 minutes d'inactivité, il passe d’abord à `stopping`, une vitesse nulle est envoyée, puis il devient `released` après le délai de sécurité.
-5. Les actions d’itinéraire sont refusées si un canton est occupé ou si un itinéraire incompatible est actif.
-6. Les événements WebSocket possèdent une séquence monotone pendant la vie du processus.
-7. Les comptes utilisateurs ne sont administrables que par le socket local du système d’exploitation.
+5. Les commandes de sécurité préemptent les commandes de conduite en attente et aucune reprise après arrêt d’urgence n’est implicite.
+6. Les actions d’itinéraire sont refusées si un canton est occupé ou si un itinéraire incompatible est actif.
+7. Les événements WebSocket possèdent une séquence monotone pendant la vie du processus.
+8. Les comptes utilisateurs ne sont administrables que par le socket local du système d’exploitation.
 
 À l’ouverture du WebSocket, le serveur envoie un événement `system.snapshot` dont `sequence` est la séquence courante du bus. Si le client détecte un trou, il envoie :
 

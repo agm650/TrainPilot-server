@@ -3,7 +3,7 @@
 ## Niveaux
 
 - **Unitaires et composants** : fonctions de mot de passe, matrice de permissions, utilisateurs, leases, état de centrale, bus d’événements, feedback, itinéraires, archives, simulateur et codecs des pilotes.
-- **Concurrence** : deux acquisitions simultanées doivent produire exactement un gagnant.
+- **Concurrence** : deux acquisitions simultanées doivent produire exactement un gagnant ; une commande de sécurité en attente doit préempter les nouveaux ordres de conduite.
 - **Intégration** : serveur HTTP réel via `httptest`, SQLite réelle, centrale simulée et authentification réelle.
 - **Scénarios contractuels** : les fichiers de `contract-tests/scenarios/` sont validés et décrivent les comportements partageables avec les clients natifs.
 - **Conformité externe** : `dcc-api-conformance` s’exécute contre un processus actif.
@@ -19,6 +19,9 @@
 - la locomotive reste indisponible pendant l’état `stopping` ;
 - une session étrangère ou un lease libéré ne peut pas commander la locomotive ;
 - les commandes de traction et de fonctions sont refusées lorsque la centrale simulée est hors ligne ;
+- les vitesses positives et les fonctions sont refusées lorsque la puissance est coupée ou inconnue, ou lorsque l'arrêt d'urgence est actif ;
+- l'arrêt d'urgence, la coupure de puissance et la vitesse zéro passent avant les commandes ordinaires en attente, qui sont refusées sans atteindre le pilote ;
+- la reprise après arrêt d'urgence nécessite un ordre `power on` explicite réussi ;
 - les transitions `online`, `degraded`, `offline` et le retour à `online` sont couvertes au niveau du suivi de santé ;
 - un capteur mappé modifie le canton correspondant ;
 - un itinéraire occupé ou en conflit ne peut pas être réservé et une activation hors ligne échoue ;

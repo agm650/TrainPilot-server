@@ -17,6 +17,11 @@ goreleaser release --snapshot --clean --skip=publish
 
 Le détecteur de concurrence Go nécessite CGO, contrairement aux binaires de distribution. Il est donc exécuté séparément de la validation `CGO_ENABLED=0`.
 
+La validation de sécurité de la conduite inclut les tests de concurrence de
+`internal/service` : ils doivent démontrer qu'une commande de sécurité en
+attente préempte les nouveaux ordres de traction sans qu'ils atteignent le
+pilote, et qu'une reprise exige une action explicite.
+
 Sur macOS, les sockets Unix ont une longueur de chemin limitée. Si `TestUserAdministrationOverUnixSocket` échoue avec `bind: invalid argument` dans un chemin temporaire long, relancer les tests avec :
 
 ```bash

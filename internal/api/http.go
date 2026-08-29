@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/agm650/TrainPilot-server/internal/model"
+	"github.com/agm650/TrainPilot-server/internal/service"
 	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/agm650/TrainPilot-server/internal/store"
 )
@@ -36,8 +37,17 @@ func writeProblem(w http.ResponseWriter, status int, code, detail string) {
 	writeJSON(w, status, problem{Type: "about:blank", Title: http.StatusText(status), Status: status, Detail: detail, Code: code})
 }
 func writeOperationProblem(w http.ResponseWriter, err error, code string) {
-	if errors.Is(err, station.ErrOffline) {
+	switch {
+	case errors.Is(err, station.ErrOffline):
 		code = "station_offline"
+	case errors.Is(err, service.ErrEmergencyStopActive):
+		code = "emergency_stop_active"
+	case errors.Is(err, service.ErrTrackPowerOff):
+		code = "track_power_off"
+	case errors.Is(err, service.ErrTrackPowerUnknown):
+		code = "track_power_unknown"
+	case errors.Is(err, service.ErrSafetyPreempted):
+		code = "safety_command_preempted"
 	}
 	writeProblem(w, statusFor(err), code, err.Error())
 }
@@ -78,6 +88,11 @@ func statusFor(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, station.ErrOffline):
 		return http.StatusServiceUnavailable
+	case errors.Is(err, service.ErrEmergencyStopActive),
+		errors.Is(err, service.ErrTrackPowerOff),
+		errors.Is(err, service.ErrTrackPowerUnknown),
+		errors.Is(err, service.ErrSafetyPreempted):
+		return http.StatusConflict
 	case strings.Contains(err.Error(), "permission denied"):
 		return http.StatusForbidden
 	case strings.Contains(err.Error(), "required") ||

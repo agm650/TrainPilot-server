@@ -85,13 +85,13 @@ func TestPublicAPIContract(t *testing.T) {
 	if err == nil || status != http.StatusConflict {
 		t.Fatalf("second lease status=%d err=%v", status, err)
 	}
+	if err := alice.SetTrackPower(ctx, true); err != nil {
+		t.Fatal(err)
+	}
 	if err := alice.Throttle(ctx, locos[0].ID, lease.ID, 30, station.Forward); err != nil {
 		t.Fatal(err)
 	}
 	if err := alice.Function(ctx, locos[0].ID, lease.ID, 0, true); err != nil {
-		t.Fatal(err)
-	}
-	if err := alice.SetTrackPower(ctx, true); err != nil {
 		t.Fatal(err)
 	}
 	power, err := alice.StationStatus(ctx)
