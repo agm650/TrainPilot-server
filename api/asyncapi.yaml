@@ -8,6 +8,9 @@ info:
     ignore queued events whose sequence is less than or equal to the snapshot
     sequence. A sequence gap requires client.snapshot_request. The connection
     closes when the opening access token expires or the session is revoked.
+    Each connection has a 64-event queue. The server disconnects a subscriber
+    if that queue overflows or a write takes more than 5 seconds; reconnecting
+    produces a complete fresh snapshot.
 servers:
   local:
     host: 127.0.0.1:8080

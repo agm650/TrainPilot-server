@@ -340,8 +340,8 @@ Règles structurantes :
 complet dont `sequence` est la séquence courante du bus. Il contient la
 centrale, son état, les locomotives, les leases de la session connectée, les
 cantons, les aiguillages et les itinéraires. Le client ignore tout événement
-de séquence inférieure ou égale au snapshot. S'il détecte ensuite un trou, il
-envoie :
+de séquence inférieure ou égale au snapshot ; le serveur filtre également ces
+événements anciens ou dupliqués. S'il détecte ensuite un trou, il envoie :
 
 ```json
 {
@@ -358,6 +358,11 @@ est fermé à l'expiration du jeton utilisé lors de son ouverture ; après un
 refresh, le client ouvre donc une nouvelle connexion avec le nouveau jeton.
 Un logout ou une révocation de session ferme également la connexion. Aucun
 replay des événements intermédiaires n’est conservé actuellement.
+
+Chaque connexion possède une file de 64 événements. Si elle déborde, ou si une
+écriture WebSocket dépasse 5 secondes, le serveur ferme la connexion afin de
+ne pas laisser le client poursuivre avec un état incomplet. Le client se
+reconnecte alors et repart du nouveau snapshot complet.
 
 La fermeture d'un WebSocket ne libère pas immédiatement les leases : une
 brève coupure réseau ne doit pas provoquer une perte de contrôle. Ils restent
@@ -419,8 +424,7 @@ Le socket Unix d’administration doit être protégé par les permissions du sy
 1. Valider les pilotes sur DCC-EX et z21 blanche réels.
 2. Ajouter la surveillance de disponibilité et la reconnexion au pilote DCC-EX.
 3. Étendre le parc au-delà des locomotives et compléter l’édition du plan de réseau.
-4. Ajouter les tests WebSocket restants pour doublons, événements anciens, snapshot concurrent et client lent.
-5. Étendre les archives aux ressources graphiques, images et futures migrations de format.
-6. Ajouter les signaux, les conflits d’itinéraires explicites et la libération progressive.
-7. Ajouter les tests matériels exécutés sur un banc dédié.
-8. Développer ensuite les clients Swift et Linux contre le simulateur et les contrats fournis.
+4. Étendre les archives aux ressources graphiques, images et futures migrations de format.
+5. Ajouter les signaux, les conflits d’itinéraires explicites et la libération progressive.
+6. Ajouter les tests matériels exécutés sur un banc dédié.
+7. Développer ensuite les clients Swift et Linux contre le simulateur et les contrats fournis.

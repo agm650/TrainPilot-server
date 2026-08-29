@@ -59,7 +59,10 @@ n'est pas persistée entre deux démarrages. Après connexion, reconnexion ou tr
 de séquence, le client prend `system.snapshot` comme nouvelle base et ignore
 les événements dont la séquence est inférieure ou égale à celle du snapshot.
 Il envoie `client.snapshot_request` lorsqu'il détecte une perte. Le serveur ne
-garantit actuellement aucun replay.
+garantit actuellement aucun replay. Il filtre aussi les séquences anciennes ou
+dupliquées. Si la file de 64 événements d'une connexion déborde ou si une
+écriture dépasse 5 secondes, il ferme le WebSocket ; le client doit se
+reconnecter et repartir du snapshot complet.
 
 Les ajouts de champs optionnels et de nouveaux événements sont compatibles en
 version mineure. Toute suppression, modification de type, réutilisation d'un

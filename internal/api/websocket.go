@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/station"
 	ws "github.com/agm650/TrainPilot-server/internal/websocket"
@@ -81,12 +82,34 @@ func (s *Server) buildSystemSnapshot(ctx context.Context, session model.Session)
 	}, nil
 }
 
-func (s *Server) writeSystemSnapshot(conn *ws.Conn, r *http.Request) error {
+func (s *Server) writeSystemSnapshot(conn *ws.Conn, r *http.Request) (uint64, error) {
 	snapshot, err := s.buildSystemSnapshot(r.Context(), sessionFrom(r))
 	if err != nil {
+		return 0, err
+	}
+	if err := s.writeWebSocketJSON(conn, snapshot); err != nil {
+		return 0, err
+	}
+	return snapshot.Sequence, nil
+}
+
+func (s *Server) writeWebSocketJSON(conn *ws.Conn, value any) error {
+	timeout := s.eventWriteTimeout
+	if timeout <= 0 {
+		timeout = defaultEventWriteTimeout
+	}
+	if err := conn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
 		return err
 	}
-	return conn.WriteJSON(snapshot)
+	err := conn.WriteJSON(value)
+	if err == nil {
+		_ = conn.SetWriteDeadline(time.Time{})
+	}
+	return err
+}
+
+func eventFollowsSequence(event events.Event, sequence uint64) bool {
+	return event.Sequence > sequence
 }
 
 func (s *Server) eventsWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +119,11 @@ func (s *Server) eventsWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	ch, unsubscribe := s.events.Subscribe(64)
+	bufferSize := s.eventBuffer
+	if bufferSize <= 0 {
+		bufferSize = defaultEventBufferSize
+	}
+	ch, overflow, unsubscribe := s.events.SubscribeWithOverflow(bufferSize)
 	defer unsubscribe()
 
 	done := make(chan struct{})
@@ -134,7 +161,8 @@ func (s *Server) eventsWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	if err := s.writeSystemSnapshot(conn, r); err != nil {
+	lastSequence, err := s.writeSystemSnapshot(conn, r)
+	if err != nil {
 		return
 	}
 
@@ -151,17 +179,28 @@ func (s *Server) eventsWebSocket(w http.ResponseWriter, r *http.Request) {
 			if err != nil || session.RevokedAt != nil {
 				return
 			}
+		case <-overflow:
+			// At least one sequence was lost for this subscriber. Closing the
+			// connection forces a complete snapshot on reconnect and prevents a
+			// client from continuing with a silently incomplete state.
+			return
 		case <-snapshotRequests:
-			if err := s.writeSystemSnapshot(conn, r); err != nil {
+			sequence, err := s.writeSystemSnapshot(conn, r)
+			if err != nil {
 				return
 			}
+			lastSequence = sequence
 		case e, ok := <-ch:
 			if !ok {
 				return
 			}
-			if err := conn.WriteJSON(e); err != nil {
+			if !eventFollowsSequence(e, lastSequence) {
+				continue
+			}
+			if err := s.writeWebSocketJSON(conn, e); err != nil {
 				return
 			}
+			lastSequence = e.Sequence
 		}
 	}
 }

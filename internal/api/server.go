@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/service"
@@ -11,21 +12,41 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/transfer"
 )
 
+const (
+	defaultEventBufferSize   = 64
+	defaultEventWriteTimeout = 5 * time.Second
+)
+
 type Server struct {
-	mux       *http.ServeMux
-	auth      *service.AuthService
-	control   *service.ControlService
-	railway   *service.RailwayService
-	routes    *service.RouteService
-	transfer  *transfer.Service
-	store     *store.Store
-	events    *events.Bus
-	station   station.CommandStation
-	simulator *simulator.Simulator
+	mux               *http.ServeMux
+	auth              *service.AuthService
+	control           *service.ControlService
+	railway           *service.RailwayService
+	routes            *service.RouteService
+	transfer          *transfer.Service
+	store             *store.Store
+	events            *events.Bus
+	station           station.CommandStation
+	simulator         *simulator.Simulator
+	eventBuffer       int
+	eventWriteTimeout time.Duration
 }
 
 func New(auth *service.AuthService, control *service.ControlService, railway *service.RailwayService, routes *service.RouteService, transferSvc *transfer.Service, s *store.Store, b *events.Bus, st station.CommandStation, sim *simulator.Simulator, testAPI bool) *Server {
-	x := &Server{mux: http.NewServeMux(), auth: auth, control: control, railway: railway, routes: routes, transfer: transferSvc, store: s, events: b, station: st, simulator: sim}
+	x := &Server{
+		mux:               http.NewServeMux(),
+		auth:              auth,
+		control:           control,
+		railway:           railway,
+		routes:            routes,
+		transfer:          transferSvc,
+		store:             s,
+		events:            b,
+		station:           st,
+		simulator:         sim,
+		eventBuffer:       defaultEventBufferSize,
+		eventWriteTimeout: defaultEventWriteTimeout,
+	}
 	x.register(testAPI)
 	return x
 }

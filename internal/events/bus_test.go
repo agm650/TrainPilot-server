@@ -61,6 +61,30 @@ func TestSlowSubscriberDoesNotBlockPublisher(t *testing.T) {
 	}
 }
 
+func TestSlowSubscriberReceivesCoalescedOverflowSignal(t *testing.T) {
+	bus := New()
+	events, overflow, unsubscribe := bus.SubscribeWithOverflow(1)
+	defer unsubscribe()
+
+	bus.Publish("queued", nil)
+	bus.Publish("dropped-1", nil)
+	bus.Publish("dropped-2", nil)
+
+	select {
+	case <-overflow:
+	case <-time.After(time.Second):
+		t.Fatal("missing overflow signal")
+	}
+	select {
+	case <-overflow:
+		t.Fatal("overflow signals were not coalesced")
+	default:
+	}
+	if got := <-events; got.Type != "queued" {
+		t.Fatalf("queued event=%+v", got)
+	}
+}
+
 func TestUnsubscribeIsIdempotentAndClosesChannel(t *testing.T) {
 	bus := New()
 	ch, unsubscribe := bus.Subscribe(1)

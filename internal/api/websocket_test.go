@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/service"
+	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/agm650/TrainPilot-server/internal/station/simulator"
 	"github.com/agm650/TrainPilot-server/internal/store"
 	"github.com/agm650/TrainPilot-server/internal/transfer"
@@ -45,6 +48,10 @@ func newWebsocketFixture(t *testing.T) websocketFixture {
 }
 
 func newWebsocketFixtureWithAccessTTL(t *testing.T, accessTTL time.Duration) websocketFixture {
+	return newWebsocketFixtureWithStation(t, accessTTL, nil)
+}
+
+func newWebsocketFixtureWithStation(t *testing.T, accessTTL time.Duration, wrap func(*simulator.Simulator) station.CommandStation) websocketFixture {
 	t.Helper()
 	ctx := context.Background()
 	db, err := store.Open(":memory:")
@@ -76,11 +83,15 @@ func newWebsocketFixtureWithAccessTTL(t *testing.T, accessTTL time.Duration) web
 	if err := sim.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
+	var commandStation station.CommandStation = sim
+	if wrap != nil {
+		commandStation = wrap(sim)
+	}
 	bus := events.New()
-	railway := service.NewRailwayService(db, sim, bus)
-	control := service.NewControlService(db, sim, bus, clk, 15*time.Second, time.Second, time.Hour)
+	railway := service.NewRailwayService(db, commandStation, bus)
+	control := service.NewControlService(db, commandStation, bus, clk, 15*time.Second, time.Second, time.Hour)
 	routes := service.NewRouteService(db, railway, bus)
-	server := New(authSvc, control, railway, routes, transfer.New(db, bus, clk), db, bus, sim, sim, true)
+	server := New(authSvc, control, railway, routes, transfer.New(db, bus, clk), db, bus, commandStation, sim, true)
 
 	locomotives, err := railway.Locomotives(ctx)
 	if err != nil || len(locomotives) == 0 {
@@ -93,6 +104,29 @@ func newWebsocketFixtureWithAccessTTL(t *testing.T, accessTTL time.Duration) web
 	httpServer := httptest.NewServer(server.Handler())
 	t.Cleanup(httpServer.Close)
 	return websocketFixture{api: server, server: httpServer, control: control, railway: railway, bus: bus, user: user, session: session, lease: lease, accessToken: pair.AccessToken, locomotives: locomotives}
+}
+
+type snapshotBlockingStation struct {
+	*simulator.Simulator
+	once    sync.Once
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *snapshotBlockingStation) Status(ctx context.Context) (station.Status, error) {
+	blocked := false
+	s.once.Do(func() {
+		blocked = true
+		close(s.entered)
+	})
+	if blocked {
+		select {
+		case <-s.release:
+		case <-ctx.Done():
+			return station.Status{}, ctx.Err()
+		}
+	}
+	return s.Simulator.Status(ctx)
 }
 
 func TestSystemSnapshotContainsCompleteClientState(t *testing.T) {
@@ -115,6 +149,52 @@ func TestSystemSnapshotContainsCompleteClientState(t *testing.T) {
 	}
 	if len(snapshot.Payload.ControlLeases) != 1 || snapshot.Payload.ControlLeases[0].ID != fixture.lease.ID || snapshot.Payload.ControlLeases[0].HeartbeatMillis <= 0 {
 		t.Fatalf("leases=%+v", snapshot.Payload.ControlLeases)
+	}
+}
+
+func TestEventSequenceFilterRejectsOldAndDuplicateEvents(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		event    uint64
+		last     uint64
+		expected bool
+	}{
+		{"old", 40, 42, false},
+		{"duplicate", 42, 42, false},
+		{"next", 43, 42, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := eventFollowsSequence(events.Event{Sequence: tc.event}, tc.last); got != tc.expected {
+				t.Fatalf("event=%d last=%d got=%t want=%t", tc.event, tc.last, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestEventPublishedDuringSnapshotIsDeliveredAfterSnapshot(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	fixture := newWebsocketFixtureWithStation(t, 15*time.Minute, func(sim *simulator.Simulator) station.CommandStation {
+		return &snapshotBlockingStation{Simulator: sim, entered: entered, release: release}
+	})
+	client := dialTestWebSocket(t, fixture.server.URL, fixture.accessToken)
+	defer client.close()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("snapshot did not reach the station-state read")
+	}
+	published := fixture.bus.Publish("block.occupancy.changed", map[string]any{"blockId": "block-a", "occupied": true})
+	close(release)
+
+	snapshot := readTestSnapshot(t, client)
+	if published.Sequence <= snapshot.Sequence {
+		t.Fatalf("concurrent event sequence=%d snapshot=%d", published.Sequence, snapshot.Sequence)
+	}
+	var event events.Event
+	client.readJSON(t, &event)
+	if event.Type != published.Type || event.Sequence != published.Sequence {
+		t.Fatalf("event after snapshot=%+v want=%+v", event, published)
 	}
 }
 
@@ -200,6 +280,23 @@ func TestWebSocketClosesAfterSessionRevocation(t *testing.T) {
 	}
 	if first&0x0f != 0x8 {
 		t.Fatalf("websocket opcode=%d want close", first&0x0f)
+	}
+}
+
+func TestSlowWebSocketClientIsDisconnectedOnOverflow(t *testing.T) {
+	fixture := newWebsocketFixture(t)
+	fixture.api.eventBuffer = 1
+	fixture.api.eventWriteTimeout = 200 * time.Millisecond
+	client := dialTestWebSocket(t, fixture.server.URL, fixture.accessToken)
+	defer client.close()
+	readTestSnapshot(t, client)
+
+	payload := map[string]any{"data": strings.Repeat("x", 700<<10)}
+	for i := 0; i < 100; i++ {
+		fixture.bus.Publish("test.slow-client", payload)
+	}
+	if err := client.waitForClosure(3 * time.Second); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -316,6 +413,44 @@ func (c *testWebSocket) writeJSON(t *testing.T, value any) {
 	_ = c.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	if _, err := c.conn.Write(frame.Bytes()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func (c *testWebSocket) waitForClosure(timeout time.Duration) error {
+	_ = c.conn.SetReadDeadline(time.Now().Add(timeout))
+	for {
+		first, err := c.reader.ReadByte()
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return fmt.Errorf("waiting for websocket close: %w", err)
+		}
+		second, err := c.reader.ReadByte()
+		if err != nil {
+			return fmt.Errorf("reading websocket close header: %w", err)
+		}
+		length := uint64(second & 0x7f)
+		switch length {
+		case 126:
+			var size [2]byte
+			if _, err := io.ReadFull(c.reader, size[:]); err != nil {
+				return err
+			}
+			length = uint64(binary.BigEndian.Uint16(size[:]))
+		case 127:
+			var size [8]byte
+			if _, err := io.ReadFull(c.reader, size[:]); err != nil {
+				return err
+			}
+			length = binary.BigEndian.Uint64(size[:])
+		}
+		if _, err := io.CopyN(io.Discard, c.reader, int64(length)); err != nil {
+			return fmt.Errorf("discarding websocket frame: %w", err)
+		}
+		if first&0x0f == 0x8 {
+			return nil
+		}
 	}
 }
 

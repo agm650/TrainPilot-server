@@ -12,6 +12,8 @@ All notable changes to this project will be documented in this file.
 - Les commandes de conduite sont explicitement inhibées tant que l'arrêt d'urgence reste actif ou que la puissance est coupée ou inconnue.
 - Un heartbeat de lease envoyé à son instant d'expiration ne peut plus réactiver une réservation expirée.
 - Les jetons révoqués sont distingués des jetons réellement expirés sans exposer de détail interne.
+- Les événements WebSocket anciens ou dupliqués sont filtrés sans perdre ceux publiés pendant un snapshot.
+- Les clients WebSocket trop lents sont déconnectés sur débordement de leur file ou expiration d'écriture.
 
 ### Added
 

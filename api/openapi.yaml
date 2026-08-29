@@ -470,8 +470,9 @@ paths:
         Upgrades to WebSocket. The first message is a complete system.snapshot.
         Clients ignore events whose sequence is less than or equal to the latest
         snapshot sequence and request another snapshot after a gap. The connection
-        closes when its access token expires or its session is revoked. Event
-        schemas are defined in asyncapi.yaml.
+        closes when its access token expires, its session is revoked, its 64-event
+        queue overflows, or a write exceeds 5 seconds. Reconnection starts with a
+        complete snapshot. Event schemas are defined in asyncapi.yaml.
       responses:
         '101': { description: WebSocket established. }
         '401': { $ref: '#/components/responses/Unauthorized' }

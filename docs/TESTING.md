@@ -32,6 +32,8 @@
 - une commande de vitesse DCC-EX est encodée correctement ;
 - le bus attribue des séquences monotones, expose sa séquence courante et ne bloque pas sur un abonné lent ;
 - le WebSocket fournit un snapshot complet, permet la resynchronisation après un trou de séquence, supporte la reconnexion et ferme la connexion à l'expiration du jeton ou à la révocation de la session ;
+- les événements anciens ou dupliqués sont filtrés, et un événement publié pendant un snapshot est transmis ensuite sans perte ;
+- un client WebSocket trop lent est déconnecté lorsque sa file déborde ou que l'écriture expire ;
 - une déconnexion WebSocket ne libère pas le lease, qui reste soumis à son heartbeat et à son expiration normale ;
 - le refresh fait tourner les deux jetons, invalide immédiatement les anciens et le logout révoque la session ;
 - chaque problème HTTP possède une catégorie et un code stable, et les erreurs internes sont masquées ;
@@ -69,8 +71,6 @@ Sur macOS, utiliser `TMPDIR=/tmp go test ./...` si le chemin temporaire par déf
 
 ## Couverture restant à ajouter
 
-- événements WebSocket dupliqués, anciens ou publiés pendant la génération d'un snapshot ;
-- stratégie de backpressure et comportement d’un client WebSocket lent ;
 - surveillance de disponibilité, perte de connexion et reconnexion DCC-EX ;
 - couverture DCC-EX des commandes autres que la vitesse et des retours de capteurs ;
 - scénarios de rétrosignalisation simultanée, répétée et présente au démarrage ;

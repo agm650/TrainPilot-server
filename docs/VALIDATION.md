@@ -30,6 +30,8 @@ La validation contractuelle inclut également :
 - la rotation/révocation des jetons et l'expiration WebSocket ;
 - le snapshot complet, la resynchronisation après trou de séquence et la
   reconnexion ;
+- le filtrage des séquences anciennes ou dupliquées, la livraison des événements
+  concurrents avec un snapshot et la déconnexion des clients trop lents ;
 - les catégories/codes d'erreur stables et le masquage des erreurs internes ;
 - les bornes de fonctions propres aux capacités du simulateur, de z21 et de
   DCC-EX.

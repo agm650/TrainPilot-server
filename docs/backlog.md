@@ -21,10 +21,8 @@ Priorités :
 Ordre suggéré parmi les tâches P0 détaillées ci-dessous :
 
 1. rendre le délai `degraded -> offline` configurable ;
-2. couvrir les cas WebSocket dupliqués, anciens et concurrents avec un snapshot ;
-3. définir la stratégie pour les clients WebSocket trop lents ;
-4. ajouter l'expiration de session à la conformité ;
-5. implémenter le suivi de santé et la reconnexion DCC-EX avec un faux serveur TCP.
+2. ajouter l'expiration de session à la conformité ;
+3. implémenter le suivi de santé et la reconnexion DCC-EX avec un faux serveur TCP.
 
 ## P0 — Fiabilité du socle
 
@@ -33,12 +31,6 @@ Ordre suggéré parmi les tâches P0 détaillées ci-dessous :
 - [ ] Vérifier les reconnexions répétées et les réponses z21 intermittentes. **En attente d'une z21 disponible ; conserver la tâche ouverte.**
 - [ ] Rendre le délai avant `offline` configurable et documenter sa valeur par défaut, son unité et son effet.
 - [ ] Appliquer au pilote DCC-EX le suivi de santé, le blocage des commandes hors ligne, la reconnexion et l'absence de reprise automatique.
-
-### WebSocket
-
-- [ ] Couvrir les événements dupliqués et les événements plus anciens que le dernier snapshot appliqué.
-- [ ] Couvrir un événement publié pendant la génération d'un snapshot et vérifier qu'aucune mise à jour n'est perdue.
-- [ ] Choisir une politique pour les clients trop lents, la documenter dans AsyncAPI et ajouter les tests correspondants.
 
 ### Conformité
 

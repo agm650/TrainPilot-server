@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 const websocketGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -63,6 +64,7 @@ func headerContains(value, token string) bool {
 }
 
 func (c *Conn) Close() error {
+	_ = c.conn.SetWriteDeadline(time.Now().Add(250 * time.Millisecond))
 	_ = c.writeFrame(0x8, []byte{0x03, 0xE8})
 	return c.conn.Close()
 }
@@ -73,6 +75,10 @@ func (c *Conn) WriteJSON(v any) error {
 		return err
 	}
 	return c.writeFrame(0x1, b)
+}
+
+func (c *Conn) SetWriteDeadline(deadline time.Time) error {
+	return c.conn.SetWriteDeadline(deadline)
 }
 
 func (c *Conn) ReadJSON(v any) error {
