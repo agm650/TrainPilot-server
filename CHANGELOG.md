@@ -37,6 +37,7 @@ All notable changes to this project will be documented in this file.
 - Politique de compatibilité et de migration séparée pour HTTP et WebSocket.
 - État public `locomotiveControlStates` dans les snapshots pour distinguer les locomotives libres, contrôlées par la session, par une autre session du même utilisateur ou par un autre utilisateur.
 - Endpoint explicite de takeover entre sessions d'un même utilisateur, avec arrêt à zéro, transfert atomique du lease et événement `locomotive.control.transferred`.
+- Socle déterministe du simulateur avec état explicite, horloge injectable, snapshot profondément copié, introspection des accessoires et reset sans déconnexion.
 
 ### Changed
 

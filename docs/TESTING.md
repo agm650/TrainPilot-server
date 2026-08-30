@@ -31,6 +31,7 @@
 - les paquets de puissance et de statut Z21 ont la forme attendue et les réponses d’état sont décodées ;
 - les commandes DCC-EX sont encodées correctement et un faux serveur TCP couvre la connexion initiale, la perte du socket, les transitions `online/degraded/offline`, la reconnexion avant ou après `offline`, plusieurs cycles et l'arrêt pendant une reconnexion ;
 - les commandes DCC-EX présentées sans socket sont refusées sans mise en file ni rejeu, tandis que les retours de capteurs reprennent sur le même canal après reconnexion ;
+- les snapshots du simulateur sont profondément copiés, son horloge est injectable, son reset conserve la connexion et ses lectures restent sûres face aux commandes concurrentes ;
 - le bus attribue des séquences monotones, expose sa séquence courante et ne bloque pas sur un abonné lent ;
 - le WebSocket fournit un snapshot complet, permet la resynchronisation après un trou de séquence, supporte la reconnexion et ferme la connexion à l'expiration du jeton ou à la révocation de la session ;
 - les événements anciens ou dupliqués sont filtrés, et un événement publié pendant un snapshot est transmis ensuite sans perte ;
