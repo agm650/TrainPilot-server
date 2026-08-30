@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 
@@ -115,6 +116,13 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(target); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return false
+	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			err = errors.New("request body must contain exactly one JSON value")
+		}
 		writeProblem(w, http.StatusBadRequest, "invalid_json", err.Error())
 		return false
 	}

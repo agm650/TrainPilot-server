@@ -12,9 +12,9 @@ import (
 )
 
 type LocoState struct {
-	Speed     float64
-	Direction station.Direction
-	Functions map[int]bool
+	Speed     float64           `json:"speed"`
+	Direction station.Direction `json:"direction"`
+	Functions map[int]bool      `json:"functions"`
 }
 
 type Operation string
@@ -40,9 +40,9 @@ type OperationFault struct {
 }
 
 type FeedbackKey struct {
-	Source  string
-	Kind    string
-	Address int
+	Source  string `json:"source"`
+	Kind    string `json:"kind"`
+	Address int    `json:"address"`
 }
 
 type FeedbackTransition struct {
@@ -60,32 +60,38 @@ const (
 )
 
 type AccessoryBehavior struct {
-	Mode          AccessoryBehaviorMode
-	Delay         time.Duration
-	ReportedState string
+	Mode          AccessoryBehaviorMode `json:"mode"`
+	Delay         time.Duration         `json:"delay"`
+	ReportedState string                `json:"reportedState,omitempty"`
 }
 
 type AccessoryState struct {
-	Desired       string
-	Reported      string
-	Pending       bool
-	LastCommandAt *time.Time
-	LastReportAt  *time.Time
+	Desired       string     `json:"desired"`
+	Reported      string     `json:"reported"`
+	Pending       bool       `json:"pending"`
+	LastCommandAt *time.Time `json:"lastCommandAt,omitempty"`
+	LastReportAt  *time.Time `json:"lastReportAt,omitempty"`
 }
 
 type ElectricalState struct {
-	MainCurrentMilliAmps         int16
-	ProgrammingCurrentMilliAmps  int16
-	FilteredMainCurrentMilliAmps int16
-	TemperatureCelsius           int16
-	SupplyVoltageMilliVolts      uint16
-	TrackVoltageMilliVolts       uint16
+	MainCurrentMilliAmps         int16  `json:"mainCurrentMilliAmps"`
+	ProgrammingCurrentMilliAmps  int16  `json:"programmingCurrentMilliAmps"`
+	FilteredMainCurrentMilliAmps int16  `json:"filteredMainCurrentMilliAmps"`
+	TemperatureCelsius           int16  `json:"temperatureCelsius"`
+	SupplyVoltageMilliVolts      uint16 `json:"supplyVoltageMilliVolts"`
+	TrackVoltageMilliVolts       uint16 `json:"trackVoltageMilliVolts"`
 
-	ProgrammingMode      bool
-	HighTemperature      bool
-	PowerLost            bool
-	ExternalShortCircuit bool
-	InternalShortCircuit bool
+	ProgrammingMode      bool `json:"programmingMode"`
+	HighTemperature      bool `json:"highTemperature"`
+	PowerLost            bool `json:"powerLost"`
+	ExternalShortCircuit bool `json:"externalShortCircuit"`
+	InternalShortCircuit bool `json:"internalShortCircuit"`
+}
+
+type OperationFaultState struct {
+	Delay     time.Duration `json:"delay"`
+	Error     string        `json:"error,omitempty"`
+	Remaining int           `json:"remaining"`
 }
 
 type scheduledAccessoryReport struct {
@@ -114,15 +120,17 @@ type State struct {
 }
 
 type Snapshot struct {
-	Connected      bool
-	Connectivity   station.Connectivity
-	LastSeen       *time.Time
-	TrackPower     bool
-	EmergencyStop  bool
-	Locomotives    map[int]LocoState
-	Accessories    map[int]AccessoryState
-	Electrical     ElectricalState
-	FeedbackStates map[FeedbackKey]bool
+	Connected          bool                              `json:"connected"`
+	Connectivity       station.Connectivity              `json:"connectivity"`
+	LastSeen           *time.Time                        `json:"lastSeen,omitempty"`
+	TrackPower         bool                              `json:"trackPower"`
+	EmergencyStop      bool                              `json:"emergencyStop"`
+	Locomotives        map[int]LocoState                 `json:"locomotives"`
+	Accessories        map[int]AccessoryState            `json:"accessories"`
+	AccessoryBehaviors map[int]AccessoryBehavior         `json:"accessoryBehaviors"`
+	Electrical         ElectricalState                   `json:"electrical"`
+	FeedbackStates     map[FeedbackKey]bool              `json:"-"`
+	OperationFaults    map[Operation]OperationFaultState `json:"operationFaults"`
 }
 
 type Simulator struct {
@@ -636,15 +644,17 @@ func (s *Simulator) Snapshot() Snapshot {
 	s.applyDueAccessoryReportsLocked(s.clock.Now())
 
 	snapshot := Snapshot{
-		Connected:      s.state.Connected,
-		Connectivity:   s.state.Connectivity,
-		LastSeen:       cloneTimePointer(s.state.LastSeen),
-		TrackPower:     s.state.TrackPower,
-		EmergencyStop:  s.state.EmergencyStop,
-		Locomotives:    make(map[int]LocoState, len(s.state.Locomotives)),
-		Accessories:    make(map[int]AccessoryState, len(s.state.Accessories)),
-		Electrical:     s.state.Electrical,
-		FeedbackStates: make(map[FeedbackKey]bool, len(s.state.FeedbackStates)),
+		Connected:          s.state.Connected,
+		Connectivity:       s.state.Connectivity,
+		LastSeen:           cloneTimePointer(s.state.LastSeen),
+		TrackPower:         s.state.TrackPower,
+		EmergencyStop:      s.state.EmergencyStop,
+		Locomotives:        make(map[int]LocoState, len(s.state.Locomotives)),
+		Accessories:        make(map[int]AccessoryState, len(s.state.Accessories)),
+		AccessoryBehaviors: make(map[int]AccessoryBehavior, len(s.state.accessoryBehaviors)),
+		Electrical:         s.state.Electrical,
+		FeedbackStates:     make(map[FeedbackKey]bool, len(s.state.FeedbackStates)),
+		OperationFaults:    make(map[Operation]OperationFaultState, len(s.state.operationFaults)),
 	}
 	for address, loco := range s.state.Locomotives {
 		snapshot.Locomotives[address] = cloneLocoState(loco)
@@ -652,8 +662,18 @@ func (s *Simulator) Snapshot() Snapshot {
 	for address, accessory := range s.state.Accessories {
 		snapshot.Accessories[address] = cloneAccessoryState(accessory)
 	}
+	for address, behavior := range s.state.accessoryBehaviors {
+		snapshot.AccessoryBehaviors[address] = behavior
+	}
 	for key, active := range s.state.FeedbackStates {
 		snapshot.FeedbackStates[key] = active
+	}
+	for operation, fault := range s.state.operationFaults {
+		faultState := OperationFaultState{Delay: fault.Delay, Remaining: fault.Remaining}
+		if fault.Error != nil {
+			faultState.Error = fault.Error.Error()
+		}
+		snapshot.OperationFaults[operation] = faultState
 	}
 	return snapshot
 }

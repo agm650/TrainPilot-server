@@ -41,6 +41,7 @@ func TestDecodeJSONAndStatusMapping(t *testing.T) {
 	}{
 		{"invalid", `{`},
 		{"unknown field", `{"unknown":true}`},
+		{"trailing value", `{"name":"value"}{"name":"other"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()

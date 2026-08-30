@@ -43,9 +43,10 @@ Ordre suggéré parmi les tâches P0 détaillées ci-dessous :
 
 ### Simulateur
 
-Le socle déterministe, la télémétrie, les faults, la rétrosignalisation et les
-scénarios JSON reproductibles sont terminés. Les extensions restantes sont
-portées par les tickets suivants du chantier simulateur.
+Le socle déterministe, la télémétrie, les faults, la rétrosignalisation, les
+scénarios JSON reproductibles et leur API de contrôle externe sont terminés.
+Les extensions restantes sont portées par les tickets suivants du chantier
+simulateur.
 
 ### Rétrosignalisation et cantons
 

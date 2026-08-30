@@ -38,6 +38,8 @@
 - les capteurs simulés mémorisent leur état physique indépendamment des événements, reproduisent répétitions, rebonds et pertes, signalent la saturation et alimentent simultanément deux cantons via `RailwayService` ;
 - les scénarios JSON v1 sont validés intégralement avant exécution, conservent l'ordre des étapes simultanées et sont reproductibles avec `clock.Fake` sans attente réelle ;
 - un scénario expose son cycle de vie et son erreur, s'arrête sur une étape impossible et son mode temps réel est annulé par le contexte, `Close()` ou un reset externe du simulateur ;
+- l'API de test du simulateur disparaît avec `testAPI=false` ou un pilote matériel, exige une authentification et expose snapshot, reset, connectivité, télémétrie, feedback, accessoires, faults et scénarios sans polluer l'API publique ;
+- le feedback injecté par HTTP traverse le mapping de `RailwayService` jusqu'au WebSocket, tandis qu'une connectivité `offline` injectée produit le refus métier `503 station_offline` sans rejeu au retour `online` ;
 - le bus attribue des séquences monotones, expose sa séquence courante et ne bloque pas sur un abonné lent ;
 - le WebSocket fournit un snapshot complet, permet la resynchronisation après un trou de séquence, supporte la reconnexion et ferme la connexion à l'expiration du jeton ou à la révocation de la session ;
 - les événements anciens ou dupliqués sont filtrés, et un événement publié pendant un snapshot est transmis ensuite sans perte ;
@@ -136,6 +138,12 @@ Scénarios de référence actuels :
 - `feedback-a-to-b.json` : occupation `A → A+B → B` ;
 - `accessory-electrical-fault.json` : comportement d'accessoire, télémétrie et
   fault déterministe.
+
+L'interface HTTP destinée aux tests externes est décrite dans
+[`SIMULATOR_TEST_API.md`](SIMULATOR_TEST_API.md). Les tests API vérifient aussi
+le routage absent en production, la validation JSON stricte, le snapshot, les
+faults, l'avance manuelle et les lectures métier concurrentes sous le détecteur
+de races.
 
 ## Couverture restant à ajouter
 

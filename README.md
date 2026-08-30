@@ -167,6 +167,15 @@ _ = runner.Advance(ctx, 3*time.Second)
 Le moteur ne dépend ni des services métier, ni de SQLite, ni des handlers HTTP.
 Il simule uniquement le monde extérieur observé par TrainPilot.
 
+Lorsque `testAPI=true` et que `station.driver` vaut `simulator`, ce banc peut
+aussi être piloté depuis un autre processus sous `/test/v1/simulator/...` :
+snapshot, reset, connectivité, télémétrie, feedback, accessoires, faults et
+avance manuelle des scénarios. Ces routes exigent une authentification et sont
+totalement absentes avec un pilote matériel ou lorsque `testAPI=false`. Leur
+contrat séparé est documenté dans
+[`docs/SIMULATOR_TEST_API.md`](docs/SIMULATOR_TEST_API.md) ; elles ne sont pas
+ajoutées à l'OpenAPI public de production.
+
 ```bash
 go run ./cmd/dccd serve --config config.json
 ```

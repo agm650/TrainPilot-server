@@ -28,6 +28,7 @@ type Server struct {
 	events            *events.Bus
 	station           station.CommandStation
 	simulator         *simulator.Simulator
+	simulatorTest     *simulatorTestController
 	eventBuffer       int
 	eventWriteTimeout time.Duration
 }
@@ -85,7 +86,21 @@ func (s *Server) register(testAPI bool) {
 	s.mux.Handle("POST /api/v1/routes/{id}/activate", s.requireAuth(http.HandlerFunc(s.activateRoute)))
 	s.mux.Handle("POST /api/v1/routes/{id}/release", s.requireAuth(http.HandlerFunc(s.releaseRoute)))
 	s.mux.Handle("GET /api/v1/events", s.requireAuth(http.HandlerFunc(s.eventsWebSocket)))
-	if testAPI && s.simulator != nil {
+	if testAPI && s.simulator != nil && s.station != nil && s.station.Capabilities().Driver == "simulator" {
+		s.simulatorTest = newSimulatorTestController(s.simulator)
+		s.mux.Handle("GET /test/v1/simulator/state", s.requireAuth(http.HandlerFunc(s.testSimulatorState)))
+		s.mux.Handle("POST /test/v1/simulator/reset", s.requireAuth(http.HandlerFunc(s.testSimulatorReset)))
+		s.mux.Handle("PUT /test/v1/simulator/connectivity", s.requireAuth(http.HandlerFunc(s.testSimulatorConnectivity)))
+		s.mux.Handle("PUT /test/v1/simulator/electrical", s.requireAuth(http.HandlerFunc(s.testSimulatorElectrical)))
+		s.mux.Handle("PUT /test/v1/simulator/feedback", s.requireAuth(http.HandlerFunc(s.testSimulatorFeedback)))
+		s.mux.Handle("PUT /test/v1/simulator/accessories/{address}/reported-state", s.requireAuth(http.HandlerFunc(s.testSimulatorAccessoryReportedState)))
+		s.mux.Handle("PUT /test/v1/simulator/accessories/{address}/behavior", s.requireAuth(http.HandlerFunc(s.testSimulatorAccessoryBehavior)))
+		s.mux.Handle("PUT /test/v1/simulator/faults/{operation}", s.requireAuth(http.HandlerFunc(s.testSimulatorFault)))
+		s.mux.Handle("DELETE /test/v1/simulator/faults", s.requireAuth(http.HandlerFunc(s.testSimulatorClearFaults)))
+		s.mux.Handle("POST /test/v1/simulator/scenarios", s.requireAuth(http.HandlerFunc(s.testSimulatorLoadScenario)))
+		s.mux.Handle("POST /test/v1/simulator/scenarios/start", s.requireAuth(http.HandlerFunc(s.testSimulatorStartScenario)))
+		s.mux.Handle("POST /test/v1/simulator/scenarios/advance", s.requireAuth(http.HandlerFunc(s.testSimulatorAdvanceScenario)))
+		s.mux.Handle("POST /test/v1/simulator/scenarios/stop", s.requireAuth(http.HandlerFunc(s.testSimulatorStopScenario)))
 		s.mux.Handle("POST /test/v1/simulator/blocks/{id}/occupancy", s.requireAuth(http.HandlerFunc(s.testBlockOccupancy)))
 	}
 }
