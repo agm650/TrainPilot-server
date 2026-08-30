@@ -172,6 +172,30 @@ func TestTrackPowerAndEmergencyStop(t *testing.T) {
 	}
 }
 
+type healthOnlyStation struct {
+	station.CommandStation
+	health station.Health
+}
+
+func (s *healthOnlyStation) Health() station.Health { return s.health }
+
+func TestStationStatusUsesGenericHealthProvider(t *testing.T) {
+	sim := simulator.New()
+	lastSeen := time.Now().UTC()
+	commandStation := &healthOnlyStation{
+		CommandStation: sim,
+		health:         station.Health{Connectivity: station.Offline, LastSeen: &lastSeen},
+	}
+	control, _, _, _, _ := newControlFixtureWithStation(t, commandStation)
+	status, err := control.StationStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Connectivity != station.Offline || status.LastSeen == nil || !status.LastSeen.Equal(lastSeen) {
+		t.Fatalf("station status=%+v", status)
+	}
+}
+
 func TestThrottleExtendsLeaseFromLastUse(t *testing.T) {
 	ctx := context.Background()
 	control, db, _, clk, user, sess := newControlFixture(t)

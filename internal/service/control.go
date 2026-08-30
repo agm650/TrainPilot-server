@@ -297,7 +297,14 @@ func (c *ControlService) StationStatus(ctx context.Context) (station.Status, err
 	} else if known {
 		trackPower = "off"
 	}
-	return station.Status{Connectivity: station.Degraded, TrackPower: trackPower, EmergencyStop: emergencyStop}, nil
+	connectivity := station.Degraded
+	var lastSeen *time.Time
+	if provider, ok := c.station.(station.HealthProvider); ok {
+		health := provider.Health()
+		connectivity = health.Connectivity
+		lastSeen = health.LastSeen
+	}
+	return station.Status{Connectivity: connectivity, LastSeen: lastSeen, TrackPower: trackPower, EmergencyStop: emergencyStop}, nil
 }
 
 func (c *ControlService) EmergencyStop(ctx context.Context, user model.User) error {

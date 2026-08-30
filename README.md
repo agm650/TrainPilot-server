@@ -20,7 +20,7 @@ Fonctions incluses :
 - locomotives, cantons, aiguillages et itinéraires de démonstration ;
 - rétrosignalisation normalisée et mapping capteur → canton ;
 - pilote de centrale simulée ;
-- pilote DCC-EX TCP pour alimentation, arrêt, vitesse, fonctions, accessoires et remontées de capteurs ;
+- pilote DCC-EX TCP pour alimentation, arrêt, vitesse, fonctions, accessoires et remontées de capteurs, avec suivi de santé et reconnexion automatique ;
 - pilote Z21 UDP initial pour alimentation, arrêt, vitesse, fonctions et parsing R-BUS ;
 - import/export versionné du parc et du circuit dans des archives ZIP natives ;
 - outil de diagnostic et de transfert `dccctl` ;
@@ -31,7 +31,7 @@ Limites assumées du MVP :
 
 - l’édition graphique complète du réseau n’est pas encore implémentée ; les archives couvrent les locomotives, cantons, aiguillages, itinéraires et mappings de rétrosignalisation, sans ressources graphiques pour le moment ;
 - le décodage R-BUS doit être validé sur une z21 blanche réelle et les modules choisis ;
-- le pilote DCC-EX fournit les commandes et retours de base, mais sa surveillance de disponibilité, sa reconnexion et sa validation sur matériel réel restent à compléter ;
+- le pilote DCC-EX fournit les commandes et retours de base ainsi que la reconnexion automatique après une première connexion réussie, mais sa couverture protocolaire et sa validation sur matériel réel restent à compléter ;
 - la confirmation physique de l’arrêt d’une locomotive n’est pas disponible sur toutes les centrales : une temporisation de sécurité est utilisée ;
 - le serveur ne pilote qu’une centrale par processus ;
 - la programmation des CV n’est pas incluse ;
@@ -302,16 +302,18 @@ de `LAN_X_GET_STATUS` et `LAN_SYSTEMSTATE_GETDATA`. Pour un pilote ne proposant
 pas encore de lecture d'état, l'alimentation vaut `unknown` jusqu'au premier
 ordre `power on` ou `power off` réussi.
 
-La connectivité Z21 vaut `online` après toute réponse UDP valide et `degraded`
-dès la première erreur ou expiration de délai. Le paramètre optionnel
+La connectivité d'une centrale vaut `online` après une preuve de communication
+valide et `degraded` dès la première erreur. Le paramètre optionnel
 `station.offlineAfter`, au format de durée Go (`ms`, `s`, `m`, etc.), définit
 le temps maximal passé dans cet état ; sa valeur par défaut est `10s`. Le délai
 démarre à la première erreur de communication. Une réponse valide reçue avant
 son expiration remet immédiatement la centrale `online` ; sinon elle devient
-`offline` une fois le délai écoulé. Les interrogations de statut continuent en
-permanence, y compris hors ligne. Les commandes actives sont refusées en état
-`offline` avec HTTP 503 et le code `station_offline`, mais restent autorisées
-en état `degraded`.
+`offline` une fois le délai écoulé. Avec Z21, les interrogations de statut
+continuent en permanence, y compris hors ligne. Avec DCC-EX TCP, la perte
+confirmée du socket refuse immédiatement les commandes, même pendant le délai
+`degraded`, et déclenche la reconnexion. Dans tous les cas, une commande refusée
+n'est ni mise en file ni rejouée après le retour de la centrale. Une commande
+refusée pour indisponibilité produit HTTP 503 et le code `station_offline`.
 
 Les commandes de sécurité sont arbitrées avant les commandes ordinaires : un
 arrêt d'urgence, une coupure de puissance ou un `throttle` à vitesse zéro déjà
@@ -419,9 +421,18 @@ heartbeat, qui déclenche l'arrêt contrôlé habituel.
   "driver": "dccex",
   "address": "192.168.1.50",
   "port": 2560,
-  "transport": "tcp"
+  "transport": "tcp",
+  "offlineAfter": "10s"
 }
 ```
+
+Le démarrage exige que la première connexion TCP réussisse. Après une perte
+ultérieure du socket, le pilote passe à `degraded`, tente automatiquement de se
+reconnecter, puis devient `offline` après `offlineAfter` si DCC-EX ne revient
+pas. Une reconnexion réussie le remet immédiatement `online` et les retours de
+capteurs reprennent sur le canal existant. Les commandes présentées pendant la
+panne sont refusées sans mise en file ni rejeu ; aucune vitesse, fonction ou
+position d'accessoire antérieure n'est restaurée automatiquement.
 
 ### z21/Z21 sur UDP
 
@@ -434,9 +445,9 @@ heartbeat, qui déclenche l'arrêt contrôlé habituel.
 }
 ```
 
-`offlineAfter` accepte la syntaxe de `time.ParseDuration`, par exemple `500ms`,
-`5s`, `30s` ou `1m`. Une valeur invalide, nulle ou négative empêche le
-démarrage du serveur.
+`offlineAfter`, commun à Z21 et DCC-EX, accepte la syntaxe de
+`time.ParseDuration`, par exemple `500ms`, `5s`, `30s` ou `1m`. Une valeur
+invalide, nulle ou négative empêche le démarrage du serveur.
 
 Le pilote Z21 est volontairement conservateur : alimentation, arrêt, conduite et fonctions sont présents ; les accessoires et certains retours doivent être complétés après validation sur le matériel réel.
 
@@ -460,9 +471,8 @@ Le socket Unix d’administration doit être protégé par les permissions du sy
 ## Étapes suivantes proposées
 
 1. Valider les pilotes sur DCC-EX et z21 blanche réels.
-2. Ajouter la surveillance de disponibilité et la reconnexion au pilote DCC-EX.
-3. Étendre le parc au-delà des locomotives et compléter l’édition du plan de réseau.
-4. Étendre les archives aux ressources graphiques, images et futures migrations de format.
-5. Ajouter les signaux, les conflits d’itinéraires explicites et la libération progressive.
-6. Ajouter les tests matériels exécutés sur un banc dédié.
-7. Développer ensuite les clients Swift et Linux contre le simulateur et les contrats fournis.
+2. Étendre le parc au-delà des locomotives et compléter l’édition du plan de réseau.
+3. Étendre les archives aux ressources graphiques, images et futures migrations de format.
+4. Ajouter les signaux, les conflits d’itinéraires explicites et la libération progressive.
+5. Ajouter les tests matériels exécutés sur un banc dédié.
+6. Développer ensuite les clients Swift et Linux contre le simulateur et les contrats fournis.

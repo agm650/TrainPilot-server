@@ -137,7 +137,7 @@ func buildStation(cfg config.Config) (station.CommandStation, *simulator.Simulat
 		if cfg.Station.Port > 0 {
 			addr = fmt.Sprintf("%s:%d", addr, cfg.Station.Port)
 		}
-		return dccex.NewTCP(addr), nil, nil
+		return dccex.NewTCP(addr, cfg.Station.OfflineAfter), nil, nil
 	case "z21":
 		addr := cfg.Station.Address
 		port := cfg.Station.Port

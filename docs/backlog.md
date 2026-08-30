@@ -20,14 +20,13 @@ Priorités :
 
 Ordre suggéré parmi les tâches P0 détaillées ci-dessous :
 
-1. implémenter le suivi de santé et la reconnexion DCC-EX avec un faux serveur TCP.
+1. vérifier que le scénario de conflit de réservation reste exécuté avec deux sessions distinctes.
 
 ## P0 — Fiabilité du socle
 
 ### Centrales
 
 - [ ] Vérifier les reconnexions répétées et les réponses z21 intermittentes. **En attente d'une z21 disponible ; conserver la tâche ouverte.**
-- [ ] Appliquer au pilote DCC-EX le suivi de santé, le blocage des commandes hors ligne, la reconnexion et l'absence de reprise automatique.
 
 ### Conformité
 

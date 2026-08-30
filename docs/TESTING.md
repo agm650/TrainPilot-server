@@ -29,7 +29,8 @@
 - la création d’utilisateur n’existe pas dans l’API publique ;
 - le socket Unix d’administration permet la création, la liste et la désactivation ;
 - les paquets de puissance et de statut Z21 ont la forme attendue et les réponses d’état sont décodées ;
-- une commande de vitesse DCC-EX est encodée correctement ;
+- les commandes DCC-EX sont encodées correctement et un faux serveur TCP couvre la connexion initiale, la perte du socket, les transitions `online/degraded/offline`, la reconnexion avant ou après `offline`, plusieurs cycles et l'arrêt pendant une reconnexion ;
+- les commandes DCC-EX présentées sans socket sont refusées sans mise en file ni rejeu, tandis que les retours de capteurs reprennent sur le même canal après reconnexion ;
 - le bus attribue des séquences monotones, expose sa séquence courante et ne bloque pas sur un abonné lent ;
 - le WebSocket fournit un snapshot complet, permet la resynchronisation après un trou de séquence, supporte la reconnexion et ferme la connexion à l'expiration du jeton ou à la révocation de la session ;
 - les événements anciens ou dupliqués sont filtrés, et un événement publié pendant un snapshot est transmis ensuite sans perte ;
@@ -98,10 +99,29 @@ Sur macOS, utiliser `TMPDIR=/tmp go test ./...` si le chemin temporaire par déf
 
 ## Couverture restant à ajouter
 
-- surveillance de disponibilité, perte de connexion et reconnexion DCC-EX ;
-- couverture DCC-EX des commandes autres que la vitesse et des retours de capteurs ;
+- parité contractuelle complète entre DCC-EX et z21 pour leurs capacités communes ;
+- couverture protocolaire DCC-EX au-delà des commandes et retours actuellement pris en charge ;
 - scénarios de rétrosignalisation simultanée, répétée et présente au démarrage ;
 - campagnes sur matériel réel.
+
+## Test manuel facultatif DCC-EX
+
+Ce contrôle n'est pas requis par les tests automatisés et ne doit être exécuté
+que sur un banc explicitement choisi :
+
+1. démarrer DCC-EX puis `dccd` avec le pilote `dccex` et un
+   `station.offlineAfter` court mais adapté au banc ;
+2. vérifier que l'état annoncé est `online` et qu'un retour de capteur est reçu ;
+3. couper le transport TCP après la connexion initiale et vérifier le passage à
+   `degraded`, puis à `offline` si la coupure dépasse le délai ;
+4. présenter une commande pendant la coupure et vérifier son refus ;
+5. rétablir DCC-EX et vérifier le retour à `online` ainsi que la reprise des
+   retours de capteurs ;
+6. vérifier que la commande refusée n'est pas rejouée et qu'une nouvelle
+   commande explicite est nécessaire.
+
+Aucune ancienne vitesse, fonction ou position d'accessoire ne doit être
+restaurée automatiquement après la reconnexion.
 
 ## Tests matériels à ajouter
 
