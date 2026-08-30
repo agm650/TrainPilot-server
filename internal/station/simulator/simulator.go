@@ -2,6 +2,7 @@ package simulator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -14,6 +15,25 @@ type LocoState struct {
 	Speed     float64
 	Direction station.Direction
 	Functions map[int]bool
+}
+
+type Operation string
+
+const (
+	OpStatus        Operation = "status"
+	OpTrackPower    Operation = "track_power"
+	OpEmergencyStop Operation = "emergency_stop"
+	OpThrottle      Operation = "throttle"
+	OpFunction      Operation = "function"
+	OpAccessory     Operation = "accessory"
+)
+
+var ErrOperationCanceled = errors.New("simulator operation canceled")
+
+type OperationFault struct {
+	Delay     time.Duration
+	Error     error
+	Remaining int
 }
 
 type AccessoryBehaviorMode string
@@ -62,6 +82,8 @@ type scheduledAccessoryReport struct {
 
 type State struct {
 	Connected     bool
+	Connectivity  station.Connectivity
+	LastSeen      *time.Time
 	TrackPower    bool
 	EmergencyStop bool
 	Locomotives   map[int]LocoState
@@ -71,10 +93,14 @@ type State struct {
 	accessoryBehaviors  map[int]AccessoryBehavior
 	accessoryReports    map[int]scheduledAccessoryReport
 	accessoryGeneration map[int]uint64
+	operationFaults     map[Operation]OperationFault
+	operationEpoch      uint64
 }
 
 type Snapshot struct {
 	Connected     bool
+	Connectivity  station.Connectivity
+	LastSeen      *time.Time
 	TrackPower    bool
 	EmergencyStop bool
 	Locomotives   map[int]LocoState
@@ -87,6 +113,10 @@ type Simulator struct {
 	clock    clock.Clock
 	state    State
 	feedback chan station.FeedbackEvent
+}
+
+type deadlineWaiter interface {
+	WaitUntil(context.Context, time.Time) error
 }
 
 func New() *Simulator {
@@ -107,18 +137,22 @@ func NewWithClock(clk clock.Clock) *Simulator {
 func newState(connected bool) State {
 	return State{
 		Connected:           connected,
+		Connectivity:        station.Offline,
 		Locomotives:         map[int]LocoState{},
 		Accessories:         map[int]AccessoryState{},
 		Electrical:          nominalElectricalState(),
 		accessoryBehaviors:  map[int]AccessoryBehavior{},
 		accessoryReports:    map[int]scheduledAccessoryReport{},
 		accessoryGeneration: map[int]uint64{},
+		operationFaults:     map[Operation]OperationFault{},
 	}
 }
 
 func (s *Simulator) Connect(context.Context) error {
 	s.mu.Lock()
 	s.state.Connected = true
+	s.state.Connectivity = station.Online
+	s.state.LastSeen = timePointer(s.clock.Now())
 	s.mu.Unlock()
 	return nil
 }
@@ -126,7 +160,28 @@ func (s *Simulator) Connect(context.Context) error {
 func (s *Simulator) Close() error {
 	s.mu.Lock()
 	s.state.Connected = false
+	s.state.Connectivity = station.Offline
+	s.state.operationEpoch++
 	s.mu.Unlock()
+	return nil
+}
+
+func (s *Simulator) SetConnectivity(connectivity station.Connectivity) error {
+	if connectivity != station.Online && connectivity != station.Degraded && connectivity != station.Offline {
+		return fmt.Errorf("unsupported simulator connectivity %q", connectivity)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ensure(); err != nil {
+		return err
+	}
+	if s.state.Connectivity != connectivity {
+		s.state.operationEpoch++
+	}
+	s.state.Connectivity = connectivity
+	if connectivity == station.Online {
+		s.state.LastSeen = timePointer(s.clock.Now())
+	}
 	return nil
 }
 
@@ -141,10 +196,14 @@ func (s *Simulator) ensure() error {
 	return nil
 }
 
-func (s *Simulator) SetTrackPower(_ context.Context, on bool) error {
+func (s *Simulator) SetTrackPower(ctx context.Context, on bool) error {
+	epoch, err := s.beforeOperation(ctx, OpTrackPower, true)
+	if err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.ensure(); err != nil {
+	if err := s.ensureOperationReadyLocked(epoch, true); err != nil {
 		return err
 	}
 	s.state.TrackPower = on
@@ -154,13 +213,18 @@ func (s *Simulator) SetTrackPower(_ context.Context, on bool) error {
 	} else {
 		s.state.Electrical.TrackVoltageMilliVolts = 0
 	}
+	s.markActivityLocked(s.clock.Now())
 	return nil
 }
 
-func (s *Simulator) EmergencyStop(context.Context) error {
+func (s *Simulator) EmergencyStop(ctx context.Context) error {
+	epoch, err := s.beforeOperation(ctx, OpEmergencyStop, true)
+	if err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.ensure(); err != nil {
+	if err := s.ensureOperationReadyLocked(epoch, true); err != nil {
 		return err
 	}
 	for address, l := range s.state.Locomotives {
@@ -168,14 +232,22 @@ func (s *Simulator) EmergencyStop(context.Context) error {
 		s.state.Locomotives[address] = l
 	}
 	s.state.EmergencyStop = true
+	s.markActivityLocked(s.clock.Now())
 	return nil
 }
 
-func (s *Simulator) Status(context.Context) (station.Status, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if err := s.ensure(); err != nil {
+func (s *Simulator) Status(ctx context.Context) (station.Status, error) {
+	epoch, err := s.beforeOperation(ctx, OpStatus, false)
+	if err != nil {
 		return station.Status{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ensureOperationReadyLocked(epoch, false); err != nil {
+		return station.Status{}, err
+	}
+	if s.state.Connectivity == station.Online {
+		s.markActivityLocked(s.clock.Now())
 	}
 	power := "off"
 	if s.state.TrackPower {
@@ -209,6 +281,31 @@ func (s *Simulator) SetElectricalState(state ElectricalState) {
 	s.mu.Unlock()
 }
 
+// SetOperationFault configures a deterministic fault. Remaining == 0 means
+// that the rule remains active until ClearFaults or Reset is called.
+func (s *Simulator) SetOperationFault(operation Operation, fault OperationFault) error {
+	if !validOperation(operation) {
+		return fmt.Errorf("unsupported simulator operation %q", operation)
+	}
+	if fault.Delay < 0 {
+		return fmt.Errorf("operation fault delay must not be negative")
+	}
+	if fault.Remaining < 0 {
+		return fmt.Errorf("operation fault remaining count must not be negative")
+	}
+	s.mu.Lock()
+	s.state.operationFaults[operation] = fault
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *Simulator) ClearFaults() {
+	s.mu.Lock()
+	s.state.operationFaults = map[Operation]OperationFault{}
+	s.state.operationEpoch++
+	s.mu.Unlock()
+}
+
 func (s *Simulator) Health() station.Health {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -217,16 +314,19 @@ func (s *Simulator) Health() station.Health {
 
 func (s *Simulator) healthLocked() station.Health {
 	if !s.state.Connected {
-		return station.Health{Connectivity: station.Offline}
+		return station.Health{Connectivity: station.Offline, LastSeen: cloneTimePointer(s.state.LastSeen)}
 	}
-	now := s.clock.Now()
-	return station.Health{Connectivity: station.Online, LastSeen: &now}
+	return station.Health{Connectivity: s.state.Connectivity, LastSeen: cloneTimePointer(s.state.LastSeen)}
 }
 
-func (s *Simulator) SetLocoSpeed(_ context.Context, address int, speed float64, direction station.Direction) error {
+func (s *Simulator) SetLocoSpeed(ctx context.Context, address int, speed float64, direction station.Direction) error {
+	epoch, err := s.beforeOperation(ctx, OpThrottle, true)
+	if err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.ensure(); err != nil {
+	if err := s.ensureOperationReadyLocked(epoch, true); err != nil {
 		return err
 	}
 	if speed < 0 || speed > 1 {
@@ -242,13 +342,18 @@ func (s *Simulator) SetLocoSpeed(_ context.Context, address int, speed float64, 
 	l.Speed = speed
 	l.Direction = direction
 	s.state.Locomotives[address] = l
+	s.markActivityLocked(s.clock.Now())
 	return nil
 }
 
-func (s *Simulator) SetLocoFunction(_ context.Context, address, fn int, on bool) error {
+func (s *Simulator) SetLocoFunction(ctx context.Context, address, fn int, on bool) error {
+	epoch, err := s.beforeOperation(ctx, OpFunction, true)
+	if err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.ensure(); err != nil {
+	if err := s.ensureOperationReadyLocked(epoch, true); err != nil {
 		return err
 	}
 	if fn < 0 || fn > s.Capabilities().MaxFunctionNumber {
@@ -260,13 +365,18 @@ func (s *Simulator) SetLocoFunction(_ context.Context, address, fn int, on bool)
 	}
 	l.Functions[fn] = on
 	s.state.Locomotives[address] = l
+	s.markActivityLocked(s.clock.Now())
 	return nil
 }
 
-func (s *Simulator) SetAccessory(_ context.Context, address int, state string) error {
+func (s *Simulator) SetAccessory(ctx context.Context, address int, state string) error {
+	epoch, err := s.beforeOperation(ctx, OpAccessory, true)
+	if err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.ensure(); err != nil {
+	if err := s.ensureOperationReadyLocked(epoch, true); err != nil {
 		return err
 	}
 	if !validAccessoryDesiredState(state) {
@@ -306,6 +416,7 @@ func (s *Simulator) SetAccessory(_ context.Context, address int, state string) e
 		accessory.LastReportAt = timePointer(now)
 	}
 	s.state.Accessories[address] = accessory
+	s.markActivityLocked(now)
 	return nil
 }
 
@@ -394,6 +505,8 @@ func (s *Simulator) Snapshot() Snapshot {
 
 	snapshot := Snapshot{
 		Connected:     s.state.Connected,
+		Connectivity:  s.state.Connectivity,
+		LastSeen:      cloneTimePointer(s.state.LastSeen),
 		TrackPower:    s.state.TrackPower,
 		EmergencyStop: s.state.EmergencyStop,
 		Locomotives:   make(map[int]LocoState, len(s.state.Locomotives)),
@@ -415,7 +528,14 @@ func (s *Simulator) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.state = newState(s.state.Connected)
+	connected := s.state.Connected
+	epoch := s.state.operationEpoch + 1
+	s.state = newState(connected)
+	s.state.operationEpoch = epoch
+	if connected {
+		s.state.Connectivity = station.Online
+		s.state.LastSeen = timePointer(s.clock.Now())
+	}
 	for {
 		select {
 		case <-s.feedback:
@@ -434,6 +554,96 @@ func cloneLocoState(loco LocoState) LocoState {
 		Speed:     loco.Speed,
 		Direction: loco.Direction,
 		Functions: functions,
+	}
+}
+
+func validOperation(operation Operation) bool {
+	switch operation {
+	case OpStatus, OpTrackPower, OpEmergencyStop, OpThrottle, OpFunction, OpAccessory:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Simulator) beforeOperation(ctx context.Context, operation Operation, active bool) (uint64, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.mu.Lock()
+	if err := s.ensure(); err != nil {
+		s.mu.Unlock()
+		return 0, err
+	}
+	if active && s.state.Connectivity == station.Offline {
+		s.mu.Unlock()
+		return 0, station.ErrOffline
+	}
+	epoch := s.state.operationEpoch
+	fault, hasFault := s.state.operationFaults[operation]
+	if hasFault && fault.Remaining > 0 {
+		remaining := fault.Remaining - 1
+		if remaining == 0 {
+			delete(s.state.operationFaults, operation)
+		} else {
+			fault.Remaining = remaining
+			s.state.operationFaults[operation] = fault
+		}
+	}
+	s.mu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if hasFault && fault.Delay > 0 {
+		if err := s.waitForDelay(ctx, fault.Delay); err != nil {
+			return 0, err
+		}
+	}
+
+	s.mu.RLock()
+	err := s.ensureOperationReadyLocked(epoch, active)
+	s.mu.RUnlock()
+	if err != nil {
+		return 0, err
+	}
+	if hasFault && fault.Error != nil {
+		return 0, fault.Error
+	}
+	return epoch, nil
+}
+
+func (s *Simulator) ensureOperationReadyLocked(epoch uint64, active bool) error {
+	if epoch != s.state.operationEpoch {
+		return ErrOperationCanceled
+	}
+	if err := s.ensure(); err != nil {
+		return err
+	}
+	if active && s.state.Connectivity == station.Offline {
+		return station.ErrOffline
+	}
+	return nil
+}
+
+func (s *Simulator) waitForDelay(ctx context.Context, delay time.Duration) error {
+	deadline := s.clock.Now().Add(delay)
+	if waiter, ok := s.clock.(deadlineWaiter); ok {
+		return waiter.WaitUntil(ctx, deadline)
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (s *Simulator) markActivityLocked(at time.Time) {
+	if s.state.Connected && s.state.Connectivity != station.Offline {
+		s.state.LastSeen = timePointer(at)
 	}
 }
 

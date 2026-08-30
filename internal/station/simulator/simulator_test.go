@@ -155,7 +155,10 @@ func TestSnapshotIsDeepCopy(t *testing.T) {
 
 	snapshot := sim.Snapshot()
 	snapshot.Connected = false
+	snapshot.Connectivity = station.Offline
 	snapshot.TrackPower = false
+	lastSeen := *snapshot.LastSeen
+	*snapshot.LastSeen = lastSeen.Add(time.Hour)
 	loco := snapshot.Locomotives[2601]
 	loco.Speed = 0
 	loco.Functions[2] = false
@@ -172,6 +175,9 @@ func TestSnapshotIsDeepCopy(t *testing.T) {
 	actual := sim.Snapshot()
 	if !actual.Connected || !actual.TrackPower {
 		t.Fatalf("simulator scalar state changed through snapshot: %+v", actual)
+	}
+	if actual.Connectivity != station.Online || actual.LastSeen == nil || !actual.LastSeen.Equal(lastSeen) {
+		t.Fatalf("simulator connectivity changed through snapshot: %+v", actual)
 	}
 	actualLoco := actual.Locomotives[2601]
 	if actualLoco.Speed != 0.6 || !actualLoco.Functions[2] {

@@ -118,6 +118,13 @@ Les courants, tensions, température, mode programmation, perte d'alimentation,
 surchauffe et courts-circuits peuvent ensuite être injectés sans modèle
 physique ni coupure automatique cachée.
 
+La connectivité du simulateur peut être forcée à `online`, `degraded` ou
+`offline`. Des règles typées par opération injectent un délai context-aware et
+une erreur sur les N prochains appels ; `Remaining: 0` conserve la règle
+jusqu'à `ClearFaults()` ou `Reset()`. Une opération encore retardée est annulée
+si les faults sont effacés, si le simulateur est reset ou fermé, ou si sa
+connectivité change. Aucune commande refusée n'est rejouée.
+
 ```bash
 go run ./cmd/dccd serve --config config.json
 ```

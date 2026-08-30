@@ -40,6 +40,7 @@ All notable changes to this project will be documented in this file.
 - Socle déterministe du simulateur avec état explicite, horloge injectable, snapshot profondément copié, introspection des accessoires et reset sans déconnexion.
 - Simulation déterministe des accessoires avec états demandé et confirmé, confirmations immédiates ou différées, absence de confirmation et retours incohérents.
 - Télémétrie électrique injectable du simulateur couvrant courants, tensions, température, mode programmation, perte d'alimentation, surchauffe et courts-circuits.
+- Injection déterministe de connectivité `online/degraded/offline`, délais context-aware et erreurs limitées par type d'opération dans le simulateur.
 
 ### Changed
 

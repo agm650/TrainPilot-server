@@ -34,6 +34,7 @@
 - les snapshots du simulateur sont profondément copiés, son horloge est injectable, son reset conserve la connexion et ses lectures restent sûres face aux commandes concurrentes ;
 - les accessoires simulés distinguent état demandé et confirmé, couvrent les confirmations immédiates, différées, absentes ou incohérentes et ignorent toute confirmation différée devenue obsolète ;
 - la télémétrie simulée possède un état nominal déterministe, expose tous les champs électriques de `station.Status` et combine les défauts sans effet implicite sur la puissance ;
+- le simulateur permet les transitions `online/degraded/offline`, refuse toute commande active hors ligne, conserve un `LastSeen` cohérent et injecte sans rejeu des délais annulables ou un nombre exact d'erreurs par opération ;
 - le bus attribue des séquences monotones, expose sa séquence courante et ne bloque pas sur un abonné lent ;
 - le WebSocket fournit un snapshot complet, permet la resynchronisation après un trou de séquence, supporte la reconnexion et ferme la connexion à l'expiration du jeton ou à la révocation de la session ;
 - les événements anciens ou dupliqués sont filtrés, et un événement publié pendant un snapshot est transmis ensuite sans perte ;

@@ -44,7 +44,6 @@ Ordre suggéré parmi les tâches P0 détaillées ci-dessous :
 ### Simulateur
 
 - [ ] Simuler courant, tension, température, court-circuit et défauts électriques.
-- [ ] Permettre l'injection déterministe de pertes de connexion, délais et réponses invalides.
 - [ ] Fournir des scénarios reproductibles pour la CI et les futurs clients.
 
 ### Rétrosignalisation et cantons
