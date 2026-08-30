@@ -125,6 +125,13 @@ jusqu'à `ClearFaults()` ou `Reset()`. Une opération encore retardée est annul
 si les faults sont effacés, si le simulateur est reset ou fermé, ou si sa
 connectivité change. Aucune commande refusée n'est rejouée.
 
+Les capteurs simulés sont identifiés par source, type et adresse. `SetFeedback`
+met à jour leur état physique et garantit l'émission ou retourne une erreur de
+saturation ; les répétitions sont conservées. `SetFeedbackState` simule
+explicitement un changement physique dont le message est perdu, tandis que les
+séquences et rebonds utilisent l'horloge injectée. L'ancien `InjectFeedback`
+reste disponible en best-effort pour compatibilité.
+
 ```bash
 go run ./cmd/dccd serve --config config.json
 ```

@@ -425,7 +425,7 @@ func TestResetPreservesConnectionAndClearsState(t *testing.T) {
 	if snapshot.TrackPower || snapshot.EmergencyStop {
 		t.Fatalf("reset safety state=%+v", snapshot)
 	}
-	if len(snapshot.Locomotives) != 0 || len(snapshot.Accessories) != 0 {
+	if len(snapshot.Locomotives) != 0 || len(snapshot.Accessories) != 0 || len(snapshot.FeedbackStates) != 0 {
 		t.Fatalf("reset retained layout state: %+v", snapshot)
 	}
 	if snapshot.Electrical != nominalElectricalState() {

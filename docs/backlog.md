@@ -48,8 +48,6 @@ Ordre suggéré parmi les tâches P0 détaillées ci-dessous :
 
 ### Rétrosignalisation et cantons
 
-- [ ] Gérer les rebonds, répétitions et pertes de messages de rétrosignalisation.
-- [ ] Tester plusieurs cantons occupés simultanément.
 - [ ] Tester un redémarrage du serveur lorsque des cantons sont déjà occupés sur le réseau réel.
 - [ ] Valider sur le petit réseau les trois sections rouges extérieures et les deux sections rouges intérieures.
 

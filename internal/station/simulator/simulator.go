@@ -28,12 +28,26 @@ const (
 	OpAccessory     Operation = "accessory"
 )
 
-var ErrOperationCanceled = errors.New("simulator operation canceled")
+var (
+	ErrOperationCanceled  = errors.New("simulator operation canceled")
+	ErrFeedbackBufferFull = errors.New("simulator feedback buffer is full")
+)
 
 type OperationFault struct {
 	Delay     time.Duration
 	Error     error
 	Remaining int
+}
+
+type FeedbackKey struct {
+	Source  string
+	Kind    string
+	Address int
+}
+
+type FeedbackTransition struct {
+	Delay  time.Duration
+	Active bool
 }
 
 type AccessoryBehaviorMode string
@@ -81,31 +95,34 @@ type scheduledAccessoryReport struct {
 }
 
 type State struct {
-	Connected     bool
-	Connectivity  station.Connectivity
-	LastSeen      *time.Time
-	TrackPower    bool
-	EmergencyStop bool
-	Locomotives   map[int]LocoState
-	Accessories   map[int]AccessoryState
-	Electrical    ElectricalState
+	Connected      bool
+	Connectivity   station.Connectivity
+	LastSeen       *time.Time
+	TrackPower     bool
+	EmergencyStop  bool
+	Locomotives    map[int]LocoState
+	Accessories    map[int]AccessoryState
+	Electrical     ElectricalState
+	FeedbackStates map[FeedbackKey]bool
 
 	accessoryBehaviors  map[int]AccessoryBehavior
 	accessoryReports    map[int]scheduledAccessoryReport
 	accessoryGeneration map[int]uint64
 	operationFaults     map[Operation]OperationFault
 	operationEpoch      uint64
+	feedbackEpoch       uint64
 }
 
 type Snapshot struct {
-	Connected     bool
-	Connectivity  station.Connectivity
-	LastSeen      *time.Time
-	TrackPower    bool
-	EmergencyStop bool
-	Locomotives   map[int]LocoState
-	Accessories   map[int]AccessoryState
-	Electrical    ElectricalState
+	Connected      bool
+	Connectivity   station.Connectivity
+	LastSeen       *time.Time
+	TrackPower     bool
+	EmergencyStop  bool
+	Locomotives    map[int]LocoState
+	Accessories    map[int]AccessoryState
+	Electrical     ElectricalState
+	FeedbackStates map[FeedbackKey]bool
 }
 
 type Simulator struct {
@@ -141,6 +158,7 @@ func newState(connected bool) State {
 		Locomotives:         map[int]LocoState{},
 		Accessories:         map[int]AccessoryState{},
 		Electrical:          nominalElectricalState(),
+		FeedbackStates:      map[FeedbackKey]bool{},
 		accessoryBehaviors:  map[int]AccessoryBehavior{},
 		accessoryReports:    map[int]scheduledAccessoryReport{},
 		accessoryGeneration: map[int]uint64{},
@@ -162,6 +180,7 @@ func (s *Simulator) Close() error {
 	s.state.Connected = false
 	s.state.Connectivity = station.Offline
 	s.state.operationEpoch++
+	s.state.feedbackEpoch++
 	s.mu.Unlock()
 	return nil
 }
@@ -472,13 +491,56 @@ func (s *Simulator) ReportAccessoryState(address int, state string) error {
 
 func (s *Simulator) Feedback() <-chan station.FeedbackEvent { return s.feedback }
 
+// InjectFeedback preserves the historical best-effort API. It always updates
+// the physical sensor state but intentionally ignores a full feedback buffer.
 func (s *Simulator) InjectFeedback(e station.FeedbackEvent) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	select {
-	case s.feedback <- e:
-	default:
+	_ = s.SetFeedback(context.Background(), e)
+}
+
+// SetFeedback updates the physical sensor state and emits the event without
+// blocking. Repeated values are emitted; a full buffer is reported explicitly.
+func (s *Simulator) SetFeedback(ctx context.Context, event station.FeedbackEvent) error {
+	return s.setFeedback(ctx, event, true, nil)
+}
+
+// SetFeedbackState changes the physical state without emitting an event. It is
+// the explicit way to simulate a lost feedback message.
+func (s *Simulator) SetFeedbackState(event station.FeedbackEvent) {
+	_ = s.setFeedback(context.Background(), event, false, nil)
+}
+
+func (s *Simulator) EmitFeedbackSequence(ctx context.Context, event station.FeedbackEvent, transitions []FeedbackTransition) error {
+	for _, transition := range transitions {
+		if transition.Delay < 0 {
+			return fmt.Errorf("feedback transition delay must not be negative")
+		}
 	}
+	s.mu.RLock()
+	epoch := s.state.feedbackEpoch
+	s.mu.RUnlock()
+	for _, transition := range transitions {
+		if transition.Delay > 0 {
+			if err := s.waitForDelay(ctx, transition.Delay); err != nil {
+				return err
+			}
+		}
+		event.Active = transition.Active
+		if err := s.setFeedback(ctx, event, true, &epoch); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Simulator) BounceFeedback(ctx context.Context, event station.FeedbackEvent, interval time.Duration) error {
+	if interval < 0 {
+		return fmt.Errorf("feedback bounce interval must not be negative")
+	}
+	return s.EmitFeedbackSequence(ctx, event, []FeedbackTransition{
+		{Active: true},
+		{Delay: interval, Active: false},
+		{Delay: interval, Active: true},
+	})
 }
 
 func (s *Simulator) Loco(address int) LocoState {
@@ -504,20 +566,24 @@ func (s *Simulator) Snapshot() Snapshot {
 	s.applyDueAccessoryReportsLocked(s.clock.Now())
 
 	snapshot := Snapshot{
-		Connected:     s.state.Connected,
-		Connectivity:  s.state.Connectivity,
-		LastSeen:      cloneTimePointer(s.state.LastSeen),
-		TrackPower:    s.state.TrackPower,
-		EmergencyStop: s.state.EmergencyStop,
-		Locomotives:   make(map[int]LocoState, len(s.state.Locomotives)),
-		Accessories:   make(map[int]AccessoryState, len(s.state.Accessories)),
-		Electrical:    s.state.Electrical,
+		Connected:      s.state.Connected,
+		Connectivity:   s.state.Connectivity,
+		LastSeen:       cloneTimePointer(s.state.LastSeen),
+		TrackPower:     s.state.TrackPower,
+		EmergencyStop:  s.state.EmergencyStop,
+		Locomotives:    make(map[int]LocoState, len(s.state.Locomotives)),
+		Accessories:    make(map[int]AccessoryState, len(s.state.Accessories)),
+		Electrical:     s.state.Electrical,
+		FeedbackStates: make(map[FeedbackKey]bool, len(s.state.FeedbackStates)),
 	}
 	for address, loco := range s.state.Locomotives {
 		snapshot.Locomotives[address] = cloneLocoState(loco)
 	}
 	for address, accessory := range s.state.Accessories {
 		snapshot.Accessories[address] = cloneAccessoryState(accessory)
+	}
+	for key, active := range s.state.FeedbackStates {
+		snapshot.FeedbackStates[key] = active
 	}
 	return snapshot
 }
@@ -530,8 +596,10 @@ func (s *Simulator) Reset() {
 
 	connected := s.state.Connected
 	epoch := s.state.operationEpoch + 1
+	feedbackEpoch := s.state.feedbackEpoch + 1
 	s.state = newState(connected)
 	s.state.operationEpoch = epoch
+	s.state.feedbackEpoch = feedbackEpoch
 	if connected {
 		s.state.Connectivity = station.Online
 		s.state.LastSeen = timePointer(s.clock.Now())
@@ -627,6 +695,9 @@ func (s *Simulator) ensureOperationReadyLocked(epoch uint64, active bool) error 
 }
 
 func (s *Simulator) waitForDelay(ctx context.Context, delay time.Duration) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	deadline := s.clock.Now().Add(delay)
 	if waiter, ok := s.clock.(deadlineWaiter); ok {
 		return waiter.WaitUntil(ctx, deadline)
@@ -638,6 +709,31 @@ func (s *Simulator) waitForDelay(ctx context.Context, delay time.Duration) error
 		return ctx.Err()
 	case <-timer.C:
 		return nil
+	}
+}
+
+func (s *Simulator) setFeedback(ctx context.Context, event station.FeedbackEvent, emit bool, expectedEpoch *uint64) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if expectedEpoch != nil && s.state.feedbackEpoch != *expectedEpoch {
+		return ErrOperationCanceled
+	}
+	key := FeedbackKey{Source: event.Source, Kind: event.Kind, Address: event.Address}
+	s.state.FeedbackStates[key] = event.Active
+	if !emit {
+		return nil
+	}
+	select {
+	case s.feedback <- event:
+		return nil
+	default:
+		return ErrFeedbackBufferFull
 	}
 }
 

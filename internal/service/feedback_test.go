@@ -22,25 +22,42 @@ func TestFeedbackUpdatesMappedBlock(t *testing.T) {
 	if err := db.SeedDemo(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SetFeedbackMapping(ctx, "simulator", 2, "block-b"); err != nil {
+		t.Fatal(err)
+	}
 	sim := simulator.New()
 	if err := sim.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	railway := NewRailwayService(db, sim, events.New())
+	bus := events.New()
+	published, unsubscribe := bus.Subscribe(4)
+	defer unsubscribe()
+	railway := NewRailwayService(db, sim, bus)
 	railway.StartFeedback(ctx)
-	sim.InjectFeedback(station.FeedbackEvent{Source: "simulator", Kind: "occupancy", Address: 1, Active: true})
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		blocks, err := db.ListBlocks(ctx)
-		if err != nil {
+	for _, address := range []int{1, 2} {
+		if err := sim.SetFeedback(ctx, station.FeedbackEvent{Source: "simulator", Kind: "occupancy", Address: address, Active: true}); err != nil {
 			t.Fatal(err)
 		}
-		for _, block := range blocks {
-			if block.ID == "block-a" && block.Occupied {
-				return
-			}
-		}
-		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatal("mapped block was not marked occupied")
+	for received := 0; received < 2; received++ {
+		select {
+		case event := <-published:
+			if event.Type != "block.occupancy.changed" {
+				t.Fatalf("event=%+v", event)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("mapped block event was not published")
+		}
+	}
+	blocks, err := db.ListBlocks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	occupied := map[string]bool{}
+	for _, block := range blocks {
+		occupied[block.ID] = block.Occupied
+	}
+	if !occupied["block-a"] || !occupied["block-b"] {
+		t.Fatalf("occupied blocks=%+v", occupied)
+	}
 }
