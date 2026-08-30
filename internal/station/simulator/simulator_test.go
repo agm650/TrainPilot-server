@@ -217,6 +217,165 @@ func TestHealthUsesInjectedClock(t *testing.T) {
 	}
 }
 
+func TestElectricalNominalState(t *testing.T) {
+	ctx := context.Background()
+	sim := New()
+	if err := sim.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := sim.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.TrackPower != "off" || status.EmergencyStop {
+		t.Fatalf("nominal control state=%+v", status)
+	}
+	assertElectricalStatus(t, status, nominalElectricalState())
+}
+
+func TestElectricalTrackVoltageFollowsExplicitPowerCommands(t *testing.T) {
+	ctx := context.Background()
+	sim := New()
+	if err := sim.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := sim.SetTrackPower(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	status, err := sim.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.TrackPower != "on" || status.TrackVoltageMilliVolts != 18000 || status.SupplyVoltageMilliVolts != 18000 {
+		t.Fatalf("power-on status=%+v", status)
+	}
+
+	if err := sim.SetTrackPower(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	status, err = sim.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.TrackPower != "off" || status.TrackVoltageMilliVolts != 0 || status.SupplyVoltageMilliVolts != 18000 {
+		t.Fatalf("power-off status=%+v", status)
+	}
+}
+
+func TestElectricalStateCanBeInjectedExactly(t *testing.T) {
+	ctx := context.Background()
+	sim := New()
+	if err := sim.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := sim.SetTrackPower(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	want := ElectricalState{
+		MainCurrentMilliAmps:         327,
+		ProgrammingCurrentMilliAmps:  17,
+		FilteredMainCurrentMilliAmps: 300,
+		TemperatureCelsius:           42,
+		SupplyVoltageMilliVolts:      17950,
+		TrackVoltageMilliVolts:       17890,
+	}
+	sim.SetElectricalState(want)
+
+	status, err := sim.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.TrackPower != "on" {
+		t.Fatalf("electrical injection changed track power: %+v", status)
+	}
+	assertElectricalStatus(t, status, want)
+}
+
+func TestElectricalFaultsAreIndependent(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*ElectricalState)
+	}{
+		{"high temperature", func(state *ElectricalState) { state.HighTemperature = true }},
+		{"power lost", func(state *ElectricalState) { state.PowerLost = true }},
+		{"external short circuit", func(state *ElectricalState) { state.ExternalShortCircuit = true }},
+		{"internal short circuit", func(state *ElectricalState) { state.InternalShortCircuit = true }},
+		{"programming mode", func(state *ElectricalState) { state.ProgrammingMode = true }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			sim := New()
+			if err := sim.Connect(ctx); err != nil {
+				t.Fatal(err)
+			}
+			state := nominalElectricalState()
+			tc.mutate(&state)
+			sim.SetElectricalState(state)
+			status, err := sim.Status(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertElectricalStatus(t, status, state)
+		})
+	}
+}
+
+func TestCombinedElectricalFaultsHaveNoHiddenPowerSideEffect(t *testing.T) {
+	ctx := context.Background()
+	sim := New()
+	if err := sim.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := sim.SetTrackPower(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	state := ElectricalState{
+		TemperatureCelsius:      75,
+		SupplyVoltageMilliVolts: 17500,
+		TrackVoltageMilliVolts:  17100,
+		ProgrammingMode:         true,
+		HighTemperature:         true,
+		PowerLost:               true,
+		ExternalShortCircuit:    true,
+		InternalShortCircuit:    true,
+	}
+	sim.SetElectricalState(state)
+
+	status, err := sim.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.TrackPower != "on" || status.TrackVoltageMilliVolts != 17100 {
+		t.Fatalf("fault injection changed power state: %+v", status)
+	}
+	assertElectricalStatus(t, status, state)
+}
+
+func TestSnapshotIncludesIndependentElectricalState(t *testing.T) {
+	sim := New()
+	want := ElectricalState{
+		MainCurrentMilliAmps:         327,
+		ProgrammingCurrentMilliAmps:  17,
+		FilteredMainCurrentMilliAmps: 300,
+		TemperatureCelsius:           42,
+		SupplyVoltageMilliVolts:      17950,
+		TrackVoltageMilliVolts:       17890,
+		HighTemperature:              true,
+	}
+	sim.SetElectricalState(want)
+
+	snapshot := sim.Snapshot()
+	if snapshot.Electrical != want {
+		t.Fatalf("snapshot electrical state=%+v, want %+v", snapshot.Electrical, want)
+	}
+	snapshot.Electrical.MainCurrentMilliAmps = 0
+	if actual := sim.Snapshot().Electrical; actual != want {
+		t.Fatalf("snapshot mutation changed simulator electrical state: %+v", actual)
+	}
+}
+
 func TestResetPreservesConnectionAndClearsState(t *testing.T) {
 	ctx := context.Background()
 	sim := New()
@@ -241,6 +400,14 @@ func TestResetPreservesConnectionAndClearsState(t *testing.T) {
 	if err := sim.EmergencyStop(ctx); err != nil {
 		t.Fatal(err)
 	}
+	sim.SetElectricalState(ElectricalState{
+		MainCurrentMilliAmps:    327,
+		TemperatureCelsius:      75,
+		HighTemperature:         true,
+		ExternalShortCircuit:    true,
+		TrackVoltageMilliVolts:  17000,
+		SupplyVoltageMilliVolts: 18000,
+	})
 	sim.InjectFeedback(station.FeedbackEvent{Address: 4, Active: true})
 
 	sim.Reset()
@@ -254,6 +421,9 @@ func TestResetPreservesConnectionAndClearsState(t *testing.T) {
 	}
 	if len(snapshot.Locomotives) != 0 || len(snapshot.Accessories) != 0 {
 		t.Fatalf("reset retained layout state: %+v", snapshot)
+	}
+	if snapshot.Electrical != nominalElectricalState() {
+		t.Fatalf("reset electrical state=%+v", snapshot.Electrical)
 	}
 	if got := sim.Loco(2601); len(got.Functions) != 0 || got.Speed != 0 {
 		t.Fatalf("reset locomotive state=%+v", got)
@@ -472,13 +642,25 @@ func TestSnapshotAndCommandsAreConcurrentSafe(t *testing.T) {
 	const iterations = 250
 	errors := make(chan error, iterations*3)
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(5)
 	go func() {
 		defer wg.Done()
 		for i := 0; i < iterations; i++ {
 			if err := sim.SetLocoSpeed(ctx, i%8, float64(i%100)/100, station.Forward); err != nil {
 				errors <- err
 			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			sim.SetElectricalState(ElectricalState{
+				MainCurrentMilliAmps:    int16(i),
+				TemperatureCelsius:      int16(20 + i%40),
+				SupplyVoltageMilliVolts: uint16(17500 + i%500),
+				TrackVoltageMilliVolts:  uint16(17000 + i%500),
+				HighTemperature:         i%2 == 0,
+			})
 		}
 	}()
 	go func() {
@@ -517,5 +699,23 @@ func TestSnapshotAndCommandsAreConcurrentSafe(t *testing.T) {
 	snapshot := sim.Snapshot()
 	if len(snapshot.Locomotives) == 0 || len(snapshot.Accessories) == 0 {
 		t.Fatalf("concurrent commands did not produce state: %+v", snapshot)
+	}
+}
+
+func assertElectricalStatus(t *testing.T, status station.Status, want ElectricalState) {
+	t.Helper()
+	if status.MainCurrentMilliAmps != want.MainCurrentMilliAmps ||
+		status.ProgrammingCurrentMilliAmps != want.ProgrammingCurrentMilliAmps ||
+		status.FilteredMainCurrentMilliAmps != want.FilteredMainCurrentMilliAmps ||
+		status.TemperatureCelsius != want.TemperatureCelsius ||
+		status.SupplyVoltageMilliVolts != want.SupplyVoltageMilliVolts ||
+		status.TrackVoltageMilliVolts != want.TrackVoltageMilliVolts ||
+		status.ProgrammingMode != want.ProgrammingMode ||
+		status.HighTemperature != want.HighTemperature ||
+		status.PowerLost != want.PowerLost ||
+		status.ExternalShortCircuit != want.ExternalShortCircuit ||
+		status.InternalShortCircuit != want.InternalShortCircuit ||
+		status.ShortCircuit != (want.ExternalShortCircuit || want.InternalShortCircuit) {
+		t.Fatalf("electrical status=%+v, want %+v", status, want)
 	}
 }

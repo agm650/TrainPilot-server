@@ -39,6 +39,21 @@ type AccessoryState struct {
 	LastReportAt  *time.Time
 }
 
+type ElectricalState struct {
+	MainCurrentMilliAmps         int16
+	ProgrammingCurrentMilliAmps  int16
+	FilteredMainCurrentMilliAmps int16
+	TemperatureCelsius           int16
+	SupplyVoltageMilliVolts      uint16
+	TrackVoltageMilliVolts       uint16
+
+	ProgrammingMode      bool
+	HighTemperature      bool
+	PowerLost            bool
+	ExternalShortCircuit bool
+	InternalShortCircuit bool
+}
+
 type scheduledAccessoryReport struct {
 	State      string
 	DueAt      time.Time
@@ -51,6 +66,7 @@ type State struct {
 	EmergencyStop bool
 	Locomotives   map[int]LocoState
 	Accessories   map[int]AccessoryState
+	Electrical    ElectricalState
 
 	accessoryBehaviors  map[int]AccessoryBehavior
 	accessoryReports    map[int]scheduledAccessoryReport
@@ -63,6 +79,7 @@ type Snapshot struct {
 	EmergencyStop bool
 	Locomotives   map[int]LocoState
 	Accessories   map[int]AccessoryState
+	Electrical    ElectricalState
 }
 
 type Simulator struct {
@@ -92,6 +109,7 @@ func newState(connected bool) State {
 		Connected:           connected,
 		Locomotives:         map[int]LocoState{},
 		Accessories:         map[int]AccessoryState{},
+		Electrical:          nominalElectricalState(),
 		accessoryBehaviors:  map[int]AccessoryBehavior{},
 		accessoryReports:    map[int]scheduledAccessoryReport{},
 		accessoryGeneration: map[int]uint64{},
@@ -132,6 +150,9 @@ func (s *Simulator) SetTrackPower(_ context.Context, on bool) error {
 	s.state.TrackPower = on
 	if on {
 		s.state.EmergencyStop = false
+		s.state.Electrical.TrackVoltageMilliVolts = s.state.Electrical.SupplyVoltageMilliVolts
+	} else {
+		s.state.Electrical.TrackVoltageMilliVolts = 0
 	}
 	return nil
 }
@@ -161,7 +182,31 @@ func (s *Simulator) Status(context.Context) (station.Status, error) {
 		power = "on"
 	}
 	health := s.healthLocked()
-	return station.Status{Connectivity: health.Connectivity, LastSeen: health.LastSeen, TrackPower: power, EmergencyStop: s.state.EmergencyStop}, nil
+	electrical := s.state.Electrical
+	return station.Status{
+		Connectivity:                 health.Connectivity,
+		LastSeen:                     health.LastSeen,
+		TrackPower:                   power,
+		EmergencyStop:                s.state.EmergencyStop,
+		ShortCircuit:                 electrical.ExternalShortCircuit || electrical.InternalShortCircuit,
+		ProgrammingMode:              electrical.ProgrammingMode,
+		MainCurrentMilliAmps:         electrical.MainCurrentMilliAmps,
+		ProgrammingCurrentMilliAmps:  electrical.ProgrammingCurrentMilliAmps,
+		FilteredMainCurrentMilliAmps: electrical.FilteredMainCurrentMilliAmps,
+		TemperatureCelsius:           electrical.TemperatureCelsius,
+		SupplyVoltageMilliVolts:      electrical.SupplyVoltageMilliVolts,
+		TrackVoltageMilliVolts:       electrical.TrackVoltageMilliVolts,
+		HighTemperature:              electrical.HighTemperature,
+		PowerLost:                    electrical.PowerLost,
+		ExternalShortCircuit:         electrical.ExternalShortCircuit,
+		InternalShortCircuit:         electrical.InternalShortCircuit,
+	}, nil
+}
+
+func (s *Simulator) SetElectricalState(state ElectricalState) {
+	s.mu.Lock()
+	s.state.Electrical = state
+	s.mu.Unlock()
 }
 
 func (s *Simulator) Health() station.Health {
@@ -353,6 +398,7 @@ func (s *Simulator) Snapshot() Snapshot {
 		EmergencyStop: s.state.EmergencyStop,
 		Locomotives:   make(map[int]LocoState, len(s.state.Locomotives)),
 		Accessories:   make(map[int]AccessoryState, len(s.state.Accessories)),
+		Electrical:    s.state.Electrical,
 	}
 	for address, loco := range s.state.Locomotives {
 		snapshot.Locomotives[address] = cloneLocoState(loco)
@@ -388,6 +434,13 @@ func cloneLocoState(loco LocoState) LocoState {
 		Speed:     loco.Speed,
 		Direction: loco.Direction,
 		Functions: functions,
+	}
+}
+
+func nominalElectricalState() ElectricalState {
+	return ElectricalState{
+		TemperatureCelsius:      25,
+		SupplyVoltageMilliVolts: 18000,
 	}
 }
 

@@ -112,6 +112,12 @@ délai déterministe, ne pas confirmer ou produire un retour incohérent. Ces
 fonctions d'introspection restent internes au banc de test et ne modifient pas
 l'API publique `/api/v1/...`.
 
+La télémétrie simulée démarre dans un état nominal stable : 25 °C, alimentation
+à 18 000 mV, voie à 0 mV lorsqu'elle est coupée, courants nuls et aucun défaut.
+Les courants, tensions, température, mode programmation, perte d'alimentation,
+surchauffe et courts-circuits peuvent ensuite être injectés sans modèle
+physique ni coupure automatique cachée.
+
 ```bash
 go run ./cmd/dccd serve --config config.json
 ```
