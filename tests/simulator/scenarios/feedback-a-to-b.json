@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "name": "feedback-a-to-b",
+  "initial": {},
+  "steps": [
+    {
+      "at": "0s",
+      "action": "feedback.set",
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 1,
+      "active": true,
+      "emit": true
+    },
+    {
+      "at": "2s",
+      "action": "feedback.set",
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 2,
+      "active": true,
+      "emit": true
+    },
+    {
+      "at": "3s",
+      "action": "feedback.set",
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 1,
+      "active": false,
+      "emit": true
+    }
+  ]
+}

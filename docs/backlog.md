@@ -43,8 +43,9 @@ Ordre suggéré parmi les tâches P0 détaillées ci-dessous :
 
 ### Simulateur
 
-- [ ] Simuler courant, tension, température, court-circuit et défauts électriques.
-- [ ] Fournir des scénarios reproductibles pour la CI et les futurs clients.
+Le socle déterministe, la télémétrie, les faults, la rétrosignalisation et les
+scénarios JSON reproductibles sont terminés. Les extensions restantes sont
+portées par les tickets suivants du chantier simulateur.
 
 ### Rétrosignalisation et cantons
 

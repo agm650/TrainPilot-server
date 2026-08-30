@@ -42,6 +42,7 @@ All notable changes to this project will be documented in this file.
 - Télémétrie électrique injectable du simulateur couvrant courants, tensions, température, mode programmation, perte d'alimentation, surchauffe et courts-circuits.
 - Injection déterministe de connectivité `online/degraded/offline`, délais context-aware et erreurs limitées par type d'opération dans le simulateur.
 - Rétrosignalisation simulée avec état physique observable, répétitions, rebonds déterministes, pertes volontaires, saturation explicite et intégration multi-cantons.
+- Moteur de scénarios JSON v1 strict et déterministe, avec avance manuelle sans sommeil réel, exécution temps réel annulable, état de contrôle observable et scénarios de référence versionnés.
 
 ### Changed
 

@@ -46,11 +46,24 @@ func (f *Fake) Now() time.Time {
 func (f *Fake) Advance(d time.Duration) {
 	f.mu.Lock()
 	f.now = f.now.Add(d)
+	f.notifyLocked()
+	f.mu.Unlock()
+}
+
+// Set moves the fake clock to an explicit instant. It is useful when replaying
+// the same deterministic scenario from the same logical origin.
+func (f *Fake) Set(now time.Time) {
+	f.mu.Lock()
+	f.now = now.UTC()
+	f.notifyLocked()
+	f.mu.Unlock()
+}
+
+func (f *Fake) notifyLocked() {
 	if f.changed != nil {
 		close(f.changed)
 	}
 	f.changed = make(chan struct{})
-	f.mu.Unlock()
 }
 
 func (f *Fake) WaitUntil(ctx context.Context, deadline time.Time) error {

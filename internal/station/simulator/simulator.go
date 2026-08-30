@@ -126,10 +126,11 @@ type Snapshot struct {
 }
 
 type Simulator struct {
-	mu       sync.RWMutex
-	clock    clock.Clock
-	state    State
-	feedback chan station.FeedbackEvent
+	mu        sync.RWMutex
+	clock     clock.Clock
+	state     State
+	feedback  chan station.FeedbackEvent
+	lifecycle chan struct{}
 }
 
 type deadlineWaiter interface {
@@ -145,9 +146,10 @@ func NewWithClock(clk clock.Clock) *Simulator {
 		clk = clock.Real{}
 	}
 	return &Simulator{
-		clock:    clk,
-		state:    newState(false),
-		feedback: make(chan station.FeedbackEvent, 64),
+		clock:     clk,
+		state:     newState(false),
+		feedback:  make(chan station.FeedbackEvent, 64),
+		lifecycle: make(chan struct{}),
 	}
 }
 
@@ -168,6 +170,11 @@ func newState(connected bool) State {
 
 func (s *Simulator) Connect(context.Context) error {
 	s.mu.Lock()
+	select {
+	case <-s.lifecycle:
+		s.lifecycle = make(chan struct{})
+	default:
+	}
 	s.state.Connected = true
 	s.state.Connectivity = station.Online
 	s.state.LastSeen = timePointer(s.clock.Now())
@@ -177,12 +184,22 @@ func (s *Simulator) Connect(context.Context) error {
 
 func (s *Simulator) Close() error {
 	s.mu.Lock()
+	s.closeLifecycleLocked()
 	s.state.Connected = false
 	s.state.Connectivity = station.Offline
 	s.state.operationEpoch++
 	s.state.feedbackEpoch++
 	s.mu.Unlock()
 	return nil
+}
+
+// LifecycleDone is closed when Close or Reset invalidates work associated with
+// the current simulator lifecycle. A new channel is installed by Reset and by
+// a subsequent Connect after Close.
+func (s *Simulator) LifecycleDone() <-chan struct{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lifecycle
 }
 
 func (s *Simulator) SetConnectivity(connectivity station.Connectivity) error {
@@ -298,6 +315,37 @@ func (s *Simulator) SetElectricalState(state ElectricalState) {
 	s.mu.Lock()
 	s.state.Electrical = state
 	s.mu.Unlock()
+}
+
+// SetTrackPowerState injects the station's externally observed power state.
+// Unlike SetTrackPower it is not a command and therefore bypasses operation
+// faults and offline command rejection.
+func (s *Simulator) SetTrackPowerState(on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state.TrackPower = on
+	if on {
+		s.state.EmergencyStop = false
+		s.state.Electrical.TrackVoltageMilliVolts = s.state.Electrical.SupplyVoltageMilliVolts
+	} else {
+		s.state.Electrical.TrackVoltageMilliVolts = 0
+	}
+	s.markActivityLocked(s.clock.Now())
+}
+
+// SetEmergencyStopState injects the station's externally observed emergency
+// state. Activating it immediately sets every remembered locomotive to zero.
+func (s *Simulator) SetEmergencyStopState(active bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if active {
+		for address, loco := range s.state.Locomotives {
+			loco.Speed = 0
+			s.state.Locomotives[address] = loco
+		}
+	}
+	s.state.EmergencyStop = active
+	s.markActivityLocked(s.clock.Now())
 }
 
 // SetOperationFault configures a deterministic fault. Remaining == 0 means
@@ -503,6 +551,28 @@ func (s *Simulator) SetFeedback(ctx context.Context, event station.FeedbackEvent
 	return s.setFeedback(ctx, event, true, nil)
 }
 
+// SetFeedbackAtomic updates the physical sensor state only if the matching
+// event can also be delivered. It is intended for scenario steps, whose
+// application must be all-or-nothing.
+func (s *Simulator) SetFeedbackAtomic(ctx context.Context, event station.FeedbackEvent) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	select {
+	case s.feedback <- event:
+		key := FeedbackKey{Source: event.Source, Kind: event.Kind, Address: event.Address}
+		s.state.FeedbackStates[key] = event.Active
+		return nil
+	default:
+		return ErrFeedbackBufferFull
+	}
+}
+
 // SetFeedbackState changes the physical state without emitting an event. It is
 // the explicit way to simulate a lost feedback message.
 func (s *Simulator) SetFeedbackState(event station.FeedbackEvent) {
@@ -594,10 +664,12 @@ func (s *Simulator) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.closeLifecycleLocked()
 	connected := s.state.Connected
 	epoch := s.state.operationEpoch + 1
 	feedbackEpoch := s.state.feedbackEpoch + 1
 	s.state = newState(connected)
+	s.lifecycle = make(chan struct{})
 	s.state.operationEpoch = epoch
 	s.state.feedbackEpoch = feedbackEpoch
 	if connected {
@@ -631,6 +703,18 @@ func validOperation(operation Operation) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func (operation Operation) Valid() bool {
+	return validOperation(operation)
+}
+
+func (s *Simulator) closeLifecycleLocked() {
+	select {
+	case <-s.lifecycle:
+	default:
+		close(s.lifecycle)
 	}
 }
 

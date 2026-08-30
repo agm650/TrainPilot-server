@@ -56,6 +56,7 @@ internal/websocket/          implémentation RFC 6455 minimale
 internal/*_test.go           tests unitaires
 tests/contract/              validation des scénarios contractuels versionnés
 tests/integration/           tests d’intégration
+tests/simulator/scenarios/   scénarios déterministes du banc virtuel
 contract-tests/              scénarios métier lisibles par plusieurs clients
 deploy/                      exemple systemd et configuration Linux
 ```
@@ -131,6 +132,40 @@ saturation ; les répétitions sont conservées. `SetFeedbackState` simule
 explicitement un changement physique dont le message est perdu, tandis que les
 séquences et rebonds utilisent l'horloge injectée. L'ancien `InjectFeedback`
 reste disponible en best-effort pour compatibilité.
+
+Le package `internal/station/simulator/scenario` charge des scénarios JSON
+versionnés et strictement validés avant leur démarrage. En mode manuel, un
+`Runner` associé à `clock.Fake` avance sans sommeil réel et exécute toutes les
+étapes arrivées à échéance, en conservant l'ordre du fichier lorsque plusieurs
+actions partagent le même timestamp. Le mode `StartRealtime(ctx)` utilise le
+temps réel pour les essais interactifs ; il est annulable et s'arrête également
+si le simulateur est fermé ou reset depuis l'extérieur. Son snapshot de
+contrôle expose le scénario chargé, l'état `loaded/running/completed/stopped/failed`,
+le temps logique, la prochaine étape et l'erreur éventuelle.
+
+Les scénarios de référence se trouvent dans `tests/simulator/scenarios/`. Le
+format v1 utilise des durées Go (`500ms`, `5s`, `1m`) et les actions suivantes :
+
+- `station.connectivity`, `station.track_power`, `station.emergency_stop` et
+  `station.electrical` ;
+- `feedback.set` avec `emit: true|false`, et `feedback.emit` ;
+- `accessory.report` et `accessory.behavior` ;
+- `fault.operation`, `fault.clear` et `simulator.reset`.
+
+Exemple d'exécution manuelle dans un test :
+
+```go
+clk := clock.NewFake(start)
+sim := simulator.NewWithClock(clk)
+_ = sim.Connect(ctx)
+definition, _ := scenario.LoadFile("tests/simulator/scenarios/feedback-a-to-b.json")
+runner, _ := scenario.New(definition, sim, clk)
+_ = runner.Start(ctx)
+_ = runner.Advance(ctx, 3*time.Second)
+```
+
+Le moteur ne dépend ni des services métier, ni de SQLite, ni des handlers HTTP.
+Il simule uniquement le monde extérieur observé par TrainPilot.
 
 ```bash
 go run ./cmd/dccd serve --config config.json

@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "name": "accessory-electrical-fault",
+  "initial": {
+    "connectivity": "online",
+    "trackPower": true
+  },
+  "steps": [
+    {
+      "at": "1s",
+      "action": "accessory.behavior",
+      "address": 12,
+      "mode": "delayed",
+      "delay": "500ms"
+    },
+    {
+      "at": "2s",
+      "action": "station.electrical",
+      "electrical": {
+        "mainCurrentMilliAmps": 327,
+        "filteredMainCurrentMilliAmps": 300,
+        "temperatureCelsius": 42,
+        "supplyVoltageMilliVolts": 17950,
+        "trackVoltageMilliVolts": 17890,
+        "externalShortCircuit": true
+      }
+    },
+    {
+      "at": "3s",
+      "action": "fault.operation",
+      "operation": "accessory",
+      "error": "simulated accessory failure",
+      "remaining": 1
+    },
+    {
+      "at": "4s",
+      "action": "fault.clear"
+    }
+  ]
+}

@@ -36,6 +36,8 @@
 - la télémétrie simulée possède un état nominal déterministe, expose tous les champs électriques de `station.Status` et combine les défauts sans effet implicite sur la puissance ;
 - le simulateur permet les transitions `online/degraded/offline`, refuse toute commande active hors ligne, conserve un `LastSeen` cohérent et injecte sans rejeu des délais annulables ou un nombre exact d'erreurs par opération ;
 - les capteurs simulés mémorisent leur état physique indépendamment des événements, reproduisent répétitions, rebonds et pertes, signalent la saturation et alimentent simultanément deux cantons via `RailwayService` ;
+- les scénarios JSON v1 sont validés intégralement avant exécution, conservent l'ordre des étapes simultanées et sont reproductibles avec `clock.Fake` sans attente réelle ;
+- un scénario expose son cycle de vie et son erreur, s'arrête sur une étape impossible et son mode temps réel est annulé par le contexte, `Close()` ou un reset externe du simulateur ;
 - le bus attribue des séquences monotones, expose sa séquence courante et ne bloque pas sur un abonné lent ;
 - le WebSocket fournit un snapshot complet, permet la resynchronisation après un trou de séquence, supporte la reconnexion et ferme la connexion à l'expiration du jeton ou à la révocation de la session ;
 - les événements anciens ou dupliqués sont filtrés, et un événement publié pendant un snapshot est transmis ensuite sans perte ;
@@ -106,11 +108,40 @@ les TTL du serveur de test ou augmenter explicitement cette limite.
 
 Sur macOS, utiliser `TMPDIR=/tmp go test ./...` si le chemin temporaire par défaut rend le nom du socket Unix d’administration trop long.
 
+## Scénarios déterministes du simulateur
+
+Les fichiers sous `tests/simulator/scenarios/` décrivent le monde extérieur vu
+par la centrale simulée. Ils sont distincts des scénarios contractuels HTTP de
+`contract-tests/scenarios/` : le moteur n'appelle aucun service métier et ne
+modifie aucune base SQLite.
+
+Un fichier contient obligatoirement `version`, `name`, `initial` et `steps`.
+La version courante est `1`, les timestamps `at` sont relatifs au démarrage et
+utilisent `time.ParseDuration`. Les étapes doivent être triées ; deux étapes au
+même instant restent exécutées dans leur ordre JSON. Le parsing rejette avant
+démarrage les champs inconnus, actions inconnues, durées invalides, adresses
+négatives et champs requis absents.
+
+Le mode manuel associe le simulateur et le runner à la même `clock.Fake`, puis
+utilise `Start(ctx)` et `Advance(ctx, durée)`. Une avance peut franchir plusieurs
+étapes sans `time.Sleep`. Pour un client interactif, `StartRealtime(ctx)` suit
+le temps réel et `Done()` permet d'attendre sa terminaison. `Stop()`, l'annulation
+du contexte, `Simulator.Close()` et un reset externe empêchent toute action
+future. Une étape `simulator.reset` appartenant au scénario, elle, réinitialise
+le banc puis laisse le scénario se poursuivre.
+
+Scénarios de référence actuels :
+
+- `station-offline-recovery.json` : `online → degraded → offline → online` ;
+- `feedback-a-to-b.json` : occupation `A → A+B → B` ;
+- `accessory-electrical-fault.json` : comportement d'accessoire, télémétrie et
+  fault déterministe.
+
 ## Couverture restant à ajouter
 
 - parité contractuelle complète entre DCC-EX et z21 pour leurs capacités communes ;
 - couverture protocolaire DCC-EX au-delà des commandes et retours actuellement pris en charge ;
-- scénarios de rétrosignalisation simultanée, répétée et présente au démarrage ;
+- rétrosignalisation déjà présente au démarrage réel du serveur ;
 - campagnes sur matériel réel.
 
 ## Test manuel facultatif DCC-EX

@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "name": "station-offline-recovery",
+  "initial": {
+    "connectivity": "online",
+    "trackPower": true
+  },
+  "steps": [
+    {
+      "at": "5s",
+      "action": "station.connectivity",
+      "connectivity": "degraded"
+    },
+    {
+      "at": "15s",
+      "action": "station.connectivity",
+      "connectivity": "offline"
+    },
+    {
+      "at": "25s",
+      "action": "station.connectivity",
+      "connectivity": "online"
+    }
+  ]
+}
