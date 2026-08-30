@@ -12,13 +12,14 @@ import (
 )
 
 type systemSnapshotPayload struct {
-	Station       station.Capabilities `json:"station"`
-	StationStatus station.Status       `json:"stationStatus"`
-	Locomotives   []model.Locomotive   `json:"locomotives"`
-	ControlLeases []model.ControlLease `json:"controlLeases"`
-	Blocks        []model.Block        `json:"blocks"`
-	Turnouts      []model.Turnout      `json:"turnouts"`
-	Routes        []model.Route        `json:"routes"`
+	Station                 station.Capabilities           `json:"station"`
+	StationStatus           station.Status                 `json:"stationStatus"`
+	Locomotives             []model.Locomotive             `json:"locomotives"`
+	ControlLeases           []model.ControlLease           `json:"controlLeases"`
+	LocomotiveControlStates []model.LocomotiveControlState `json:"locomotiveControlStates"`
+	Blocks                  []model.Block                  `json:"blocks"`
+	Turnouts                []model.Turnout                `json:"turnouts"`
+	Routes                  []model.Route                  `json:"routes"`
 }
 
 type systemSnapshot struct {
@@ -54,6 +55,10 @@ func (s *Server) buildSystemSnapshot(ctx context.Context, session model.Session)
 	if err != nil {
 		return systemSnapshot{}, err
 	}
+	controlStates, err := s.control.LocomotiveControlStates(ctx, session)
+	if err != nil {
+		return systemSnapshot{}, err
+	}
 	blocks, err := s.railway.Blocks(ctx)
 	if err != nil {
 		return systemSnapshot{}, err
@@ -71,13 +76,14 @@ func (s *Server) buildSystemSnapshot(ctx context.Context, session model.Session)
 		Sequence:   sequence,
 		CapturedAt: time.Now().UTC(),
 		Payload: systemSnapshotPayload{
-			Station:       s.station.Capabilities(),
-			StationStatus: status,
-			Locomotives:   snapshotItems(locomotives),
-			ControlLeases: snapshotItems(leases),
-			Blocks:        snapshotItems(blocks),
-			Turnouts:      snapshotItems(turnouts),
-			Routes:        snapshotItems(routes),
+			Station:                 s.station.Capabilities(),
+			StationStatus:           status,
+			Locomotives:             snapshotItems(locomotives),
+			ControlLeases:           snapshotItems(leases),
+			LocomotiveControlStates: snapshotItems(controlStates),
+			Blocks:                  snapshotItems(blocks),
+			Turnouts:                snapshotItems(turnouts),
+			Routes:                  snapshotItems(routes),
 		},
 	}, nil
 }

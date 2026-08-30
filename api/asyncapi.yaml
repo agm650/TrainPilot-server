@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: DCC Control Server Events
-  version: 1.4.0
+  version: 1.5.0
   description: >-
     WebSocket event contract for native clients, including complete sequenced
     snapshots and explicit resynchronization requests. After a snapshot, clients
@@ -150,6 +150,20 @@ components:
         releaseAfter: { type: string, format: date-time }
         releaseReason: { type: string }
         heartbeatMillis: { type: integer, minimum: 0 }
+    LocomotiveControlState:
+      type: object
+      description: >-
+        Public control availability for a locomotive with a live lease. A
+        locomotive absent from locomotiveControlStates is free.
+      required: [locomotiveId, state, ownership]
+      properties:
+        locomotiveId: { type: string }
+        state: { type: string, enum: [active, stopping] }
+        ownership:
+          type: string
+          enum: [mine, same_user_other_session, other]
+        expiresAt: { type: string, format: date-time }
+        releaseAfter: { type: string, format: date-time }
     Locomotive:
       type: object
       required: [id, name, dccAddress, addressKind, speedSteps]
@@ -189,8 +203,12 @@ components:
     SystemSnapshot:
       name: system.snapshot
       description: >-
-        Complete state required by an authenticated client. controlLeases contains
-        only live leases owned by the authenticated session.
+        Complete state required by an authenticated client. controlLeases
+        contains full control lease information only for leases owned by the
+        authenticated session. locomotiveControlStates contains public control
+        availability for all currently controlled locomotives, including
+        leases owned by other sessions. Absence from locomotiveControlStates
+        means that the locomotive is free.
       payload:
         type: object
         required: [type, sequence, capturedAt, payload]
@@ -203,7 +221,7 @@ components:
           capturedAt: { type: string, format: date-time }
           payload:
             type: object
-            required: [station, stationStatus, locomotives, controlLeases, blocks, turnouts, routes]
+            required: [station, stationStatus, locomotives, controlLeases, locomotiveControlStates, blocks, turnouts, routes]
             properties:
               station: { $ref: '#/components/schemas/StationCapabilities' }
               stationStatus: { $ref: '#/components/schemas/StationStatus' }
@@ -211,8 +229,15 @@ components:
                 type: array
                 items: { $ref: '#/components/schemas/Locomotive' }
               controlLeases:
+                description: Full control lease information for leases owned by the authenticated session.
                 type: array
                 items: { $ref: '#/components/schemas/LeasePayload' }
+              locomotiveControlStates:
+                description: >-
+                  Public locomotive control availability for all currently
+                  controlled locomotives, including leases owned by other sessions.
+                type: array
+                items: { $ref: '#/components/schemas/LocomotiveControlState' }
               blocks:
                 type: array
                 items: { $ref: '#/components/schemas/Block' }
@@ -257,7 +282,7 @@ components:
           lastSequence:
             type: integer
             minimum: 0
-            description: Last sequence successfully applied by the client. It is diagnostic in version 1.4.0.
+            description: Last sequence successfully applied by the client. It is diagnostic in version 1.5.0.
     LocomotiveCreated:
       name: locomotive.created
       payload:

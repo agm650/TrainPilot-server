@@ -41,6 +41,7 @@ type websocketFixture struct {
 	lease       model.ControlLease
 	accessToken string
 	locomotives []model.Locomotive
+	clock       *clock.Fake
 }
 
 func newWebsocketFixture(t *testing.T) websocketFixture {
@@ -63,13 +64,13 @@ func newWebsocketFixtureWithStation(t *testing.T, accessTTL time.Duration, wrap 
 		t.Fatal(err)
 	}
 
-	clk := clock.Real{}
-	users := service.NewUserServiceWithPasswordParams(db, clk, auth.PasswordParams{Iterations: 100_000, SaltLength: 16, KeyLength: 32})
+	authClock := clock.Real{}
+	users := service.NewUserServiceWithPasswordParams(db, authClock, auth.PasswordParams{Iterations: 100_000, SaltLength: 16, KeyLength: 32})
 	user, err := users.Create(ctx, "alice", "Alice", "correct-horse-1", model.RoleDriver, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	authSvc := service.NewAuthService(db, users, clk, accessTTL, time.Hour)
+	authSvc := service.NewAuthService(db, users, authClock, accessTTL, time.Hour)
 	pair, err := authSvc.Login(ctx, "alice", "correct-horse-1", "snapshot-test", "Snapshot test", "test")
 	if err != nil {
 		t.Fatal(err)
@@ -89,9 +90,10 @@ func newWebsocketFixtureWithStation(t *testing.T, accessTTL time.Duration, wrap 
 	}
 	bus := events.New()
 	railway := service.NewRailwayService(db, commandStation, bus)
-	control := service.NewControlService(db, commandStation, bus, clk, 15*time.Second, time.Second, time.Hour)
+	controlClock := clock.NewFake(time.Now().UTC())
+	control := service.NewControlService(db, commandStation, bus, controlClock, 15*time.Second, time.Second, time.Hour)
 	routes := service.NewRouteService(db, railway, bus)
-	server := New(authSvc, control, railway, routes, transfer.New(db, bus, clk), db, bus, commandStation, sim, true)
+	server := New(authSvc, control, railway, routes, transfer.New(db, bus, authClock), db, bus, commandStation, sim, true)
 
 	locomotives, err := railway.Locomotives(ctx)
 	if err != nil || len(locomotives) == 0 {
@@ -103,7 +105,7 @@ func newWebsocketFixtureWithStation(t *testing.T, accessTTL time.Duration, wrap 
 	}
 	httpServer := httptest.NewServer(server.Handler())
 	t.Cleanup(httpServer.Close)
-	return websocketFixture{api: server, server: httpServer, control: control, railway: railway, bus: bus, user: user, session: session, lease: lease, accessToken: pair.AccessToken, locomotives: locomotives}
+	return websocketFixture{api: server, server: httpServer, control: control, railway: railway, bus: bus, user: user, session: session, lease: lease, accessToken: pair.AccessToken, locomotives: locomotives, clock: controlClock}
 }
 
 type snapshotBlockingStation struct {
@@ -149,6 +151,153 @@ func TestSystemSnapshotContainsCompleteClientState(t *testing.T) {
 	}
 	if len(snapshot.Payload.ControlLeases) != 1 || snapshot.Payload.ControlLeases[0].ID != fixture.lease.ID || snapshot.Payload.ControlLeases[0].HeartbeatMillis <= 0 {
 		t.Fatalf("leases=%+v", snapshot.Payload.ControlLeases)
+	}
+	if len(snapshot.Payload.LocomotiveControlStates) != 1 || snapshot.Payload.LocomotiveControlStates[0].LocomotiveID != fixture.lease.LocomotiveID || snapshot.Payload.LocomotiveControlStates[0].Ownership != model.ControlOwnershipMine {
+		t.Fatalf("locomotive control states=%+v", snapshot.Payload.LocomotiveControlStates)
+	}
+}
+
+func createWebsocketTestSession(t *testing.T, db *store.Store, now time.Time, userID, sessionID string) model.Session {
+	t.Helper()
+	session := model.Session{
+		ID:            sessionID,
+		UserID:        userID,
+		ClientID:      "client-" + sessionID,
+		AccessHash:    "access-" + sessionID,
+		RefreshHash:   "refresh-" + sessionID,
+		AccessExpiry:  now.Add(time.Hour),
+		RefreshExpiry: now.Add(2 * time.Hour),
+		CreatedAt:     now,
+		LastSeenAt:    now,
+	}
+	if err := db.CreateSession(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+	return session
+}
+
+func TestSystemSnapshotExposesControlAvailabilityWithoutOtherLeaseDetails(t *testing.T) {
+	ctx := context.Background()
+	fixture := newWebsocketFixture(t)
+	now := fixture.clock.Now()
+	sessionB := createWebsocketTestSession(t, fixture.api.store, now, fixture.user.ID, "session-b")
+	otherUser := model.User{ID: "user-b", Username: "bob", Role: model.RoleDriver, Enabled: true, CreatedAt: now, UpdatedAt: now}
+	if err := fixture.api.store.CreateUser(ctx, otherUser, "test-hash"); err != nil {
+		t.Fatal(err)
+	}
+	sessionC := createWebsocketTestSession(t, fixture.api.store, now, otherUser.ID, "session-c")
+	for _, locomotive := range []model.Locomotive{
+		{ID: "loco-c", Name: "Loco C", DCCAddress: 3, AddressKind: "short", SpeedSteps: 128},
+		{ID: "loco-free", Name: "Loco libre", DCCAddress: 4, AddressKind: "short", SpeedSteps: 128},
+	} {
+		if err := fixture.api.store.CreateLocomotive(ctx, locomotive); err != nil {
+			t.Fatal(err)
+		}
+	}
+	leaseB, err := fixture.control.Acquire(ctx, fixture.user, sessionB, fixture.locomotives[1].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaseC, err := fixture.control.Acquire(ctx, otherUser, sessionC, "loco-c")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := fixture.api.buildSystemSnapshot(ctx, fixture.session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Payload.ControlLeases) != 1 || snapshot.Payload.ControlLeases[0].ID != fixture.lease.ID {
+		t.Fatalf("session-private leases=%+v", snapshot.Payload.ControlLeases)
+	}
+	states := make(map[string]model.LocomotiveControlState, len(snapshot.Payload.LocomotiveControlStates))
+	for _, state := range snapshot.Payload.LocomotiveControlStates {
+		states[state.LocomotiveID] = state
+	}
+	wantOwnership := map[string]model.ControlOwnership{
+		fixture.lease.LocomotiveID: model.ControlOwnershipMine,
+		leaseB.LocomotiveID:        model.ControlOwnershipSameUserOtherSession,
+		leaseC.LocomotiveID:        model.ControlOwnershipOther,
+	}
+	if len(states) != len(wantOwnership) {
+		t.Fatalf("control states=%+v", snapshot.Payload.LocomotiveControlStates)
+	}
+	for locomotiveID, ownership := range wantOwnership {
+		state, ok := states[locomotiveID]
+		if !ok || state.State != model.LeaseActive || state.Ownership != ownership || state.ExpiresAt == nil {
+			t.Fatalf("state for %s=%+v", locomotiveID, state)
+		}
+	}
+	if _, ok := states["loco-free"]; ok {
+		t.Fatal("free locomotive has a control-state entry")
+	}
+	encoded, err := json.Marshal(snapshot.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, privateValue := range []string{leaseB.ID, leaseB.SessionID, leaseC.ID, leaseC.SessionID, leaseC.UserID} {
+		if bytes.Contains(encoded, []byte(privateValue)) {
+			t.Fatalf("snapshot exposes another lease detail %q: %s", privateValue, encoded)
+		}
+	}
+}
+
+func TestLeaseLifecycleEventsReachOtherWebSocketSessions(t *testing.T) {
+	ctx := context.Background()
+	fixture := newWebsocketFixture(t)
+	pairB, err := fixture.api.auth.Login(ctx, "alice", "correct-horse-1", "events-b", "Events B", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clientA := dialTestWebSocket(t, fixture.server.URL, fixture.accessToken)
+	defer clientA.close()
+	readTestSnapshot(t, clientA)
+	clientB := dialTestWebSocket(t, fixture.server.URL, pairB.AccessToken)
+	defer clientB.close()
+	readTestSnapshot(t, clientB)
+
+	lease, err := fixture.control.Acquire(ctx, fixture.user, fixture.session, fixture.locomotives[1].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var acquired struct {
+		Type    string `json:"type"`
+		Payload struct {
+			LocomotiveID string `json:"locomotiveId"`
+		} `json:"payload"`
+	}
+	clientB.readJSON(t, &acquired)
+	if acquired.Type != "locomotive.control.acquired" || acquired.Payload.LocomotiveID != lease.LocomotiveID {
+		t.Fatalf("acquired event=%+v", acquired)
+	}
+
+	if err := fixture.control.Release(ctx, lease.ID, fixture.session); err != nil {
+		t.Fatal(err)
+	}
+	var stopping struct {
+		Type    string `json:"type"`
+		Payload struct {
+			LocomotiveID string    `json:"locomotiveId"`
+			ReleaseAfter time.Time `json:"releaseAfter"`
+		} `json:"payload"`
+	}
+	clientB.readJSON(t, &stopping)
+	if stopping.Type != "locomotive.control.expired" || stopping.Payload.LocomotiveID != lease.LocomotiveID || stopping.Payload.ReleaseAfter.IsZero() {
+		t.Fatalf("stopping event=%+v", stopping)
+	}
+
+	fixture.clock.Advance(2 * time.Second)
+	fixture.control.Sweep(ctx)
+	var released struct {
+		Type    string `json:"type"`
+		Payload struct {
+			LocomotiveID string `json:"locomotiveId"`
+		} `json:"payload"`
+	}
+	clientB.readJSON(t, &released)
+	if released.Type != "locomotive.control.released" || released.Payload.LocomotiveID != lease.LocomotiveID {
+		t.Fatalf("released event=%+v", released)
 	}
 }
 

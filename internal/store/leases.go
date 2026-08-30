@@ -53,6 +53,27 @@ func (s *Store) LiveLeaseForLoco(ctx context.Context, locoID string) (model.Cont
 	return l, err
 }
 
+// LiveLeases returns every lease which still participates in locomotive
+// exclusivity. Expiry timestamps are deliberately not filtered here: until
+// Sweep transitions an expired active lease, acquisition still considers the
+// locomotive occupied through the live-lease unique index.
+func (s *Store) LiveLeases(ctx context.Context, _ time.Time) ([]model.ControlLease, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT id,locomotive_id,user_id,session_id,state,acquired_at,renewed_at,expires_at,release_after,release_reason FROM control_leases WHERE state IN ('active','stopping') ORDER BY acquired_at,id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	leases := make([]model.ControlLease, 0)
+	for rows.Next() {
+		lease, err := scanLease(rows)
+		if err != nil {
+			return nil, err
+		}
+		leases = append(leases, lease)
+	}
+	return leases, rows.Err()
+}
+
 func (s *Store) LiveLeasesForSession(ctx context.Context, sessionID string) ([]model.ControlLease, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT id,locomotive_id,user_id,session_id,state,acquired_at,renewed_at,expires_at,release_after,release_reason FROM control_leases WHERE session_id=? AND state IN ('active','stopping') ORDER BY acquired_at`, sessionID)
 	if err != nil {

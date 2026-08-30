@@ -366,6 +366,33 @@ func (c *ControlService) LeasesForSession(ctx context.Context, sess model.Sessio
 	}
 	return leases, nil
 }
+
+func (c *ControlService) LocomotiveControlStates(ctx context.Context, sess model.Session) ([]model.LocomotiveControlState, error) {
+	leases, err := c.store.LiveLeases(ctx, c.clock.Now())
+	if err != nil {
+		return nil, err
+	}
+	states := make([]model.LocomotiveControlState, 0, len(leases))
+	for _, lease := range leases {
+		ownership := model.ControlOwnershipOther
+		switch {
+		case lease.SessionID == sess.ID:
+			ownership = model.ControlOwnershipMine
+		case lease.UserID == sess.UserID:
+			ownership = model.ControlOwnershipSameUserOtherSession
+		}
+		expiresAt := lease.ExpiresAt
+		states = append(states, model.LocomotiveControlState{
+			LocomotiveID: lease.LocomotiveID,
+			State:        lease.State,
+			Ownership:    ownership,
+			ExpiresAt:    &expiresAt,
+			ReleaseAfter: lease.ReleaseAfter,
+		})
+	}
+	return states, nil
+}
+
 func (c *ControlService) Release(ctx context.Context, id string, sess model.Session) error {
 	lease, err := c.store.GetLease(ctx, id)
 	if err != nil {

@@ -373,8 +373,13 @@ Règles structurantes :
 
 À l’ouverture du WebSocket, le serveur envoie un événement `system.snapshot`
 complet dont `sequence` est la séquence courante du bus. Il contient la
-centrale, son état, les locomotives, les leases de la session connectée, les
-cantons, les aiguillages et les itinéraires. Le client ignore tout événement
+centrale, son état, les locomotives, les leases complets de la session
+connectée, l'état public d'occupation de toutes les locomotives contrôlées, les
+cantons, les aiguillages et les itinéraires. `controlLeases` reste privé à la
+session ; `locomotiveControlStates` permet de distinguer `mine`,
+`same_user_other_session` et `other` sans exposer les identifiants des leases
+des autres sessions. L'absence d'une locomotive dans ce second tableau signifie
+qu'elle est libre. Le client ignore tout événement
 de séquence inférieure ou égale au snapshot ; le serveur filtre également ces
 événements anciens ou dupliqués. S'il détecte ensuite un trou, il envoie :
 

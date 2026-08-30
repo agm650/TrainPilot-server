@@ -35,6 +35,7 @@ All notable changes to this project will be documented in this file.
 - Catégories et codes d'erreur stables pour l'authentification, l'autorisation, la validation, la sécurité et l'indisponibilité de la centrale.
 - Inventaire vérifié des endpoints publics et scénarios de conformité passifs, actifs et de mutation de configuration.
 - Politique de compatibilité et de migration séparée pour HTTP et WebSocket.
+- État public `locomotiveControlStates` dans les snapshots pour distinguer les locomotives libres, contrôlées par la session, par une autre session du même utilisateur ou par un autre utilisateur.
 
 ### Changed
 
@@ -42,7 +43,7 @@ All notable changes to this project will be documented in this file.
 - Une commande de traction ou de fonction valide renouvelle désormais le lease de conduite.
 - Le snapshot WebSocket inclut les capacités et l’état courant de la centrale.
 - Le contrat OpenAPI passe à la version 1.3.0 et documente les codes d'erreur de sécurité stables.
-- Le contrat AsyncAPI passe à la version 1.4.0 et décrit tous les payloads d'événements ainsi que la resynchronisation complète.
+- Le contrat AsyncAPI passe à la version 1.5.0 et décrit tous les payloads d'événements, la resynchronisation complète ainsi que la disponibilité et l'ownership des locomotives dans `system.snapshot`.
 - Les capacités de centrale exposent désormais `maxFunctionNumber` ; `functions` reste le nombre de fonctions pour compatibilité.
 - Une connexion WebSocket expire avec le jeton d'accès utilisé à son ouverture et ferme après révocation de session ; sa fermeture ne libère pas automatiquement les leases.
 

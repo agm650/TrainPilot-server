@@ -128,6 +128,123 @@ func TestConcurrentLeaseAcquisitionAllowsOneWinner(t *testing.T) {
 	}
 }
 
+func createAdditionalControlSession(t *testing.T, db *store.Store, now time.Time, user model.User, sessionID string) model.Session {
+	t.Helper()
+	session := model.Session{
+		ID:            sessionID,
+		UserID:        user.ID,
+		ClientID:      "client-" + sessionID,
+		AccessHash:    "access-" + sessionID,
+		RefreshHash:   "refresh-" + sessionID,
+		AccessExpiry:  now.Add(time.Hour),
+		RefreshExpiry: now.Add(2 * time.Hour),
+		CreatedAt:     now,
+		LastSeenAt:    now,
+	}
+	if err := db.CreateSession(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+	return session
+}
+
+func TestLocomotiveControlStatesClassifiesOwnershipAndStopping(t *testing.T) {
+	ctx := context.Background()
+	control, db, _, clk, user, sessionA := newControlFixture(t)
+	sessionB := createAdditionalControlSession(t, db, clk.Now(), user, "session-2")
+	otherUser := model.User{ID: "user-2", Username: "bob", Role: model.RoleDriver, Enabled: true, CreatedAt: clk.Now(), UpdatedAt: clk.Now()}
+	if err := db.CreateUser(ctx, otherUser, "test-hash"); err != nil {
+		t.Fatal(err)
+	}
+	sessionC := createAdditionalControlSession(t, db, clk.Now(), otherUser, "session-3")
+	for _, locomotive := range []model.Locomotive{
+		{ID: "loco-c", Name: "Loco C", DCCAddress: 3, AddressKind: "short", SpeedSteps: 128},
+		{ID: "loco-free", Name: "Loco libre", DCCAddress: 4, AddressKind: "short", SpeedSteps: 128},
+	} {
+		if err := db.CreateLocomotive(ctx, locomotive); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := control.Acquire(ctx, user, sessionA, "loco-bb26001"); err != nil {
+		t.Fatal(err)
+	}
+	leaseB, err := control.Acquire(ctx, user, sessionB, "loco-cc72030")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.Acquire(ctx, otherUser, sessionC, "loco-c"); err != nil {
+		t.Fatal(err)
+	}
+
+	states, err := control.LocomotiveControlStates(ctx, sessionA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byLocomotive := make(map[string]model.LocomotiveControlState, len(states))
+	for _, state := range states {
+		byLocomotive[state.LocomotiveID] = state
+	}
+	if got := byLocomotive["loco-bb26001"]; got.Ownership != model.ControlOwnershipMine || got.State != model.LeaseActive || got.ExpiresAt == nil {
+		t.Fatalf("mine state=%+v", got)
+	}
+	if got := byLocomotive["loco-cc72030"]; got.Ownership != model.ControlOwnershipSameUserOtherSession || got.State != model.LeaseActive {
+		t.Fatalf("same-user state=%+v", got)
+	}
+	if got := byLocomotive["loco-c"]; got.Ownership != model.ControlOwnershipOther || got.State != model.LeaseActive {
+		t.Fatalf("other-user state=%+v", got)
+	}
+	if _, ok := byLocomotive["loco-free"]; ok {
+		t.Fatal("free locomotive has a control-state entry")
+	}
+
+	if err := control.Release(ctx, leaseB.ID, sessionB); err != nil {
+		t.Fatal(err)
+	}
+	states, err = control.LocomotiveControlStates(ctx, sessionA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range states {
+		if state.LocomotiveID == "loco-cc72030" {
+			if state.State != model.LeaseStopping || state.Ownership != model.ControlOwnershipSameUserOtherSession || state.ReleaseAfter == nil {
+				t.Fatalf("stopping state=%+v", state)
+			}
+			return
+		}
+	}
+	t.Fatal("stopping locomotive state is missing")
+}
+
+func TestLeaseAcquisitionRemainsExclusiveAcrossSessionsAndUsers(t *testing.T) {
+	ctx := context.Background()
+	control, db, _, clk, user, sessionA := newControlFixture(t)
+	sessionB := createAdditionalControlSession(t, db, clk.Now(), user, "session-2")
+	otherUser := model.User{ID: "user-2", Username: "bob", Role: model.RoleDriver, Enabled: true, CreatedAt: clk.Now(), UpdatedAt: clk.Now()}
+	if err := db.CreateUser(ctx, otherUser, "test-hash"); err != nil {
+		t.Fatal(err)
+	}
+	sessionC := createAdditionalControlSession(t, db, clk.Now(), otherUser, "session-3")
+
+	lease, err := control.Acquire(ctx, user, sessionA, "loco-bb26001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.Acquire(ctx, user, sessionB, "loco-bb26001"); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("same-user other-session acquisition error=%v", err)
+	}
+	if _, err := control.Acquire(ctx, otherUser, sessionC, "loco-bb26001"); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("other-user acquisition error=%v", err)
+	}
+	if err := control.Release(ctx, lease.ID, sessionA); err != nil {
+		t.Fatal(err)
+	}
+	clk.Advance(3 * time.Second)
+	control.Sweep(ctx)
+	if _, err := control.Acquire(ctx, user, sessionB, "loco-bb26001"); err != nil {
+		t.Fatalf("acquisition after release: %v", err)
+	}
+}
+
 func TestTrackPowerAndEmergencyStop(t *testing.T) {
 	ctx := context.Background()
 	control, _, sim, _, user, sess := newControlFixture(t)

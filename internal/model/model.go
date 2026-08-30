@@ -90,6 +90,25 @@ type ControlLease struct {
 	HeartbeatMillis int64      `json:"heartbeatMillis"`
 }
 
+type ControlOwnership string
+
+const (
+	ControlOwnershipMine                 ControlOwnership = "mine"
+	ControlOwnershipSameUserOtherSession ControlOwnership = "same_user_other_session"
+	ControlOwnershipOther                ControlOwnership = "other"
+)
+
+// LocomotiveControlState exposes only the information needed to determine
+// whether a locomotive can be acquired. A missing entry means that the
+// locomotive has no active or stopping lease and is therefore free.
+type LocomotiveControlState struct {
+	LocomotiveID string           `json:"locomotiveId"`
+	State        LeaseState       `json:"state"`
+	Ownership    ControlOwnership `json:"ownership"`
+	ExpiresAt    *time.Time       `json:"expiresAt,omitempty"`
+	ReleaseAfter *time.Time       `json:"releaseAfter,omitempty"`
+}
+
 type Block struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`

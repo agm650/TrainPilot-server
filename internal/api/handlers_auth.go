@@ -11,7 +11,7 @@ const (
 	serverVersion                = "0.2.0"
 	apiVersion                   = "1.3.0"
 	minimumClientAPIVersion      = "1.0.0"
-	eventAPIVersion              = "1.4.0"
+	eventAPIVersion              = "1.5.0"
 	minimumClientEventAPIVersion = "1.3.0"
 )
 
