@@ -10,6 +10,7 @@ import (
 
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/station"
+	"github.com/agm650/TrainPilot-server/internal/store"
 )
 
 func TestDrivingRequiresExplicitSafePowerState(t *testing.T) {
@@ -155,6 +156,67 @@ func TestSafetyCommandPreemptsQueuedOrdinaryCommands(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestTakeoverPreemptsQueuedOldSessionCommand(t *testing.T) {
+	ctx := context.Background()
+	commandStation := newBlockingCommandStation()
+	control, db, clk, user, session1 := newControlFixtureWithStation(t, commandStation)
+	session2 := createAdditionalControlSession(t, db, clk.Now(), user, "session-2")
+	lease, err := control.Acquire(ctx, user, session1, "loco-bb26001")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstThrottle := make(chan error, 1)
+	go func() {
+		firstThrottle <- control.Throttle(ctx, user, session1, lease.LocomotiveID, lease.ID, 30, station.Forward)
+	}()
+	select {
+	case <-commandStation.throttleStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first throttle did not reach the command station")
+	}
+
+	takeoverResult := make(chan struct {
+		lease model.ControlLease
+		err   error
+	}, 1)
+	go func() {
+		transferred, takeoverErr := control.TakeoverLease(ctx, user, session2, lease.ID)
+		takeoverResult <- struct {
+			lease model.ControlLease
+			err   error
+		}{transferred, takeoverErr}
+	}()
+	waitForSafetyWaiter(t, control.commands)
+
+	queuedOldThrottle := make(chan error, 1)
+	go func() {
+		queuedOldThrottle <- control.Throttle(ctx, user, session1, lease.LocomotiveID, lease.ID, 60, station.Forward)
+	}()
+	waitForOrdinaryWaiter(t, control.commands)
+
+	close(commandStation.releaseThrottle)
+	if err := <-firstThrottle; err != nil {
+		t.Fatalf("first throttle: %v", err)
+	}
+	result := <-takeoverResult
+	if result.err != nil || result.lease.SessionID != session2.ID {
+		t.Fatalf("takeover lease=%+v err=%v", result.lease, result.err)
+	}
+	if err := <-queuedOldThrottle; !errors.Is(err, ErrSafetyPreempted) {
+		t.Fatalf("queued old-session throttle error=%v", err)
+	}
+	if got, want := commandStation.Commands(), []string{"throttle:30", "throttle:0"}; !equalStrings(got, want) {
+		t.Fatalf("commands=%v want=%v", got, want)
+	}
+	if err := control.Throttle(ctx, user, session1, lease.LocomotiveID, lease.ID, 70, station.Forward); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("old-session throttle after takeover error=%v", err)
+	}
+	if got, want := commandStation.Commands(), []string{"throttle:30", "throttle:0"}; !equalStrings(got, want) {
+		t.Fatalf("commands after takeover=%v want=%v", got, want)
 	}
 }
 

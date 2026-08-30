@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: DCC Control Server Events
-  version: 1.5.0
+  version: 1.6.0
   description: >-
     WebSocket event contract for native clients, including complete sequenced
     snapshots and explicit resynchronization requests. After a snapshot, clients
@@ -30,6 +30,7 @@ channels:
       locomotiveUpdated: { $ref: '#/components/messages/LocomotiveUpdated' }
       locomotiveDeleted: { $ref: '#/components/messages/LocomotiveDeleted' }
       locomotiveControlAcquired: { $ref: '#/components/messages/LocomotiveControlAcquired' }
+      locomotiveControlTransferred: { $ref: '#/components/messages/LocomotiveControlTransferred' }
       locomotiveControlExpired: { $ref: '#/components/messages/LocomotiveControlExpired' }
       locomotiveControlReleased: { $ref: '#/components/messages/LocomotiveControlReleased' }
       locomotiveSpeedChanged: { $ref: '#/components/messages/LocomotiveSpeedChanged' }
@@ -56,6 +57,7 @@ operations:
       - $ref: '#/channels/events/messages/locomotiveUpdated'
       - $ref: '#/channels/events/messages/locomotiveDeleted'
       - $ref: '#/channels/events/messages/locomotiveControlAcquired'
+      - $ref: '#/channels/events/messages/locomotiveControlTransferred'
       - $ref: '#/channels/events/messages/locomotiveControlExpired'
       - $ref: '#/channels/events/messages/locomotiveControlReleased'
       - $ref: '#/channels/events/messages/locomotiveSpeedChanged'
@@ -282,7 +284,7 @@ components:
           lastSequence:
             type: integer
             minimum: 0
-            description: Last sequence successfully applied by the client. It is diagnostic in version 1.5.0.
+            description: Last sequence successfully applied by the client. It is diagnostic in version 1.6.0.
     LocomotiveCreated:
       name: locomotive.created
       payload:
@@ -323,6 +325,30 @@ components:
             properties:
               type: { const: locomotive.control.acquired }
               payload: { $ref: '#/components/schemas/LeasePayload' }
+    LocomotiveControlTransferred:
+      name: locomotive.control.transferred
+      description: >-
+        Reports an explicit same-user transfer after the locomotive has been
+        stopped and the lease ownership has changed atomically. All connected
+        sessions receive the same event and can update their ownership view.
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: locomotive.control.transferred }
+              payload:
+                type: object
+                required: [locomotiveId, leaseId, userId, fromSessionId, toSessionId, state, renewedAt, expiresAt]
+                properties:
+                  locomotiveId: { type: string }
+                  leaseId: { type: string, format: uuid }
+                  userId: { type: string, format: uuid }
+                  fromSessionId: { type: string, format: uuid }
+                  toSessionId: { type: string, format: uuid }
+                  state: { const: active }
+                  renewedAt: { type: string, format: date-time }
+                  expiresAt: { type: string, format: date-time }
     LocomotiveControlExpired:
       name: locomotive.control.expired
       payload:

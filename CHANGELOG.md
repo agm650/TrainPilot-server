@@ -36,14 +36,15 @@ All notable changes to this project will be documented in this file.
 - Inventaire vérifié des endpoints publics et scénarios de conformité passifs, actifs et de mutation de configuration.
 - Politique de compatibilité et de migration séparée pour HTTP et WebSocket.
 - État public `locomotiveControlStates` dans les snapshots pour distinguer les locomotives libres, contrôlées par la session, par une autre session du même utilisateur ou par un autre utilisateur.
+- Endpoint explicite de takeover entre sessions d'un même utilisateur, avec arrêt à zéro, transfert atomique du lease et événement `locomotive.control.transferred`.
 
 ### Changed
 
 - SQLite utilise le pilote pur Go `modernc.org/sqlite`.
 - Une commande de traction ou de fonction valide renouvelle désormais le lease de conduite.
 - Le snapshot WebSocket inclut les capacités et l’état courant de la centrale.
-- Le contrat OpenAPI passe à la version 1.3.0 et documente les codes d'erreur de sécurité stables.
-- Le contrat AsyncAPI passe à la version 1.5.0 et décrit tous les payloads d'événements, la resynchronisation complète ainsi que la disponibilité et l'ownership des locomotives dans `system.snapshot`.
+- Le contrat OpenAPI passe à la version 1.4.0 et documente l'endpoint et les codes d'erreur stables du takeover.
+- Le contrat AsyncAPI passe à la version 1.6.0 et décrit tous les payloads d'événements, la resynchronisation complète, l'ownership dans `system.snapshot` et `locomotive.control.transferred`.
 - Les capacités de centrale exposent désormais `maxFunctionNumber` ; `functions` reste le nombre de fonctions pour compatibilité.
 - Une connexion WebSocket expire avec le jeton d'accès utilisé à son ouverture et ferme après révocation de session ; sa fermeture ne libère pas automatiquement les leases.
 

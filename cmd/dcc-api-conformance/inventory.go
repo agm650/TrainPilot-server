@@ -33,6 +33,7 @@ var publicEndpointInventory = []endpointDefinition{
 	{"DELETE", "/api/v1/locomotives/{}", "configuration"},
 	{"POST", "/api/v1/locomotives/{}/control-lease", "active"},
 	{"PUT", "/api/v1/control-leases/{}/heartbeat", "active"},
+	{"POST", "/api/v1/control-leases/{}/takeover", "active"},
 	{"DELETE", "/api/v1/control-leases/{}", "active"},
 	{"PUT", "/api/v1/locomotives/{}/throttle", "active"},
 	{"PUT", "/api/v1/locomotives/{}/functions/{}", "active"},

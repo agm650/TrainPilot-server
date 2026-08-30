@@ -65,6 +65,12 @@ func writeOperationProblem(w http.ResponseWriter, err error, code string) {
 		category = "safety"
 	case errors.Is(err, service.ErrLeaseNotOwned):
 		code = "lease_not_owned"
+	case errors.Is(err, service.ErrLeaseNotActive):
+		code = "lease_not_active"
+	case errors.Is(err, service.ErrLeaseOwnedByOtherUser):
+		code = "lease_owned_by_other_user"
+	case errors.Is(err, service.ErrLeaseTakeoverConflict):
+		code = "lease_takeover_conflict"
 	case errors.Is(err, service.ErrPermissionDenied):
 		code = "permission_denied"
 	case errors.Is(err, service.ErrValidation):
@@ -153,6 +159,10 @@ func statusFor(err error) int {
 	case errors.Is(err, station.ErrOffline):
 		return http.StatusServiceUnavailable
 	case errors.Is(err, station.ErrUnsupported), errors.Is(err, service.ErrLeaseNotOwned):
+		return http.StatusConflict
+	case errors.Is(err, service.ErrLeaseNotActive),
+		errors.Is(err, service.ErrLeaseOwnedByOtherUser),
+		errors.Is(err, service.ErrLeaseTakeoverConflict):
 		return http.StatusConflict
 	case errors.Is(err, service.ErrEmergencyStopActive),
 		errors.Is(err, service.ErrTrackPowerOff),

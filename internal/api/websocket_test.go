@@ -301,6 +301,94 @@ func TestLeaseLifecycleEventsReachOtherWebSocketSessions(t *testing.T) {
 	}
 }
 
+func TestTakeoverEventReachesAllSessionsAndSnapshotsReflectOwnership(t *testing.T) {
+	ctx := context.Background()
+	fixture := newWebsocketFixture(t)
+	pair2, err := fixture.api.auth.Login(ctx, "alice", "correct-horse-1", "takeover-2", "Takeover 2", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user2, session2, err := fixture.api.auth.Authenticate(ctx, pair2.AccessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	passwordHash, err := auth.HashPassword("correct-horse-2", auth.PasswordParams{Iterations: 100_000, SaltLength: 16, KeyLength: 32})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	otherUser := model.User{ID: "user-b", Username: "bob", Role: model.RoleDriver, Enabled: true, CreatedAt: now, UpdatedAt: now}
+	if err := fixture.api.store.CreateUser(ctx, otherUser, passwordHash); err != nil {
+		t.Fatal(err)
+	}
+	pair3, err := fixture.api.auth.Login(ctx, "bob", "correct-horse-2", "takeover-3", "Takeover 3", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, session3, err := fixture.api.auth.Authenticate(ctx, pair3.AccessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clients := []*testWebSocket{
+		dialTestWebSocket(t, fixture.server.URL, fixture.accessToken),
+		dialTestWebSocket(t, fixture.server.URL, pair2.AccessToken),
+		dialTestWebSocket(t, fixture.server.URL, pair3.AccessToken),
+	}
+	for _, websocketClient := range clients {
+		defer websocketClient.close()
+		readTestSnapshot(t, websocketClient)
+	}
+
+	transferred, err := fixture.control.TakeoverLease(ctx, user2, session2, fixture.lease.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, websocketClient := range clients {
+		var event struct {
+			Type    string                             `json:"type"`
+			Payload model.LocomotiveControlTransferred `json:"payload"`
+		}
+		websocketClient.readJSON(t, &event)
+		if event.Type != "locomotive.control.transferred" || event.Payload.LeaseID != fixture.lease.ID || event.Payload.LocomotiveID != fixture.lease.LocomotiveID || event.Payload.UserID != fixture.user.ID || event.Payload.FromSessionID != fixture.session.ID || event.Payload.ToSessionID != session2.ID || event.Payload.State != model.LeaseActive || event.Payload.RenewedAt.IsZero() || event.Payload.ExpiresAt.IsZero() {
+			t.Fatalf("client %d takeover event=%+v", index+1, event)
+		}
+	}
+
+	for _, tc := range []struct {
+		name      string
+		session   model.Session
+		ownership model.ControlOwnership
+		ownsLease bool
+	}{
+		{"old session", fixture.session, model.ControlOwnershipSameUserOtherSession, false},
+		{"new session", session2, model.ControlOwnershipMine, true},
+		{"other user", session3, model.ControlOwnershipOther, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			snapshot, err := fixture.api.buildSystemSnapshot(ctx, tc.session)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := len(snapshot.Payload.ControlLeases); (got == 1) != tc.ownsLease {
+				t.Fatalf("control leases=%+v", snapshot.Payload.ControlLeases)
+			}
+			if tc.ownsLease && snapshot.Payload.ControlLeases[0].ID != transferred.ID {
+				t.Fatalf("control leases=%+v", snapshot.Payload.ControlLeases)
+			}
+			for _, state := range snapshot.Payload.LocomotiveControlStates {
+				if state.LocomotiveID == transferred.LocomotiveID {
+					if state.Ownership != tc.ownership || state.State != model.LeaseActive {
+						t.Fatalf("control state=%+v", state)
+					}
+					return
+				}
+			}
+			t.Fatal("transferred locomotive state is missing")
+		})
+	}
+}
+
 func TestEventSequenceFilterRejectsOldAndDuplicateEvents(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

@@ -179,6 +179,11 @@ func (c *Client) Heartbeat(ctx context.Context, lease string) (model.ControlLeas
 	_, err := c.Do(ctx, http.MethodPut, "/api/v1/control-leases/"+url.PathEscape(lease)+"/heartbeat", nil, &out)
 	return out, err
 }
+func (c *Client) TakeoverLease(ctx context.Context, lease string) (model.ControlLease, error) {
+	var out model.ControlLease
+	_, err := c.Do(ctx, http.MethodPost, "/api/v1/control-leases/"+url.PathEscape(lease)+"/takeover", nil, &out)
+	return out, err
+}
 func (c *Client) Logout(ctx context.Context) error {
 	_, err := c.Do(ctx, http.MethodPost, "/api/v1/auth/logout", nil, nil)
 	if err == nil {

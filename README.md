@@ -365,11 +365,12 @@ Règles structurantes :
 1. Le serveur est la source de vérité.
 2. Une commande de conduite nécessite une session valide et un lease actif appartenant à cette session.
 3. Une locomotive ne peut avoir qu’un lease vivant (`active` ou `stopping`).
-4. Une commande de conduite valide renouvelle le lease ; après 10 minutes d'inactivité, il passe d’abord à `stopping`, une vitesse nulle est envoyée, puis il devient `released` après le délai de sécurité.
-5. Les commandes de sécurité préemptent les commandes de conduite en attente et aucune reprise après arrêt d’urgence n’est implicite.
-6. Les actions d’itinéraire sont refusées si un canton est occupé ou si un itinéraire incompatible est actif.
-7. Les événements WebSocket possèdent une séquence monotone pendant la vie du processus.
-8. Les comptes utilisateurs ne sont administrables que par le socket local du système d’exploitation.
+4. Une reprise entre deux sessions du même utilisateur est possible uniquement par l'endpoint explicite `POST /api/v1/control-leases/{leaseId}/takeover`. Elle arrête la locomotive à zéro avant de transférer atomiquement le même lease ; l'acquisition standard ne réalise jamais ce transfert.
+5. Une commande de conduite valide renouvelle le lease ; après 10 minutes d'inactivité, il passe d’abord à `stopping`, une vitesse nulle est envoyée, puis il devient `released` après le délai de sécurité.
+6. Les commandes de sécurité préemptent les commandes de conduite en attente et aucune reprise après arrêt d’urgence n’est implicite.
+7. Les actions d’itinéraire sont refusées si un canton est occupé ou si un itinéraire incompatible est actif.
+8. Les événements WebSocket possèdent une séquence monotone pendant la vie du processus.
+9. Les comptes utilisateurs ne sont administrables que par le socket local du système d’exploitation.
 
 À l’ouverture du WebSocket, le serveur envoie un événement `system.snapshot`
 complet dont `sequence` est la séquence courante du bus. Il contient la
@@ -398,6 +399,11 @@ est fermé à l'expiration du jeton utilisé lors de son ouverture ; après un
 refresh, le client ouvre donc une nouvelle connexion avec le nouveau jeton.
 Un logout ou une révocation de session ferme également la connexion. Aucun
 replay des événements intermédiaires n’est conservé actuellement.
+
+Un takeover réussi publie `locomotive.control.transferred` à toutes les
+sessions connectées. L'ancienne session doit immédiatement abandonner ses
+heartbeats et commandes ; la nouvelle reçoit le même `leaseId` avec une
+nouvelle échéance. Le serveur ne conserve ni ne restaure la vitesse précédente.
 
 Chaque connexion possède une file de 64 événements. Si elle déborde, ou si une
 écriture WebSocket dépasse 5 secondes, le serveur ferme la connexion afin de

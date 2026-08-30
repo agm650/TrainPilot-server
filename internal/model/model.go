@@ -109,6 +109,17 @@ type LocomotiveControlState struct {
 	ReleaseAfter *time.Time       `json:"releaseAfter,omitempty"`
 }
 
+type LocomotiveControlTransferred struct {
+	LocomotiveID  string     `json:"locomotiveId"`
+	LeaseID       string     `json:"leaseId"`
+	UserID        string     `json:"userId"`
+	FromSessionID string     `json:"fromSessionId"`
+	ToSessionID   string     `json:"toSessionId"`
+	State         LeaseState `json:"state"`
+	RenewedAt     time.Time  `json:"renewedAt"`
+	ExpiresAt     time.Time  `json:"expiresAt"`
+}
+
 type Block struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`

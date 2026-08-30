@@ -40,6 +40,8 @@
 - la conformité opt-in distingue un access token expiré avec refresh encore valide d'un refresh token naturellement expiré ;
 - le snapshot conserve les leases complets de la seule session authentifiée et expose séparément l'occupation `mine`, `same_user_other_session` ou `other` de toutes les locomotives contrôlées ;
 - une locomotive libre est absente de `locomotiveControlStates`, et les événements d'acquisition, d'arrêt contrôlé et de libération sont diffusés aux autres sessions WebSocket ;
+- le takeover est limité aux sessions d'un même utilisateur, conserve le lease, arrête la locomotive sans inverser son dernier sens, laisse les fonctions inchangées et invalide immédiatement les droits de l'ancienne session ;
+- la barrière de takeover préempte les commandes ordinaires déjà en attente et son événement est reçu par l'ancien propriétaire, le nouveau et les autres utilisateurs ;
 - chaque problème HTTP possède une catégorie et un code stable, et les erreurs internes sont masquées ;
 - les sens et numéros de fonctions sont validés avant le pilote selon ses capacités déclarées ;
 - les archives parc/circuit passent un aller-retour sans perte ;

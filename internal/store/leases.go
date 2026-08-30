@@ -98,6 +98,19 @@ func (s *Store) HeartbeatLease(ctx context.Context, id, sessionID string, renewe
 	return requireAffected(res)
 }
 
+func (s *Store) TransferActiveLease(ctx context.Context, leaseID, userID, fromSessionID, toSessionID string, renewedAt, expiresAt time.Time) (model.ControlLease, error) {
+	row := s.DB.QueryRowContext(ctx, `UPDATE control_leases
+		SET session_id=?,renewed_at=?,expires_at=?
+		WHERE id=? AND user_id=? AND session_id=? AND state='active' AND expires_at>?
+		RETURNING id,locomotive_id,user_id,session_id,state,acquired_at,renewed_at,expires_at,release_after,release_reason`,
+		toSessionID, timeText(renewedAt), timeText(expiresAt), leaseID, userID, fromSessionID, timeText(renewedAt))
+	lease, err := scanLease(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.ControlLease{}, ErrNotFound
+	}
+	return lease, err
+}
+
 // RenewActiveLeaseForCommand validates ownership and extends an unexpired lease
 // in one statement. This prevents a command from reviving a lease which has
 // already reached its inactivity deadline but has not yet been swept.
@@ -127,6 +140,14 @@ func (s *Store) ExpiredActiveLeases(ctx context.Context, now time.Time) ([]model
 }
 func (s *Store) MarkLeaseStopping(ctx context.Context, id, reason string, releaseAfter time.Time) error {
 	res, err := s.DB.ExecContext(ctx, `UPDATE control_leases SET state='stopping',release_reason=?,release_after=? WHERE id=? AND state='active'`, reason, timeText(releaseAfter), id)
+	if err != nil {
+		return err
+	}
+	return requireAffected(res)
+}
+
+func (s *Store) MarkLeaseStoppingForSession(ctx context.Context, id, sessionID, reason string, releaseAfter time.Time) error {
+	res, err := s.DB.ExecContext(ctx, `UPDATE control_leases SET state='stopping',release_reason=?,release_after=? WHERE id=? AND session_id=? AND state='active'`, reason, timeText(releaseAfter), id, sessionID)
 	if err != nil {
 		return err
 	}

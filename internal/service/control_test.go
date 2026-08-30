@@ -245,6 +245,124 @@ func TestLeaseAcquisitionRemainsExclusiveAcrossSessionsAndUsers(t *testing.T) {
 	}
 }
 
+func TestTakeoverStopsPreservesDirectionAndInvalidatesOldSession(t *testing.T) {
+	ctx := context.Background()
+	control, db, sim, clk, user, session1 := newControlFixture(t)
+	session2 := createAdditionalControlSession(t, db, clk.Now(), user, "session-2")
+	if err := control.SetTrackPower(ctx, user, true); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := control.Acquire(ctx, user, session1, "loco-bb26001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := control.Throttle(ctx, user, session1, lease.LocomotiveID, lease.ID, 50, station.Reverse); err != nil {
+		t.Fatal(err)
+	}
+	if err := control.Function(ctx, session1, lease.LocomotiveID, lease.ID, 1, true); err != nil {
+		t.Fatal(err)
+	}
+
+	clk.Advance(time.Second)
+	transferred, err := control.TakeoverLease(ctx, user, session2, lease.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transferred.ID != lease.ID || transferred.SessionID != session2.ID || transferred.State != model.LeaseActive || !transferred.RenewedAt.Equal(clk.Now()) || !transferred.ExpiresAt.Equal(clk.Now().Add(15*time.Second)) || transferred.HeartbeatMillis != 5000 {
+		t.Fatalf("transferred lease=%+v", transferred)
+	}
+	loco := sim.Loco(2601)
+	if loco.Speed != 0 || loco.Direction != station.Reverse || !loco.Functions[1] {
+		t.Fatalf("locomotive after takeover=%+v", loco)
+	}
+
+	if _, err := control.Heartbeat(ctx, lease.ID, session1); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("old-session heartbeat error=%v", err)
+	}
+	if err := control.Throttle(ctx, user, session1, lease.LocomotiveID, lease.ID, 20, station.Reverse); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("old-session throttle error=%v", err)
+	}
+	if err := control.Function(ctx, session1, lease.LocomotiveID, lease.ID, 1, false); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("old-session function error=%v", err)
+	}
+	if err := control.Release(ctx, lease.ID, session1); !errors.Is(err, ErrLeaseNotOwned) {
+		t.Fatalf("old-session release error=%v", err)
+	}
+
+	if _, err := control.Heartbeat(ctx, lease.ID, session2); err != nil {
+		t.Fatalf("new-session heartbeat: %v", err)
+	}
+	if err := control.Throttle(ctx, user, session2, lease.LocomotiveID, lease.ID, 25, station.Reverse); err != nil {
+		t.Fatalf("new-session throttle: %v", err)
+	}
+	if err := control.Function(ctx, session2, lease.LocomotiveID, lease.ID, 2, true); err != nil {
+		t.Fatalf("new-session function: %v", err)
+	}
+}
+
+func TestTakeoverIsIdempotentForCurrentOwner(t *testing.T) {
+	ctx := context.Background()
+	control, _, sim, _, user, session := newControlFixture(t)
+	if err := control.SetTrackPower(ctx, user, true); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := control.Acquire(ctx, user, session, "loco-bb26001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := control.Throttle(ctx, user, session, lease.LocomotiveID, lease.ID, 40, station.Forward); err != nil {
+		t.Fatal(err)
+	}
+	got, err := control.TakeoverLease(ctx, user, session, lease.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != lease.ID || got.SessionID != session.ID || sim.Loco(2601).Speed != 0.4 {
+		t.Fatalf("idempotent takeover lease=%+v locomotive=%+v", got, sim.Loco(2601))
+	}
+}
+
+func TestTakeoverRejectsOtherUserAndNonActiveLeaseWithoutCommand(t *testing.T) {
+	ctx := context.Background()
+	control, db, sim, clk, user, session1 := newControlFixture(t)
+	session2 := createAdditionalControlSession(t, db, clk.Now(), user, "session-2")
+	otherUser := model.User{ID: "user-2", Username: "bob", Role: model.RoleDriver, Enabled: true, CreatedAt: clk.Now(), UpdatedAt: clk.Now()}
+	if err := db.CreateUser(ctx, otherUser, "test-hash"); err != nil {
+		t.Fatal(err)
+	}
+	otherSession := createAdditionalControlSession(t, db, clk.Now(), otherUser, "session-3")
+	if err := control.SetTrackPower(ctx, user, true); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := control.Acquire(ctx, user, session1, "loco-bb26001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := control.Throttle(ctx, user, session1, lease.LocomotiveID, lease.ID, 50, station.Forward); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.TakeoverLease(ctx, otherUser, otherSession, lease.ID); !errors.Is(err, ErrLeaseOwnedByOtherUser) {
+		t.Fatalf("other-user takeover error=%v", err)
+	}
+	if sim.Loco(2601).Speed != 0.5 {
+		t.Fatalf("other-user takeover sent a command: %+v", sim.Loco(2601))
+	}
+	viewer := user
+	viewer.Role = model.RoleViewer
+	if _, err := control.TakeoverLease(ctx, viewer, session2, lease.ID); !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("viewer takeover error=%v", err)
+	}
+	if sim.Loco(2601).Speed != 0.5 {
+		t.Fatalf("viewer takeover sent a command: %+v", sim.Loco(2601))
+	}
+	if err := control.Release(ctx, lease.ID, session1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.TakeoverLease(ctx, user, session2, lease.ID); !errors.Is(err, ErrLeaseNotActive) {
+		t.Fatalf("stopping-lease takeover error=%v", err)
+	}
+}
+
 func TestTrackPowerAndEmergencyStop(t *testing.T) {
 	ctx := context.Background()
 	control, _, sim, _, user, sess := newControlFixture(t)

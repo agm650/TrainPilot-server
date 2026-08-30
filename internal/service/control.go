@@ -37,10 +37,12 @@ type ControlService struct {
 	safetyEpoch                  uint64
 	statusMu                     sync.Mutex
 	lastStationStatus            *station.Status
+	locoStateMu                  sync.RWMutex
+	lastDirection                map[string]station.Direction
 }
 
 func NewControlService(s *store.Store, st station.CommandStation, b *events.Bus, c clock.Clock, leaseTTL, stopGrace, monitor time.Duration) *ControlService {
-	return &ControlService{store: s, station: st, events: b, clock: c, leaseTTL: leaseTTL, stopGrace: stopGrace, monitor: monitor, stop: make(chan struct{}), commands: newPriorityCommandGate()}
+	return &ControlService{store: s, station: st, events: b, clock: c, leaseTTL: leaseTTL, stopGrace: stopGrace, monitor: monitor, stop: make(chan struct{}), commands: newPriorityCommandGate(), lastDirection: make(map[string]station.Direction)}
 }
 func (c *ControlService) Start() {
 	go func() {
@@ -84,6 +86,22 @@ func (c *ControlService) preemptOrdinaryCommands() {
 	c.safetyMu.Lock()
 	c.safetyEpoch++
 	c.safetyMu.Unlock()
+}
+
+func (c *ControlService) rememberLocoDirection(locomotiveID string, direction station.Direction) {
+	c.locoStateMu.Lock()
+	c.lastDirection[locomotiveID] = direction
+	c.locoStateMu.Unlock()
+}
+
+func (c *ControlService) stopDirection(locomotiveID string) station.Direction {
+	c.locoStateMu.RLock()
+	direction := c.lastDirection[locomotiveID]
+	c.locoStateMu.RUnlock()
+	if !direction.Valid() {
+		return station.Forward
+	}
+	return direction
 }
 
 func (c *ControlService) observeSafetyStatus(status station.Status) {
@@ -393,6 +411,88 @@ func (c *ControlService) LocomotiveControlStates(ctx context.Context, sess model
 	return states, nil
 }
 
+func (c *ControlService) TakeoverLease(ctx context.Context, user model.User, currentSession model.Session, leaseID string) (model.ControlLease, error) {
+	if !Allowed(user.Role, PermissionDrive) {
+		return model.ControlLease{}, ErrPermissionDenied
+	}
+	lease, err := c.store.GetLease(ctx, leaseID)
+	if err != nil {
+		return model.ControlLease{}, err
+	}
+	now := c.clock.Now()
+	if lease.State != model.LeaseActive || !lease.ExpiresAt.After(now) {
+		return model.ControlLease{}, ErrLeaseNotActive
+	}
+	if lease.UserID != currentSession.UserID {
+		return model.ControlLease{}, ErrLeaseOwnedByOtherUser
+	}
+	lease.HeartbeatMillis = c.leaseTTL.Milliseconds() / 3
+	if lease.SessionID == currentSession.ID {
+		return lease, nil
+	}
+	fromSessionID := lease.SessionID
+	loco, err := c.store.GetLocomotive(ctx, lease.LocomotiveID)
+	if err != nil {
+		return model.ControlLease{}, err
+	}
+
+	releaseCommand, err := c.commands.acquire(ctx, true)
+	if err != nil {
+		return model.ControlLease{}, err
+	}
+	defer releaseCommand()
+
+	current, err := c.store.GetLease(ctx, leaseID)
+	if err != nil {
+		return model.ControlLease{}, err
+	}
+	now = c.clock.Now()
+	if current.State != model.LeaseActive || !current.ExpiresAt.After(now) {
+		return model.ControlLease{}, ErrLeaseNotActive
+	}
+	if current.UserID != currentSession.UserID {
+		return model.ControlLease{}, ErrLeaseOwnedByOtherUser
+	}
+	if current.SessionID == currentSession.ID {
+		current.HeartbeatMillis = c.leaseTTL.Milliseconds() / 3
+		return current, nil
+	}
+	if current.SessionID != fromSessionID {
+		return model.ControlLease{}, ErrLeaseTakeoverConflict
+	}
+
+	c.preemptOrdinaryCommands()
+	if err := station.CheckCommandAllowed(c.station); err != nil {
+		return model.ControlLease{}, err
+	}
+	direction := c.stopDirection(lease.LocomotiveID)
+	if err := c.station.SetLocoSpeed(ctx, loco.DCCAddress, 0, direction); err != nil {
+		return model.ControlLease{}, err
+	}
+	c.rememberLocoDirection(lease.LocomotiveID, direction)
+
+	renewedAt := c.clock.Now()
+	transferred, err := c.store.TransferActiveLease(ctx, leaseID, currentSession.UserID, fromSessionID, currentSession.ID, renewedAt, renewedAt.Add(c.leaseTTL))
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return model.ControlLease{}, ErrLeaseTakeoverConflict
+		}
+		return model.ControlLease{}, err
+	}
+	transferred.HeartbeatMillis = c.leaseTTL.Milliseconds() / 3
+	c.events.Publish("locomotive.control.transferred", model.LocomotiveControlTransferred{
+		LocomotiveID:  transferred.LocomotiveID,
+		LeaseID:       transferred.ID,
+		UserID:        transferred.UserID,
+		FromSessionID: fromSessionID,
+		ToSessionID:   transferred.SessionID,
+		State:         transferred.State,
+		RenewedAt:     transferred.RenewedAt,
+		ExpiresAt:     transferred.ExpiresAt,
+	})
+	return transferred, nil
+}
+
 func (c *ControlService) Release(ctx context.Context, id string, sess model.Session) error {
 	lease, err := c.store.GetLease(ctx, id)
 	if err != nil {
@@ -447,6 +547,7 @@ func (c *ControlService) Throttle(ctx context.Context, user model.User, sess mod
 	if err := c.station.SetLocoSpeed(ctx, loco.DCCAddress, float64(speed)/100, direction); err != nil {
 		return err
 	}
+	c.rememberLocoDirection(locoID, direction)
 	c.events.Publish("locomotive.speed.changed", map[string]any{"locomotiveId": locoID, "speed": speed, "direction": direction, "userId": user.ID})
 	return nil
 }
@@ -512,7 +613,7 @@ func (c *ControlService) stopAndScheduleRelease(ctx context.Context, l model.Con
 		return err
 	}
 	releaseAt := c.clock.Now().Add(c.stopGrace)
-	if err := c.store.MarkLeaseStopping(ctx, l.ID, reason, releaseAt); err != nil {
+	if err := c.store.MarkLeaseStoppingForSession(ctx, l.ID, l.SessionID, reason, releaseAt); err != nil {
 		return err
 	}
 	release, err := c.commands.acquire(ctx, true)
@@ -524,9 +625,11 @@ func (c *ControlService) stopAndScheduleRelease(ctx context.Context, l model.Con
 	if err := station.CheckCommandAllowed(c.station); err != nil {
 		return fmt.Errorf("stop command failed: %w", err)
 	}
-	if err := c.station.SetLocoSpeed(ctx, loco.DCCAddress, 0, station.Forward); err != nil {
+	direction := c.stopDirection(l.LocomotiveID)
+	if err := c.station.SetLocoSpeed(ctx, loco.DCCAddress, 0, direction); err != nil {
 		return fmt.Errorf("stop command failed: %w", err)
 	}
+	c.rememberLocoDirection(l.LocomotiveID, direction)
 	c.events.Publish("locomotive.control.expired", map[string]any{"leaseId": l.ID, "locomotiveId": l.LocomotiveID, "reason": reason, "releaseAfter": releaseAt})
 	return nil
 }

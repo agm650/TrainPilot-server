@@ -72,6 +72,9 @@ func TestDecodeJSONAndStatusMapping(t *testing.T) {
 		{service.ErrTrackPowerOff, http.StatusConflict},
 		{service.ErrTrackPowerUnknown, http.StatusConflict},
 		{service.ErrSafetyPreempted, http.StatusConflict},
+		{service.ErrLeaseNotActive, http.StatusConflict},
+		{service.ErrLeaseOwnedByOtherUser, http.StatusConflict},
+		{service.ErrLeaseTakeoverConflict, http.StatusConflict},
 	}
 	for _, tc := range cases {
 		if got := statusFor(tc.err); got != tc.want {
@@ -93,6 +96,9 @@ func TestOperationProblemsUseStableCodes(t *testing.T) {
 		{"track power off", service.ErrTrackPowerOff, http.StatusConflict, "track_power_off", "safety"},
 		{"track power unknown", service.ErrTrackPowerUnknown, http.StatusConflict, "track_power_unknown", "safety"},
 		{"safety preemption", service.ErrSafetyPreempted, http.StatusConflict, "safety_command_preempted", "safety"},
+		{"lease not active", service.ErrLeaseNotActive, http.StatusConflict, "lease_not_active", "conflict"},
+		{"lease other user", service.ErrLeaseOwnedByOtherUser, http.StatusConflict, "lease_owned_by_other_user", "conflict"},
+		{"takeover conflict", service.ErrLeaseTakeoverConflict, http.StatusConflict, "lease_takeover_conflict", "conflict"},
 		{"permission", service.ErrPermissionDenied, http.StatusForbidden, "permission_denied", "authorization"},
 		{"validation", service.ErrValidation, http.StatusBadRequest, "validation_failed", "validation"},
 		{"internal", errors.New("database password secret"), http.StatusInternalServerError, "internal_error", "internal"},
@@ -121,6 +127,81 @@ func TestOperationProblemsUseStableCodes(t *testing.T) {
 				t.Fatalf("problem detail=%q want=%q", got.Detail, tc.err.Error())
 			}
 		})
+	}
+}
+
+func TestTakeoverLeaseHTTPContract(t *testing.T) {
+	server, session1, viewer := newHTTPFixture(t)
+	ctx := context.Background()
+	session2 := client.New(server.URL)
+	pair2, err := session2.Login(ctx, "dispatcher", "correct-horse-1", "dispatcher-second-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherUser := client.New(server.URL)
+	if _, err := otherUser.Login(ctx, "driver", "correct-horse-1", "driver-session"); err != nil {
+		t.Fatal(err)
+	}
+	locomotives, err := session1.Locomotives(ctx)
+	if err != nil || len(locomotives) < 2 {
+		t.Fatalf("locomotives=%+v err=%v", locomotives, err)
+	}
+	lease, err := session1.Acquire(ctx, locomotives[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session2.Acquire(ctx, locomotives[0].ID); err == nil {
+		t.Fatal("standard acquisition implicitly performed a takeover")
+	} else if httpErr := new(client.HTTPError); !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusConflict {
+		t.Fatalf("standard acquisition error=%v", err)
+	}
+
+	assertStatus(t, server.URL, http.MethodPost, "/api/v1/control-leases/"+lease.ID+"/takeover", "", nil, http.StatusUnauthorized)
+	if _, err := viewer.TakeoverLease(ctx, lease.ID); err == nil {
+		t.Fatal("viewer performed takeover")
+	} else if httpErr := new(client.HTTPError); !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusForbidden || httpErr.Problem == nil || httpErr.Problem.Code != "permission_denied" {
+		t.Fatalf("viewer takeover error=%v", err)
+	}
+	if _, err := otherUser.TakeoverLease(ctx, lease.ID); err == nil {
+		t.Fatal("another user performed takeover")
+	} else if httpErr := new(client.HTTPError); !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusConflict || httpErr.Problem == nil || httpErr.Problem.Code != "lease_owned_by_other_user" {
+		t.Fatalf("other-user takeover error=%v", err)
+	}
+
+	transferred, err := session2.TakeoverLease(ctx, lease.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transferred.ID != lease.ID || transferred.SessionID != pair2.SessionID || transferred.State != model.LeaseActive {
+		t.Fatalf("transferred lease=%+v", transferred)
+	}
+	if _, err := session1.Heartbeat(ctx, lease.ID); err == nil {
+		t.Fatal("old session heartbeat succeeded")
+	}
+	if _, err := session2.Heartbeat(ctx, lease.ID); err != nil {
+		t.Fatalf("new session heartbeat: %v", err)
+	}
+	idempotent, err := session2.TakeoverLease(ctx, lease.ID)
+	if err != nil || idempotent.SessionID != pair2.SessionID {
+		t.Fatalf("idempotent takeover=%+v err=%v", idempotent, err)
+	}
+	if _, err := session2.TakeoverLease(ctx, "missing"); err == nil {
+		t.Fatal("missing lease takeover succeeded")
+	} else if httpErr := new(client.HTTPError); !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusNotFound || httpErr.Problem == nil || httpErr.Problem.Code != "lease_not_found" {
+		t.Fatalf("missing takeover error=%v", err)
+	}
+
+	stoppingLease, err := session1.Acquire(ctx, locomotives[1].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session1.Release(ctx, stoppingLease.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session2.TakeoverLease(ctx, stoppingLease.ID); err == nil {
+		t.Fatal("stopping lease takeover succeeded")
+	} else if httpErr := new(client.HTTPError); !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusConflict || httpErr.Problem == nil || httpErr.Problem.Code != "lease_not_active" {
+		t.Fatalf("stopping takeover error=%v", err)
 	}
 }
 
@@ -234,7 +315,7 @@ func newHTTPFixture(t *testing.T) (*httptest.Server, *client.Client, *client.Cli
 	for _, item := range []struct {
 		name string
 		role model.Role
-	}{{"dispatcher", model.RoleDispatcher}, {"viewer", model.RoleViewer}} {
+	}{{"dispatcher", model.RoleDispatcher}, {"viewer", model.RoleViewer}, {"driver", model.RoleDriver}} {
 		if _, err := users.Create(ctx, item.name, item.name, "correct-horse-1", item.role, false, false); err != nil {
 			t.Fatal(err)
 		}

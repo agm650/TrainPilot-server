@@ -31,6 +31,14 @@ func (s *Server) heartbeatLease(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, lease)
 }
+func (s *Server) takeoverLease(w http.ResponseWriter, r *http.Request) {
+	lease, err := s.control.TakeoverLease(r.Context(), userFrom(r), sessionFrom(r), r.PathValue("id"))
+	if err != nil {
+		writeOperationProblem(w, err, "lease_not_found")
+		return
+	}
+	writeJSON(w, http.StatusOK, lease)
+}
 func (s *Server) releaseLease(w http.ResponseWriter, r *http.Request) {
 	if err := s.control.Release(r.Context(), r.PathValue("id"), sessionFrom(r)); err != nil {
 		writeOperationProblem(w, err, "lease_release_failed")

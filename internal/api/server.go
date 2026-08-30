@@ -69,6 +69,7 @@ func (s *Server) register(testAPI bool) {
 	s.mux.Handle("DELETE /api/v1/locomotives/{id}", s.requireAuth(http.HandlerFunc(s.deleteLocomotive)))
 	s.mux.Handle("POST /api/v1/locomotives/{id}/control-lease", s.requireAuth(http.HandlerFunc(s.acquireLease)))
 	s.mux.Handle("PUT /api/v1/control-leases/{id}/heartbeat", s.requireAuth(http.HandlerFunc(s.heartbeatLease)))
+	s.mux.Handle("POST /api/v1/control-leases/{id}/takeover", s.requireAuth(http.HandlerFunc(s.takeoverLease)))
 	s.mux.Handle("DELETE /api/v1/control-leases/{id}", s.requireAuth(http.HandlerFunc(s.releaseLease)))
 	s.mux.Handle("PUT /api/v1/locomotives/{id}/throttle", s.requireAuth(http.HandlerFunc(s.throttle)))
 	s.mux.Handle("PUT /api/v1/locomotives/{id}/functions/{function}", s.requireAuth(http.HandlerFunc(s.setFunction)))
