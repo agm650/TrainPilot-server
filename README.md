@@ -106,8 +106,11 @@ Le fichier `config.json` versionné est une configuration de développement util
 
 Pour les tests Go, le simulateur fournit également une horloge injectable, un
 snapshot profondément copié de son état et un reset déterministe qui conserve
-son état de connexion. Ces fonctions d'introspection restent internes au banc
-de test et ne modifient pas l'API publique `/api/v1/...`.
+son état de connexion. Les accessoires simulés distinguent la commande
+`Desired` du retour `Reported` et peuvent confirmer immédiatement, après un
+délai déterministe, ne pas confirmer ou produire un retour incohérent. Ces
+fonctions d'introspection restent internes au banc de test et ne modifient pas
+l'API publique `/api/v1/...`.
 
 ```bash
 go run ./cmd/dccd serve --config config.json

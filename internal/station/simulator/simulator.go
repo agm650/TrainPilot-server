@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/clock"
 	"github.com/agm650/TrainPilot-server/internal/station"
@@ -15,8 +16,33 @@ type LocoState struct {
 	Functions map[int]bool
 }
 
+type AccessoryBehaviorMode string
+
+const (
+	AccessoryBehaviorImmediate      AccessoryBehaviorMode = "immediate"
+	AccessoryBehaviorDelayed        AccessoryBehaviorMode = "delayed"
+	AccessoryBehaviorNoConfirmation AccessoryBehaviorMode = "no_confirmation"
+	AccessoryBehaviorInconsistent   AccessoryBehaviorMode = "inconsistent"
+)
+
+type AccessoryBehavior struct {
+	Mode          AccessoryBehaviorMode
+	Delay         time.Duration
+	ReportedState string
+}
+
 type AccessoryState struct {
-	State string
+	Desired       string
+	Reported      string
+	Pending       bool
+	LastCommandAt *time.Time
+	LastReportAt  *time.Time
+}
+
+type scheduledAccessoryReport struct {
+	State      string
+	DueAt      time.Time
+	Generation uint64
 }
 
 type State struct {
@@ -25,6 +51,10 @@ type State struct {
 	EmergencyStop bool
 	Locomotives   map[int]LocoState
 	Accessories   map[int]AccessoryState
+
+	accessoryBehaviors  map[int]AccessoryBehavior
+	accessoryReports    map[int]scheduledAccessoryReport
+	accessoryGeneration map[int]uint64
 }
 
 type Snapshot struct {
@@ -59,9 +89,12 @@ func NewWithClock(clk clock.Clock) *Simulator {
 
 func newState(connected bool) State {
 	return State{
-		Connected:   connected,
-		Locomotives: map[int]LocoState{},
-		Accessories: map[int]AccessoryState{},
+		Connected:           connected,
+		Locomotives:         map[int]LocoState{},
+		Accessories:         map[int]AccessoryState{},
+		accessoryBehaviors:  map[int]AccessoryBehavior{},
+		accessoryReports:    map[int]scheduledAccessoryReport{},
+		accessoryGeneration: map[int]uint64{},
 	}
 }
 
@@ -191,7 +224,93 @@ func (s *Simulator) SetAccessory(_ context.Context, address int, state string) e
 	if err := s.ensure(); err != nil {
 		return err
 	}
-	s.state.Accessories[address] = AccessoryState{State: state}
+	if !validAccessoryDesiredState(state) {
+		return fmt.Errorf("unsupported accessory state %q", state)
+	}
+	now := s.clock.Now()
+	s.applyDueAccessoryReportsLocked(now)
+
+	accessory := s.state.Accessories[address]
+	s.state.accessoryGeneration[address]++
+	generation := s.state.accessoryGeneration[address]
+	accessory.Desired = state
+	accessory.LastCommandAt = timePointer(now)
+	delete(s.state.accessoryReports, address)
+
+	behavior := s.state.accessoryBehaviors[address]
+	if behavior.Mode == "" {
+		behavior.Mode = AccessoryBehaviorImmediate
+	}
+	switch behavior.Mode {
+	case AccessoryBehaviorImmediate:
+		accessory.Reported = state
+		accessory.Pending = false
+		accessory.LastReportAt = timePointer(now)
+	case AccessoryBehaviorDelayed:
+		accessory.Pending = true
+		s.state.accessoryReports[address] = scheduledAccessoryReport{
+			State:      state,
+			DueAt:      now.Add(behavior.Delay),
+			Generation: generation,
+		}
+	case AccessoryBehaviorNoConfirmation:
+		accessory.Pending = true
+	case AccessoryBehaviorInconsistent:
+		accessory.Reported = behavior.ReportedState
+		accessory.Pending = behavior.ReportedState != state
+		accessory.LastReportAt = timePointer(now)
+	}
+	s.state.Accessories[address] = accessory
+	return nil
+}
+
+func (s *Simulator) SetAccessoryBehavior(address int, behavior AccessoryBehavior) error {
+	if behavior.Mode == "" {
+		behavior.Mode = AccessoryBehaviorImmediate
+	}
+	switch behavior.Mode {
+	case AccessoryBehaviorImmediate, AccessoryBehaviorNoConfirmation:
+		if behavior.Delay < 0 {
+			return fmt.Errorf("accessory behavior delay must not be negative")
+		}
+	case AccessoryBehaviorDelayed:
+		if behavior.Delay <= 0 {
+			return fmt.Errorf("delayed accessory behavior requires a positive delay")
+		}
+	case AccessoryBehaviorInconsistent:
+		if !validAccessoryReportedState(behavior.ReportedState) {
+			return fmt.Errorf("unsupported reported accessory state %q", behavior.ReportedState)
+		}
+		if behavior.Delay < 0 {
+			return fmt.Errorf("accessory behavior delay must not be negative")
+		}
+	default:
+		return fmt.Errorf("unsupported accessory behavior mode %q", behavior.Mode)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.applyDueAccessoryReportsLocked(s.clock.Now())
+	s.state.accessoryBehaviors[address] = behavior
+	return nil
+}
+
+func (s *Simulator) ReportAccessoryState(address int, state string) error {
+	if !validAccessoryReportedState(state) {
+		return fmt.Errorf("unsupported reported accessory state %q", state)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.clock.Now()
+	s.applyDueAccessoryReportsLocked(now)
+
+	s.state.accessoryGeneration[address]++
+	delete(s.state.accessoryReports, address)
+	accessory := s.state.Accessories[address]
+	accessory.Reported = state
+	accessory.Pending = accessory.Desired != "" && accessory.Desired != state
+	accessory.LastReportAt = timePointer(now)
+	s.state.Accessories[address] = accessory
 	return nil
 }
 
@@ -217,14 +336,16 @@ func (s *Simulator) Loco(address int) LocoState {
 }
 
 func (s *Simulator) Accessory(address int) AccessoryState {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.state.Accessories[address]
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.applyDueAccessoryReportsLocked(s.clock.Now())
+	return cloneAccessoryState(s.state.Accessories[address])
 }
 
 func (s *Simulator) Snapshot() Snapshot {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.applyDueAccessoryReportsLocked(s.clock.Now())
 
 	snapshot := Snapshot{
 		Connected:     s.state.Connected,
@@ -237,7 +358,7 @@ func (s *Simulator) Snapshot() Snapshot {
 		snapshot.Locomotives[address] = cloneLocoState(loco)
 	}
 	for address, accessory := range s.state.Accessories {
-		snapshot.Accessories[address] = accessory
+		snapshot.Accessories[address] = cloneAccessoryState(accessory)
 	}
 	return snapshot
 }
@@ -267,5 +388,49 @@ func cloneLocoState(loco LocoState) LocoState {
 		Speed:     loco.Speed,
 		Direction: loco.Direction,
 		Functions: functions,
+	}
+}
+
+func cloneAccessoryState(accessory AccessoryState) AccessoryState {
+	accessory.LastCommandAt = cloneTimePointer(accessory.LastCommandAt)
+	accessory.LastReportAt = cloneTimePointer(accessory.LastReportAt)
+	return accessory
+}
+
+func cloneTimePointer(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	return timePointer(*value)
+}
+
+func timePointer(value time.Time) *time.Time {
+	copy := value
+	return &copy
+}
+
+func validAccessoryDesiredState(state string) bool {
+	return state == "straight" || state == "diverging"
+}
+
+func validAccessoryReportedState(state string) bool {
+	return validAccessoryDesiredState(state) || state == "unknown"
+}
+
+func (s *Simulator) applyDueAccessoryReportsLocked(now time.Time) {
+	for address, report := range s.state.accessoryReports {
+		if now.Before(report.DueAt) {
+			continue
+		}
+		if s.state.accessoryGeneration[address] == report.Generation {
+			accessory := s.state.Accessories[address]
+			if accessory.Desired == report.State {
+				accessory.Reported = report.State
+				accessory.Pending = false
+				accessory.LastReportAt = timePointer(report.DueAt)
+				s.state.Accessories[address] = accessory
+			}
+		}
+		delete(s.state.accessoryReports, address)
 	}
 }
