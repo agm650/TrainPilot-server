@@ -3,6 +3,7 @@ package z21
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -12,11 +13,32 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/station"
 )
 
+const (
+	DefaultAccessoryPulse = 100 * time.Millisecond
+
+	accessoryDeactivationTimeout = time.Second
+	accessoryInfoTimeout         = 2 * time.Second
+	lanSetBroadcastFlags         = 0x0050
+	lanXHeader                   = 0x0040
+	lanXSetTurnout               = 0x53
+	lanXGetTurnoutInfo           = 0x43
+
+	// The z21 broadcast mask keeps the existing R-BUS feedback stream and adds
+	// driving/switching broadcasts, including LAN_X_TURNOUT_INFO.
+	broadcastFlagDrivingSwitching uint32 = 0x00000001
+	broadcastFlagRBus             uint32 = 0x00000002
+	broadcastFlags                       = broadcastFlagDrivingSwitching | broadcastFlagRBus
+)
+
 type Driver struct {
 	address            string
 	mu                 sync.Mutex
 	conn               *net.UDPConn
 	feedback           chan station.FeedbackEvent
+	accessoryEvents    chan station.AccessoryStateEvent
+	accessoryPulse     time.Duration
+	accessoryMu        sync.Mutex
+	accessoryWaiters   map[uint16][]chan station.AccessoryStateEvent
 	statusEvents       chan station.Status
 	statusMu           sync.Mutex
 	xStatusWaiters     []chan byte
@@ -34,14 +56,21 @@ type systemState struct {
 }
 
 var _ station.CommandStation = (*Driver)(nil)
+var _ station.AccessoryStateEventProvider = (*Driver)(nil)
 
-func New(address string, offlineAfter time.Duration) *Driver {
+func New(address string, offlineAfter, accessoryPulse time.Duration) *Driver {
+	if accessoryPulse <= 0 {
+		accessoryPulse = DefaultAccessoryPulse
+	}
 	return &Driver{
-		address:      address,
-		feedback:     make(chan station.FeedbackEvent, 64),
-		statusEvents: make(chan station.Status, 16),
-		health:       station.NewHealthTracker(offlineAfter),
-		done:         make(chan struct{}),
+		address:          address,
+		feedback:         make(chan station.FeedbackEvent, 64),
+		accessoryEvents:  make(chan station.AccessoryStateEvent, 64),
+		accessoryPulse:   accessoryPulse,
+		accessoryWaiters: make(map[uint16][]chan station.AccessoryStateEvent),
+		statusEvents:     make(chan station.Status, 16),
+		health:           station.NewHealthTracker(offlineAfter),
+		done:             make(chan struct{}),
 	}
 }
 func (d *Driver) Connect(ctx context.Context) error {
@@ -58,21 +87,32 @@ func (d *Driver) Connect(ctx context.Context) error {
 	d.mu.Unlock()
 	d.health.Connected()
 	go d.readLoop(c)
+	if err := d.send(ctx, broadcastFlagsPacket()); err != nil {
+		d.mu.Lock()
+		if d.conn == c {
+			d.conn = nil
+		}
+		d.mu.Unlock()
+		_ = c.Close()
+		return fmt.Errorf("configure z21 broadcast flags: %w", err)
+	}
 	go d.statusLoop()
 	return nil
 }
 func (d *Driver) Close() error {
 	d.closeOnce.Do(func() { close(d.done) })
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.conn != nil {
-		return d.conn.Close()
+	c := d.conn
+	d.conn = nil
+	d.mu.Unlock()
+	if c != nil {
+		return c.Close()
 	}
 	return nil
 }
 func (d *Driver) Health() station.Health { return d.health.Health() }
 func (d *Driver) Capabilities() station.Capabilities {
-	return station.Capabilities{Driver: "z21", TrackPower: true, LocomotiveControl: true, Functions: 29, MaxFunctionNumber: 28, AccessoryControl: false, Feedback: true}
+	return station.Capabilities{Driver: "z21", TrackPower: true, LocomotiveControl: true, Functions: 29, MaxFunctionNumber: 28, AccessoryControl: true, Feedback: true}
 }
 func xor(data []byte) byte {
 	var out byte
@@ -89,13 +129,65 @@ func xbus(payload ...byte) []byte {
 	record[len(record)-1] = xor(payload)
 	return record
 }
-func lan(header uint16) []byte {
-	record := make([]byte, 4)
+
+func linearAddressToFAddress(address int) (uint16, error) {
+	if address < station.MinBasicAccessoryAddress || address > station.MaxBasicAccessoryAddress {
+		return 0, fmt.Errorf("%w: got %d, want %d..%d", station.ErrInvalidAccessoryAddress, address, station.MinBasicAccessoryAddress, station.MaxBasicAccessoryAddress)
+	}
+	return uint16(address - 1), nil
+}
+
+func fAddressToLinearAddress(fAddress uint16) (int, error) {
+	address := int(fAddress) + 1
+	if address < station.MinBasicAccessoryAddress || address > station.MaxBasicAccessoryAddress {
+		return 0, fmt.Errorf("%w: z21 FAdr %d", station.ErrInvalidAccessoryAddress, fAddress)
+	}
+	return address, nil
+}
+
+func turnoutCommandPacket(fAddress uint16, position station.AccessoryPosition, activate bool) []byte {
+	db2 := byte(0x80 | 0x20) // 1 0 Q 0 A 0 0 P, with Q=1.
+	if activate {
+		db2 |= 0x08
+	}
+	if position == station.AccessoryPosition2 {
+		db2 |= 0x01
+	}
+	return xbus(lanXSetTurnout, byte(fAddress>>8), byte(fAddress), db2)
+}
+
+func turnoutInfoRequestPacket(fAddress uint16) []byte {
+	return xbus(lanXGetTurnoutInfo, byte(fAddress>>8), byte(fAddress))
+}
+
+func waitForPulse(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+func lan(header uint16, payload ...byte) []byte {
+	record := make([]byte, 4+len(payload))
 	binary.LittleEndian.PutUint16(record[0:2], uint16(len(record)))
 	binary.LittleEndian.PutUint16(record[2:4], header)
+	copy(record[4:], payload)
 	return record
 }
+
+func broadcastFlagsPacket() []byte {
+	payload := make([]byte, 4)
+	binary.LittleEndian.PutUint32(payload, broadcastFlags)
+	return lan(lanSetBroadcastFlags, payload...)
+}
+
 func (d *Driver) send(ctx context.Context, b []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.conn == nil {
@@ -103,6 +195,8 @@ func (d *Driver) send(ctx context.Context, b []byte) error {
 	}
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = d.conn.SetWriteDeadline(deadline)
+	} else {
+		_ = d.conn.SetWriteDeadline(time.Time{})
 	}
 	_, err := d.conn.Write(b)
 	if err != nil {
@@ -182,17 +276,43 @@ func (d *Driver) SetLocoFunction(ctx context.Context, address, fn int, on bool) 
 	value := mode | byte(fn&0x3f)
 	return d.send(ctx, xbus(0xE4, 0xF8, byte((address>>8)&0x3f), byte(address), value))
 }
-func (d *Driver) SetBasicAccessory(_ context.Context, command station.AccessoryCommand) error {
+func (d *Driver) SetBasicAccessory(ctx context.Context, command station.AccessoryCommand) error {
 	if err := command.Validate(); err != nil {
 		return err
 	}
 	if err := station.CheckCommandAllowed(d); err != nil {
 		return err
 	}
-	return station.ErrUnsupported
+	fAddress, err := linearAddressToFAddress(command.Address)
+	if err != nil {
+		return err
+	}
+	if err := d.send(ctx, turnoutCommandPacket(fAddress, command.Position, true)); err != nil {
+		return err
+	}
+
+	waitErr := waitForPulse(ctx, d.accessoryPulse)
+	deactivateCtx, cancel := context.WithTimeout(context.Background(), accessoryDeactivationTimeout)
+	deactivateErr := d.send(deactivateCtx, turnoutCommandPacket(fAddress, command.Position, false))
+	cancel()
+	if waitErr != nil {
+		return errors.Join(waitErr, deactivateErr)
+	}
+	if deactivateErr != nil {
+		return deactivateErr
+	}
+	// Ask the command station for the resulting function state. The correlated
+	// response is also published through AccessoryStateEvents.
+	queryCtx, queryCancel := context.WithTimeout(ctx, accessoryInfoTimeout)
+	defer queryCancel()
+	_, err = d.getAccessoryState(queryCtx, command.Address)
+	return err
 }
 func (d *Driver) Feedback() <-chan station.FeedbackEvent { return d.feedback }
 func (d *Driver) StatusEvents() <-chan station.Status    { return d.statusEvents }
+func (d *Driver) AccessoryStateEvents() <-chan station.AccessoryStateEvent {
+	return d.accessoryEvents
+}
 func (d *Driver) readLoop(c *net.UDPConn) {
 	buf := make([]byte, 2048)
 	for {
@@ -221,6 +341,8 @@ func (d *Driver) parse(data []byte) {
 		switch {
 		case header == 0x0040 && len(payload) == 4 && payload[0] == 0x62 && payload[1] == 0x22 && xor(payload[:3]) == payload[3]:
 			d.publishXStatus(payload[2])
+		case header == lanXHeader && len(payload) == 5 && payload[0] == lanXGetTurnoutInfo:
+			d.parseTurnoutInfo(payload)
 		case header == 0x0084 && len(payload) == 16:
 			d.publishSystemState(parseSystemState(payload))
 		case header == 0x0080 && len(payload) >= 11:
@@ -234,6 +356,85 @@ func (d *Driver) parse(data []byte) {
 			}
 		}
 		data = data[length:]
+	}
+}
+
+func (d *Driver) parseTurnoutInfo(payload []byte) {
+	fAddress := uint16(payload[1])<<8 | uint16(payload[2])
+	address, err := fAddressToLinearAddress(fAddress)
+	if err != nil {
+		return
+	}
+	event := station.AccessoryStateEvent{
+		Address:    address,
+		Quality:    station.AccessoryReportStation,
+		ObservedAt: time.Now(),
+	}
+	switch payload[3] & 0x03 {
+	case 0x00:
+		event.State = station.AccessoryReportUnknown
+	case 0x01:
+		event.State = station.AccessoryReportKnown
+		event.Position = station.AccessoryPosition1
+	case 0x02:
+		event.State = station.AccessoryReportKnown
+		event.Position = station.AccessoryPosition2
+	case 0x03:
+		event.State = station.AccessoryReportInvalid
+	}
+	d.publishAccessoryState(fAddress, event)
+}
+
+func (d *Driver) getAccessoryState(ctx context.Context, address int) (station.AccessoryStateEvent, error) {
+	fAddress, err := linearAddressToFAddress(address)
+	if err != nil {
+		return station.AccessoryStateEvent{}, err
+	}
+	reply := make(chan station.AccessoryStateEvent, 1)
+	d.accessoryMu.Lock()
+	d.accessoryWaiters[fAddress] = append(d.accessoryWaiters[fAddress], reply)
+	d.accessoryMu.Unlock()
+	defer d.removeAccessoryWaiter(fAddress, reply)
+	if err := d.send(ctx, turnoutInfoRequestPacket(fAddress)); err != nil {
+		return station.AccessoryStateEvent{}, err
+	}
+	select {
+	case event := <-reply:
+		return event, nil
+	case <-ctx.Done():
+		return station.AccessoryStateEvent{}, ctx.Err()
+	}
+}
+
+func (d *Driver) publishAccessoryState(fAddress uint16, event station.AccessoryStateEvent) {
+	d.accessoryMu.Lock()
+	waiters := d.accessoryWaiters[fAddress]
+	delete(d.accessoryWaiters, fAddress)
+	d.accessoryMu.Unlock()
+	for _, waiter := range waiters {
+		waiter <- event
+	}
+	select {
+	case d.accessoryEvents <- event:
+	default:
+	}
+}
+
+func (d *Driver) removeAccessoryWaiter(fAddress uint16, target chan station.AccessoryStateEvent) {
+	d.accessoryMu.Lock()
+	defer d.accessoryMu.Unlock()
+	waiters := d.accessoryWaiters[fAddress]
+	for i, waiter := range waiters {
+		if waiter != target {
+			continue
+		}
+		waiters = append(waiters[:i], waiters[i+1:]...)
+		if len(waiters) == 0 {
+			delete(d.accessoryWaiters, fAddress)
+		} else {
+			d.accessoryWaiters[fAddress] = waiters
+		}
+		return
 	}
 }
 

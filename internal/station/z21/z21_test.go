@@ -10,10 +10,13 @@ import (
 )
 
 func TestCapabilitiesAndCommandBounds(t *testing.T) {
-	d := New("unused", station.DefaultOfflineAfter)
+	d := New("unused", station.DefaultOfflineAfter, DefaultAccessoryPulse)
 	caps := d.Capabilities()
-	if caps.Functions != 29 || caps.MaxFunctionNumber != 28 {
+	if caps.Functions != 29 || caps.MaxFunctionNumber != 28 || !caps.AccessoryControl {
 		t.Fatalf("capabilities=%+v", caps)
+	}
+	if got := New("unused", station.DefaultOfflineAfter, 0).accessoryPulse; got != DefaultAccessoryPulse {
+		t.Fatalf("fallback accessory pulse=%v", got)
 	}
 	if err := d.SetLocoSpeed(context.Background(), 3, 0.5, station.Direction("sideways")); err != station.ErrUnsupported {
 		t.Fatalf("invalid direction error=%v", err)
@@ -24,7 +27,7 @@ func TestCapabilitiesAndCommandBounds(t *testing.T) {
 }
 
 func TestBasicAccessoryValidationAndOffline(t *testing.T) {
-	driver := New("unused", station.DefaultOfflineAfter)
+	driver := New("unused", station.DefaultOfflineAfter, DefaultAccessoryPulse)
 	if err := driver.SetBasicAccessory(context.Background(), station.AccessoryCommand{Address: 0, Position: station.AccessoryPosition1}); !errors.Is(err, station.ErrInvalidAccessoryAddress) {
 		t.Fatalf("invalid address error=%v", err)
 	}
@@ -33,11 +36,6 @@ func TestBasicAccessoryValidationAndOffline(t *testing.T) {
 	}
 	if err := driver.SetBasicAccessory(context.Background(), station.AccessoryCommand{Address: 1, Position: station.AccessoryPosition1}); !errors.Is(err, station.ErrOffline) {
 		t.Fatalf("offline accessory error=%v", err)
-	}
-	driver.health.Connected()
-	driver.health.ValidResponse()
-	if err := driver.SetBasicAccessory(context.Background(), station.AccessoryCommand{Address: 1, Position: station.AccessoryPosition1}); !errors.Is(err, station.ErrUnsupported) {
-		t.Fatalf("online accessory error=%v", err)
 	}
 }
 
@@ -81,7 +79,7 @@ func TestParseSystemState(t *testing.T) {
 }
 
 func TestParseDispatchesStatusReplies(t *testing.T) {
-	d := New("unused", station.DefaultOfflineAfter)
+	d := New("unused", station.DefaultOfflineAfter, DefaultAccessoryPulse)
 	d.health.Connected()
 	xReply := make(chan byte, 1)
 	systemReply := make(chan systemState, 1)
@@ -106,7 +104,7 @@ func TestParseDispatchesStatusReplies(t *testing.T) {
 }
 
 func TestInvalidXBusChecksumDoesNotRestoreHealth(t *testing.T) {
-	d := New("unused", station.DefaultOfflineAfter)
+	d := New("unused", station.DefaultOfflineAfter, DefaultAccessoryPulse)
 	d.health.Connected()
 	d.health.CommunicationError()
 	record := []byte{0x08, 0x00, 0x40, 0x00, 0x62, 0x22, 0x02, 0x00}

@@ -64,6 +64,26 @@ func TestAccessoryReportQualityValidation(t *testing.T) {
 	}
 }
 
+func TestAccessoryReportStateAndKnownPosition(t *testing.T) {
+	for _, state := range []AccessoryReportState{AccessoryReportKnown, AccessoryReportUnknown, AccessoryReportInvalid} {
+		if !state.Valid() {
+			t.Fatalf("state %q is invalid", state)
+		}
+	}
+	if AccessoryReportState("bad").Valid() {
+		t.Fatal("invalid accessory report state accepted")
+	}
+	if !(AccessoryStateEvent{Position: AccessoryPosition1}).HasKnownPosition() {
+		t.Fatal("legacy event with a valid position should remain known")
+	}
+	if !(AccessoryStateEvent{State: AccessoryReportKnown, Position: AccessoryPosition2}).HasKnownPosition() {
+		t.Fatal("known event rejected")
+	}
+	if (AccessoryStateEvent{State: AccessoryReportUnknown, Position: AccessoryPosition1}).HasKnownPosition() {
+		t.Fatal("unknown event treated as a known position")
+	}
+}
+
 func TestAccessoryStateEventProviderPreservesEvent(t *testing.T) {
 	now := time.Date(2026, time.August, 31, 10, 0, 0, 0, time.UTC)
 	want := AccessoryStateEvent{

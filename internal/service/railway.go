@@ -256,7 +256,14 @@ func (r *RailwayService) handleAccessoryStateEvent(ctx context.Context, event st
 				states = map[string]model.AccessoryPosition{}
 				r.accessoryStates[turnout.ID] = states
 			}
-			states[endpoint.ID] = event.Position
+			if event.HasKnownPosition() {
+				states[endpoint.ID] = event.Position
+			} else if event.State == station.AccessoryReportUnknown || event.State == station.AccessoryReportInvalid {
+				states[endpoint.ID] = ""
+			} else {
+				r.accessoryMu.Unlock()
+				break
+			}
 			r.accessoryMu.Unlock()
 			_ = r.reconcileTurnout(ctx, turnout)
 			break

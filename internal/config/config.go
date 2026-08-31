@@ -22,12 +22,14 @@ type Config struct {
 		Path string `json:"path"`
 	} `json:"database"`
 	Station struct {
-		Driver           string        `json:"driver"`
-		Address          string        `json:"address"`
-		Port             int           `json:"port"`
-		Transport        string        `json:"transport"`
-		OfflineAfter     time.Duration `json:"-"`
-		OfflineAfterText string        `json:"offlineAfter"`
+		Driver             string        `json:"driver"`
+		Address            string        `json:"address"`
+		Port               int           `json:"port"`
+		Transport          string        `json:"transport"`
+		OfflineAfter       time.Duration `json:"-"`
+		OfflineAfterText   string        `json:"offlineAfter"`
+		AccessoryPulse     time.Duration `json:"-"`
+		AccessoryPulseText string        `json:"accessoryPulse"`
 	} `json:"station"`
 	Security struct {
 		AccessTokenTTL      time.Duration `json:"-"`
@@ -55,6 +57,7 @@ func Default() Config {
 	c.Database.Path = "./dcc-control.db"
 	c.Station.Driver = "simulator"
 	c.Station.OfflineAfter = 10 * time.Second
+	c.Station.AccessoryPulse = 100 * time.Millisecond
 	c.Security.AccessTokenTTL = 15 * time.Minute
 	c.Security.RefreshTokenTTL = 30 * 24 * time.Hour
 	c.Control.LeaseTTL = 10 * time.Minute
@@ -106,6 +109,12 @@ func Load(path string) (Config, error) {
 	}
 	if c.Station.OfflineAfter <= 0 {
 		return c, errors.New("station.offlineAfter must be greater than zero")
+	}
+	if err := parse(c.Station.AccessoryPulseText, &c.Station.AccessoryPulse); err != nil {
+		return c, fmt.Errorf("station.accessoryPulse: %w", err)
+	}
+	if c.Station.AccessoryPulse <= 0 {
+		return c, errors.New("station.accessoryPulse must be greater than zero")
 	}
 	if c.HTTP.Listen == "" || c.Admin.Socket == "" || c.Database.Path == "" {
 		return c, errors.New("http.listen, admin.socket and database.path are required")

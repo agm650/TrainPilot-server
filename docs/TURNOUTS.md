@@ -106,7 +106,8 @@ Une adresse ou une position invalide produit respectivement
 Le provider facultatif `station.AccessoryStateEventProvider` publie :
 
 - l'adresse linéaire ;
-- la position binaire ;
+- la position binaire lorsqu'elle est connue ;
+- l'état du rapport `known`, `unknown` ou `invalid` ;
 - l'heure d'observation ;
 - la qualité `station`, `assumed` ou `physical`.
 
@@ -122,6 +123,9 @@ n'impose pas à un driver de fabriquer des événements.
 Le simulateur expose ce provider avec une file de 64 événements.
 La publication ne bloque jamais une commande. Si la file est pleine, le nouvel
 événement est abandonné ; le snapshot du simulateur permet la resynchronisation.
+
+Le pilote z21 expose le même provider. Sa qualité est toujours `station` : la
+centrale confirme son état de fonction, pas la position mécanique des lames.
 
 ## 5. Modèle JSON
 
@@ -386,3 +390,45 @@ Les ponts tournants, plaques tournantes et traversers ne sont pas des
 Ils ont des positions indexées nombreuses, une durée de mouvement, un
 verrouillage et parfois une occupation propre.
 Ils nécessitent une famille métier distincte.
+
+## 18. Protocole accessoire z21
+
+Le pilote convertit l'adresse linéaire canonique avec :
+
+```text
+FAdr = linearAddress - 1
+linearAddress = FAdr + 1
+```
+
+Exemples de référence :
+
+| Adresse TrainPilot | FAdr z21 |
+| ---: | ---: |
+| 1 | `0x0000` |
+| 4 | `0x0003` |
+| 5 | `0x0004` |
+| 8 | `0x0007` |
+| 9 | `0x0008` |
+| 2040 | `0x07F7` |
+
+Une commande `LAN_X_SET_TURNOUT` utilise `Q=1`. Le bit `P` vaut `0` pour
+`position1` et `1` pour `position2`. Le bit d'activation `A` vaut d'abord `1`,
+puis `0` après `station.accessoryPulse`, qui vaut `100ms` par défaut. Une
+annulation cliente ne supprime pas la tentative de désactivation de sécurité.
+
+Après l'impulsion, le pilote envoie `LAN_X_GET_TURNOUT_INFO`. Il corrèle les
+réponses par `FAdr` et traite aussi les broadcasts externes. Le champ z21 `ZZ`
+est interprété sans approximation :
+
+| ZZ | État TrainPilot | Position |
+| --- | --- | --- |
+| `00` | `unknown` | aucune |
+| `01` | `known` | `position1` |
+| `10` | `known` | `position2` |
+| `11` | `invalid` | aucune |
+
+La capability `accessoryControl` du pilote z21 est active. Les paquets exacts,
+les limites d'adresse, les réponses concurrentes, broadcasts, annulations et
+refus hors ligne sont couverts par un faux serveur UDP. Une validation sur
+centrale réelle reste requise avant de considérer l'adressage affiché par un
+constructeur ou la position mécanique comme confirmés.

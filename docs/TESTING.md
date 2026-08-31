@@ -213,6 +213,19 @@ Les tests du contrat accessoire vérifient aussi `position1`/`position2`, la
 plage linéaire `1..2040`, les erreurs typées, le refus hors ligne et le provider
 d'observations. Le simulateur utilise une file non bloquante de 64 événements.
 
+Les tests z21 couvrent sans matériel :
+
+- la conversion réversible adresse linéaire ↔ `FAdr`, avec les bornes et des
+  valeurs de référence autour des groupes de quatre ;
+- les octets exacts `LAN_X_SET_TURNOUT` pour activation et désactivation de
+  `position1` et `position2`, avec `Q=1` ;
+- `LAN_X_GET_TURNOUT_INFO` et les quatre valeurs `ZZ` ;
+- deux interrogations simultanées dont les réponses arrivent dans l'ordre
+  inverse ;
+- un broadcast spontané, l'impulsion complète, l'annulation contextuelle avec
+  désactivation de sécurité et le refus hors ligne sans datagramme ;
+- la configuration des broadcast flags lors de `Connect()`.
+
 ## Couverture restant à ajouter
 
 - parité contractuelle complète entre DCC-EX et z21 pour leurs capacités communes ;
@@ -248,3 +261,26 @@ go test -tags=hardware ./tests/hardware/z21
 ```
 
 Ils devront utiliser une locomotive et un accessoire réservés au banc de test, avec une alimentation et un arrêt d’urgence physiques accessibles.
+
+### Procédure z21 accessoire facultative
+
+Ce contrôle n'est pas requis par la CI. Il doit viser une sortie sans risque et
+un aiguillage visible, avec arrêt d'urgence accessible :
+
+1. configurer le pilote `z21`, `station.accessoryPulse: "100ms"` et une adresse
+   linéaire connue ;
+2. vérifier hors tension de traction la correspondance entre l'adresse
+   TrainPilot et l'adresse affichée par le décodeur ;
+3. commander `position1`, puis `position2`, et vérifier une seule impulsion par
+   ordre, suivie de la désactivation ;
+4. vérifier que le retour z21 annonce la bonne position de fonction et qu'un
+   changement issu d'une autre commande est publié ;
+5. annuler une requête pendant une impulsion et vérifier que la sortie est bien
+   désactivée ;
+6. déconnecter la centrale jusqu'à `offline`, présenter une commande et
+   vérifier qu'aucun paquet n'est envoyé ni rejoué au retour `online` ;
+7. noter explicitement si le retour de centrale correspond seulement à l'état
+   électrique de la sortie ou à une vraie détection mécanique.
+
+Répéter avec les adresses linéaires `1`, `4`, `5`, `8` et `9` permet de détecter
+rapidement un décalage de convention par groupe de quatre.

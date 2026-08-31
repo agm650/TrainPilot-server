@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Contrat station typé pour les accessoires DCC binaires, validation de la plage linéaire portable et provider générique de retours qualifiés.
+- Commandes d'accessoires z21 `LAN_X_SET_TURNOUT`, impulsion configurable et désactivation sûre, lecture corrélée `LAN_X_GET_TURNOUT_INFO` et broadcasts d'état sans position inventée.
 - Modèle d'aiguillage simple ou composé avec endpoints binaires, positions logiques explicites, inversion, résolution physique, migration SQLite et archives version 2 compatibles avec la version 1.
 - Authentification persistée avec access tokens et refresh tokens révocables.
 - Administration des utilisateurs par socket Unix local uniquement.

@@ -110,13 +110,32 @@ func (q AccessoryReportQuality) Valid() bool {
 	}
 }
 
+// AccessoryReportState distinguishes a known binary position from Z21 reports
+// that explicitly mean "not switched yet" or "invalid combination".
+type AccessoryReportState string
+
+const (
+	AccessoryReportKnown   AccessoryReportState = "known"
+	AccessoryReportUnknown AccessoryReportState = "unknown"
+	AccessoryReportInvalid AccessoryReportState = "invalid"
+)
+
+func (s AccessoryReportState) Valid() bool {
+	return s == AccessoryReportKnown || s == AccessoryReportUnknown || s == AccessoryReportInvalid
+}
+
 // AccessoryStateEvent reports the last observed binary state of one basic
 // accessory endpoint.
 type AccessoryStateEvent struct {
 	Address    int                    `json:"address"`
-	Position   AccessoryPosition      `json:"position"`
+	Position   AccessoryPosition      `json:"position,omitempty"`
+	State      AccessoryReportState   `json:"state,omitempty"`
 	Quality    AccessoryReportQuality `json:"quality"`
 	ObservedAt time.Time              `json:"observedAt"`
+}
+
+func (e AccessoryStateEvent) HasKnownPosition() bool {
+	return (e.State == "" || e.State == AccessoryReportKnown) && e.Position.Valid()
 }
 
 type Capabilities struct {

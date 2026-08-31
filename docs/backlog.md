@@ -61,10 +61,10 @@ dans ce backlog.
 - [x] Refondre le modèle des aiguillages simples et composés avec endpoints, positions explicites, migration SQLite et archives compatibles (`AIG-001`).
 - [x] Typer l'interface station pour les sorties d'accessoires binaires et leurs retours qualifiés (`AIG-002`).
 - [x] Adapter le simulateur aux endpoints binaires, retours qualifiés, appareils composés, faults ciblés et scénarios de référence (`AIG-003`).
-- [ ] Implémenter les commandes d'aiguillages z21.
+- [x] Implémenter les commandes et retours d'état binaires z21, avec impulsion configurable, corrélation et broadcasts (`AIG-004`).
 - [ ] Aligner DCC-EX sur l'adresse canonique et la sémantique binaire.
 - [ ] Sérialiser les transitions multi-endpoints et gérer les erreurs partielles.
-- [ ] Ajouter la lecture ou confirmation de position lorsque la centrale et le matériel le permettent.
+- [ ] Valider sur z21 réelle l'adressage des accessoires, la durée d'impulsion et la différence entre état de fonction rapporté et position physique.
 - [ ] Gérer les délais, échecs et incohérences entre position demandée et position confirmée.
 - [ ] Étendre REST, WebSocket, CLI et conformité au modèle composé.
 - [ ] Préparer les sorties nécessaires au pilotage futur des signaux.

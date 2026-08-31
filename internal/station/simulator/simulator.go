@@ -960,6 +960,7 @@ func (s *Simulator) publishAccessoryStateLocked(position station.AccessoryPositi
 	event := station.AccessoryStateEvent{
 		Address:    address,
 		Position:   position,
+		State:      station.AccessoryReportKnown,
 		Quality:    quality,
 		ObservedAt: observedAt,
 	}

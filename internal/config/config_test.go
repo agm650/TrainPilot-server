@@ -22,6 +22,9 @@ func TestDefault(t *testing.T) {
 	if cfg.Station.OfflineAfter != 10*time.Second {
 		t.Fatalf("station offlineAfter=%v", cfg.Station.OfflineAfter)
 	}
+	if cfg.Station.AccessoryPulse != 100*time.Millisecond {
+		t.Fatalf("station accessoryPulse=%v", cfg.Station.AccessoryPulse)
+	}
 	if cfg.Security.AccessTokenTTL != 15*time.Minute || cfg.Security.RefreshTokenTTL != 30*24*time.Hour {
 		t.Fatalf("security defaults=%v/%v", cfg.Security.AccessTokenTTL, cfg.Security.RefreshTokenTTL)
 	}
@@ -41,6 +44,13 @@ func TestLoadEmptyPathReturnsDefaults(t *testing.T) {
 	if cfg.Station.OfflineAfter != 10*time.Second {
 		t.Fatalf("station offlineAfter=%v", cfg.Station.OfflineAfter)
 	}
+	cfg, err = Load(writeConfig(t, `{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Station.AccessoryPulse != 100*time.Millisecond {
+		t.Fatalf("absent station accessoryPulse=%v", cfg.Station.AccessoryPulse)
+	}
 }
 
 func TestLoadParsesStationOfflineAfter(t *testing.T) {
@@ -59,6 +69,27 @@ func TestLoadParsesStationOfflineAfter(t *testing.T) {
 			}
 			if cfg.Station.OfflineAfter != tc.want {
 				t.Fatalf("station offlineAfter=%v want %v", cfg.Station.OfflineAfter, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadParsesStationAccessoryPulse(t *testing.T) {
+	for _, tc := range []struct {
+		text string
+		want time.Duration
+	}{
+		{"25ms", 25 * time.Millisecond},
+		{"250ms", 250 * time.Millisecond},
+		{"1s", time.Second},
+	} {
+		t.Run(tc.text, func(t *testing.T) {
+			cfg, err := Load(writeConfig(t, `{"station":{"accessoryPulse":"`+tc.text+`"}}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Station.AccessoryPulse != tc.want {
+				t.Fatalf("station accessoryPulse=%v want %v", cfg.Station.AccessoryPulse, tc.want)
 			}
 		})
 	}
@@ -131,6 +162,18 @@ func TestLoadErrors(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "station.offlineAfter") {
 				t.Fatalf("error=%q does not identify station.offlineAfter", err)
+			}
+		})
+	}
+
+	for _, value := range []string{"bad", "0s", "-1ms"} {
+		t.Run("station accessory pulse "+value, func(t *testing.T) {
+			_, err := Load(writeConfig(t, `{"station":{"accessoryPulse":"`+value+`"}}`))
+			if err == nil {
+				t.Fatal("expected duration error")
+			}
+			if !strings.Contains(err.Error(), "station.accessoryPulse") {
+				t.Fatalf("error=%q does not identify station.accessoryPulse", err)
 			}
 		})
 	}

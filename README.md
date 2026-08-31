@@ -21,7 +21,7 @@ Fonctions incluses :
 - rétrosignalisation normalisée et mapping capteur → canton ;
 - pilote de centrale simulée ;
 - pilote DCC-EX TCP pour alimentation, arrêt, vitesse, fonctions, accessoires et remontées de capteurs, avec suivi de santé et reconnexion automatique ;
-- pilote Z21 UDP initial pour alimentation, arrêt, vitesse, fonctions et parsing R-BUS ;
+- pilote Z21 UDP pour alimentation, arrêt, vitesse, fonctions, accessoires binaires et parsing R-BUS ;
 - import/export versionné du parc et du circuit dans des archives ZIP natives ;
 - outil de diagnostic et de transfert `dccctl` ;
 - outil de conformité `dcc-api-conformance` ;
@@ -31,6 +31,7 @@ Limites assumées du MVP :
 
 - l’édition graphique complète du réseau n’est pas encore implémentée ; les archives couvrent les locomotives, cantons, aiguillages, itinéraires et mappings de rétrosignalisation, sans ressources graphiques pour le moment ;
 - le décodage R-BUS doit être validé sur une z21 blanche réelle et les modules choisis ;
+- les commandes et retours d'accessoires z21 sont couverts par un faux serveur UDP, mais leur adressage et leur temporisation doivent encore être validés sur le banc réel ;
 - le pilote DCC-EX fournit les commandes et retours de base ainsi que la reconnexion automatique après une première connexion réussie, mais sa couverture protocolaire et sa validation sur matériel réel restent à compléter ;
 - la confirmation physique de l’arrêt d’une locomotive n’est pas disponible sur toutes les centrales : une temporisation de sécurité est utilisée ;
 - le serveur ne pilote qu’une centrale par processus ;
@@ -613,7 +614,8 @@ position d'accessoire antérieure n'est restaurée automatiquement.
   "driver": "z21",
   "address": "192.168.0.111",
   "port": 21105,
-  "offlineAfter": "10s"
+  "offlineAfter": "10s",
+  "accessoryPulse": "100ms"
 }
 ```
 
@@ -621,7 +623,18 @@ position d'accessoire antérieure n'est restaurée automatiquement.
 `time.ParseDuration`, par exemple `500ms`, `5s`, `30s` ou `1m`. Une valeur
 invalide, nulle ou négative empêche le démarrage du serveur.
 
-Le pilote Z21 est volontairement conservateur : alimentation, arrêt, conduite et fonctions sont présents ; les accessoires et certains retours doivent être complétés après validation sur le matériel réel.
+`accessoryPulse` configure la durée d'activation d'une sortie binaire z21. Sa
+valeur par défaut est `100ms`. Le format est celui des durées Go et une valeur
+invalide, nulle ou négative empêche aussi le démarrage. La commande active la
+sortie, attend cette durée, puis la désactive. La désactivation est tentée avec
+un contexte de sécurité interne même si la requête cliente est annulée.
+
+Le pilote accepte les adresses linéaires TrainPilot `1..2040`, les convertit en
+`FAdr = adresse - 1`, interroge ensuite `LAN_X_GET_TURNOUT_INFO` et publie les
+retours spontanés reçus. Les états z21 « pas encore commuté » et « invalide »
+restent inconnus côté turnout : le serveur n'invente jamais une position. Une
+confirmation de centrale n'est pas une preuve de mouvement mécanique des
+lames. La validation sur z21 blanche réelle reste nécessaire.
 
 ## Rétrosignalisation
 
