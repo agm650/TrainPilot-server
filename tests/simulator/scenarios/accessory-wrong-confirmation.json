@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "name": "accessory-wrong-confirmation",
+  "initial": {
+    "connectivity": "online",
+    "trackPower": true
+  },
+  "steps": [
+    {
+      "at": "0s",
+      "action": "accessory.behavior",
+      "address": 1,
+      "mode": "no_confirmation"
+    },
+    {
+      "at": "1s",
+      "action": "accessory.report",
+      "address": 1,
+      "state": "straight"
+    }
+  ]
+}

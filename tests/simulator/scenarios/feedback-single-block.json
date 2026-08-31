@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "name": "feedback-single-block",
+  "initial": {},
+  "steps": [
+    {
+      "at": "1s",
+      "action": "feedback.set",
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 1,
+      "active": true,
+      "emit": true
+    },
+    {
+      "at": "2s",
+      "action": "feedback.set",
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 1,
+      "active": false,
+      "emit": true
+    }
+  ]
+}

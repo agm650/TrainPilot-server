@@ -47,6 +47,9 @@ func newSimulatorAPIFixture(t *testing.T) simulatorAPIFixture {
 	if err := db.SeedDemo(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SetFeedbackMapping(ctx, "simulator", 2, "block-b"); err != nil {
+		t.Fatal(err)
+	}
 
 	realClock := clock.Real{}
 	users := service.NewUserServiceWithPasswordParams(db, realClock, auth.PasswordParams{Iterations: 100_000, SaltLength: 16, KeyLength: 32})
@@ -62,6 +65,8 @@ func newSimulatorAPIFixture(t *testing.T) simulatorAPIFixture {
 	railway := service.NewRailwayService(db, sim, bus)
 	railway.StartFeedback(ctx)
 	control := service.NewControlService(db, sim, bus, realClock, 15*time.Second, time.Second, time.Hour)
+	control.Start()
+	t.Cleanup(control.Close)
 	routes := service.NewRouteService(db, railway, bus)
 	apiServer := New(authService, control, railway, routes, transfer.New(db, bus, realClock), db, bus, sim, sim, true)
 	httpServer := httptest.NewServer(apiServer.Handler())

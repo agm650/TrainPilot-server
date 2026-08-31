@@ -44,6 +44,8 @@ All notable changes to this project will be documented in this file.
 - Rétrosignalisation simulée avec état physique observable, répétitions, rebonds déterministes, pertes volontaires, saturation explicite et intégration multi-cantons.
 - Moteur de scénarios JSON v1 strict et déterministe, avec avance manuelle sans sommeil réel, exécution temps réel annulable, état de contrôle observable et scénarios de référence versionnés.
 - API de test authentifiée du simulateur pour snapshots, reset, connectivité, télémétrie, feedback, accessoires, faults et scénarios, entièrement absente avec les pilotes matériels ou lorsque `testAPI=false`.
+- Douze scénarios de référence du simulateur exécutés en temps logique par la suite d'intégration HTTP/WebSocket et la CI, avec non-rejeu hors ligne, télémétrie, feedbacks et confirmations d'accessoire.
+- Publication générique des changements d'état injectés par le simulateur via `station.StatusEventProvider`.
 
 ### Changed
 

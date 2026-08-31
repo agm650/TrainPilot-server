@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "name": "feedback-bounce",
+  "initial": {},
+  "steps": [
+    {
+      "at": "1s",
+      "action": "feedback.set",
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 1,
+      "active": true,
+      "emit": true
+    },
+    {
+      "at": "1020ms",
+      "action": "feedback.set",
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 1,
+      "active": false,
+      "emit": true
+    },
+    {
+      "at": "1040ms",
+      "action": "feedback.set",
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 1,
+      "active": true,
+      "emit": true
+    }
+  ]
+}

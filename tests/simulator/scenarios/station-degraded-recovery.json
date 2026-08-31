@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "name": "station-offline-recovery",
+  "name": "station-degraded-recovery",
   "initial": {
     "connectivity": "online",
     "trackPower": true
@@ -13,11 +13,6 @@
     },
     {
       "at": "2s",
-      "action": "station.connectivity",
-      "connectivity": "offline"
-    },
-    {
-      "at": "3s",
       "action": "station.connectivity",
       "connectivity": "online"
     }

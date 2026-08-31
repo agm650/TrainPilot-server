@@ -40,6 +40,7 @@
 - un scénario expose son cycle de vie et son erreur, s'arrête sur une étape impossible et son mode temps réel est annulé par le contexte, `Close()` ou un reset externe du simulateur ;
 - l'API de test du simulateur disparaît avec `testAPI=false` ou un pilote matériel, exige une authentification et expose snapshot, reset, connectivité, télémétrie, feedback, accessoires, faults et scénarios sans polluer l'API publique ;
 - le feedback injecté par HTTP traverse le mapping de `RailwayService` jusqu'au WebSocket, tandis qu'une connectivité `offline` injectée produit le refus métier `503 station_offline` sans rejeu au retour `online` ;
+- les douze scénarios de référence du simulateur exercent les réponses HTTP, les snapshots et événements WebSocket, l'arrêt d'urgence, le court-circuit, les feedbacks multiples/rebond/perte et les confirmations d'accessoire en temps logique ;
 - le bus attribue des séquences monotones, expose sa séquence courante et ne bloque pas sur un abonné lent ;
 - le WebSocket fournit un snapshot complet, permet la resynchronisation après un trou de séquence, supporte la reconnexion et ferme la connexion à l'expiration du jeton ou à la révocation de la session ;
 - les événements anciens ou dupliqués sont filtrés, et un événement publié pendant un snapshot est transmis ensuite sans perte ;
@@ -67,6 +68,11 @@ go test -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out
 ```
 
+Le workflow CI exécute `go test ./...` et `go test -race ./...` sur Linux et
+macOS. Sur Linux, il rejoue aussi toute la suite avec `CGO_ENABLED=0`; les tests
+de référence du simulateur appartiennent au package `internal/api` et sont donc
+obligatoires dans chaque `go test ./...`.
+
 La conformité HTTP passive, sans commande de voie, s'exécute contre un serveur
 déjà démarré avec :
 
@@ -81,6 +87,22 @@ serveur. Les scénarios qui commandent la centrale exigent
 `--allow-active-commands`. Le CRUD temporaire et les imports exigent aussi
 `--allow-configuration-mutations` et un compte administrateur. Ces deux modes
 ne doivent être utilisés que sur une instance de test explicitement choisie.
+
+Sur une instance jetable configurée avec `station.driver=simulator`, les tests
+de conduite et les mutations de configuration peuvent être activés ensemble :
+
+```bash
+go run ./cmd/dcc-api-conformance \
+  --server http://127.0.0.1:8080 \
+  --user1 alice --pass1 correct-horse-1 \
+  --user2 bob --pass2 correct-horse-2 \
+  --admin admin --admin-pass correct-horse-admin \
+  --allow-active-commands \
+  --allow-configuration-mutations
+```
+
+Ces options restent inactives par défaut et ne doivent pas être utilisées sur
+un réseau ferroviaire réel sans activation volontaire.
 
 L'expiration naturelle des sessions est volontairement absente du lancement
 standard. Elle nécessite une instance de test avec des TTL courtes :
@@ -132,12 +154,25 @@ du contexte, `Simulator.Close()` et un reset externe empêchent toute action
 future. Une étape `simulator.reset` appartenant au scénario, elle, réinitialise
 le banc puis laisse le scénario se poursuivre.
 
-Scénarios de référence actuels :
+Les douze scénarios de référence obligatoires sont :
 
-- `station-offline-recovery.json` : `online → degraded → offline → online` ;
-- `feedback-a-to-b.json` : occupation `A → A+B → B` ;
-- `accessory-electrical-fault.json` : comportement d'accessoire, télémétrie et
-  fault déterministe.
+- `nominal-driving.json` et `emergency-stop.json` ;
+- `station-degraded-recovery.json`, `station-offline-recovery.json` et
+  `electrical-short-circuit.json` ;
+- `feedback-single-block.json`, `feedback-multiple-blocks.json`,
+  `feedback-bounce.json` et `feedback-event-loss.json` ;
+- `accessory-confirmation-success.json`,
+  `accessory-confirmation-timeout-base.json` et
+  `accessory-wrong-confirmation.json`.
+
+`TestReferenceSimulatorScenarios` valide chaque document puis exerce les
+scénarios critiques par l'API HTTP/WebSocket d'un serveur `httptest` avec
+SQLite et authentification réelles. Il vérifie notamment que la commande
+refusée pendant `offline` ne réapparaît pas au retour `online`, que deux cantons
+restent occupés simultanément, qu'un feedback perdu ne modifie pas l'état connu
+du service et que les trois bases de confirmation d'accessoire restent
+observables. Les anciens scénarios complémentaires `feedback-a-to-b.json` et
+`accessory-electrical-fault.json` restent disponibles pour les essais ciblés.
 
 L'interface HTTP destinée aux tests externes est décrite dans
 [`SIMULATOR_TEST_API.md`](SIMULATOR_TEST_API.md). Les tests API vérifient aussi

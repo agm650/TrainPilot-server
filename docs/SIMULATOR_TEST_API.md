@@ -246,6 +246,48 @@ Les réponses de contrôle contiennent :
 Les états possibles sont `loaded`, `running`, `completed`, `stopped` et
 `failed`. Une erreur de scénario est conservée dans le champ `error`.
 
+### Scénarios de référence
+
+Le répertoire `tests/simulator/scenarios/` contient les douze scénarios SIM-008
+utilisés par la CI :
+
+- `nominal-driving`, `emergency-stop` ;
+- `station-degraded-recovery`, `station-offline-recovery`,
+  `electrical-short-circuit` ;
+- `feedback-single-block`, `feedback-multiple-blocks`, `feedback-bounce`,
+  `feedback-event-loss` ;
+- `accessory-confirmation-success`, `accessory-confirmation-timeout-base`,
+  `accessory-wrong-confirmation`.
+
+Le chargement HTTP transmet le contenu du document, jamais son chemin sur le
+serveur. Après authentification et copie de l'access token :
+
+```bash
+export TRAINPILOT_TOKEN='<accessToken>'
+
+curl -sS -X POST http://127.0.0.1:8080/test/v1/simulator/scenarios \
+  -H "Authorization: Bearer $TRAINPILOT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data-binary @tests/simulator/scenarios/feedback-bounce.json
+
+curl -sS -X POST http://127.0.0.1:8080/test/v1/simulator/scenarios/start \
+  -H "Authorization: Bearer $TRAINPILOT_TOKEN"
+
+curl -sS -X POST http://127.0.0.1:8080/test/v1/simulator/scenarios/advance \
+  -H "Authorization: Bearer $TRAINPILOT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"duration":"1040ms"}'
+
+curl -sS http://127.0.0.1:8080/test/v1/simulator/state \
+  -H "Authorization: Bearer $TRAINPILOT_TOKEN"
+```
+
+`TestReferenceSimulatorScenarios`, inclus dans `go test ./...`, valide les
+documents et leurs intégrations HTTP/WebSocket sans port fixe ni attente longue.
+Il couvre explicitement l'absence de rejeu après une période `offline`, les
+feedbacks simultanés, le rebond, la perte volontaire et les trois bases de
+confirmation d'accessoire.
+
 ## Route historique
 
 `POST /test/v1/simulator/blocks/{id}/occupancy` reste disponible pour

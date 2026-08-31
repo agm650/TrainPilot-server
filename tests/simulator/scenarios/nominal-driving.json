@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "name": "nominal-driving",
+  "initial": {
+    "connectivity": "online",
+    "trackPower": true,
+    "emergencyStop": false
+  },
+  "steps": []
+}

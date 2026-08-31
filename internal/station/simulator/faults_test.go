@@ -47,6 +47,35 @@ func TestConnectivityTransitionsPreserveLastSeenUntilOnline(t *testing.T) {
 	assertConnectivity(t, sim, station.Online, start.Add(15*time.Second))
 }
 
+func TestInjectedStationStatePublishesStatusEvents(t *testing.T) {
+	sim := New()
+	if err := sim.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := sim.SetConnectivity(station.Degraded); err != nil {
+		t.Fatal(err)
+	}
+	if status := <-sim.StatusEvents(); status.Connectivity != station.Degraded {
+		t.Fatalf("degraded status=%+v", status)
+	}
+
+	sim.SetTrackPowerState(true)
+	if status := <-sim.StatusEvents(); status.TrackPower != "on" || status.Connectivity != station.Degraded {
+		t.Fatalf("power status=%+v", status)
+	}
+
+	sim.SetEmergencyStopState(true)
+	if status := <-sim.StatusEvents(); !status.EmergencyStop {
+		t.Fatalf("emergency status=%+v", status)
+	}
+
+	sim.SetElectricalState(ElectricalState{ExternalShortCircuit: true})
+	if status := <-sim.StatusEvents(); !status.ShortCircuit || !status.ExternalShortCircuit {
+		t.Fatalf("electrical status=%+v", status)
+	}
+}
+
 func TestOfflineRejectsEveryActiveOperationWithoutChangingState(t *testing.T) {
 	tests := []struct {
 		name  string

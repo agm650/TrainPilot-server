@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "name": "emergency-stop",
+  "initial": {
+    "connectivity": "online",
+    "trackPower": true,
+    "emergencyStop": false
+  },
+  "steps": [
+    {
+      "at": "1s",
+      "action": "station.emergency_stop",
+      "active": true
+    }
+  ]
+}

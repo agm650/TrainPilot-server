@@ -134,12 +134,15 @@ type Snapshot struct {
 }
 
 type Simulator struct {
-	mu        sync.RWMutex
-	clock     clock.Clock
-	state     State
-	feedback  chan station.FeedbackEvent
-	lifecycle chan struct{}
+	mu           sync.RWMutex
+	clock        clock.Clock
+	state        State
+	feedback     chan station.FeedbackEvent
+	statusEvents chan station.Status
+	lifecycle    chan struct{}
 }
+
+var _ station.StatusEventProvider = (*Simulator)(nil)
 
 type deadlineWaiter interface {
 	WaitUntil(context.Context, time.Time) error
@@ -154,10 +157,11 @@ func NewWithClock(clk clock.Clock) *Simulator {
 		clk = clock.Real{}
 	}
 	return &Simulator{
-		clock:     clk,
-		state:     newState(false),
-		feedback:  make(chan station.FeedbackEvent, 64),
-		lifecycle: make(chan struct{}),
+		clock:        clk,
+		state:        newState(false),
+		feedback:     make(chan station.FeedbackEvent, 64),
+		statusEvents: make(chan station.Status, 64),
+		lifecycle:    make(chan struct{}),
 	}
 }
 
@@ -197,6 +201,7 @@ func (s *Simulator) Close() error {
 	s.state.Connectivity = station.Offline
 	s.state.operationEpoch++
 	s.state.feedbackEpoch++
+	s.publishStatusLocked()
 	s.mu.Unlock()
 	return nil
 }
@@ -219,12 +224,16 @@ func (s *Simulator) SetConnectivity(connectivity station.Connectivity) error {
 	if err := s.ensure(); err != nil {
 		return err
 	}
-	if s.state.Connectivity != connectivity {
+	changed := s.state.Connectivity != connectivity
+	if changed {
 		s.state.operationEpoch++
 	}
 	s.state.Connectivity = connectivity
 	if connectivity == station.Online {
 		s.state.LastSeen = timePointer(s.clock.Now())
+	}
+	if changed {
+		s.publishStatusLocked()
 	}
 	return nil
 }
@@ -293,6 +302,58 @@ func (s *Simulator) Status(ctx context.Context) (station.Status, error) {
 	if s.state.Connectivity == station.Online {
 		s.markActivityLocked(s.clock.Now())
 	}
+	return s.statusLocked(), nil
+}
+
+func (s *Simulator) SetElectricalState(state ElectricalState) {
+	s.mu.Lock()
+	s.state.Electrical = state
+	s.publishStatusLocked()
+	s.mu.Unlock()
+}
+
+// SetTrackPowerState injects the station's externally observed power state.
+// Unlike SetTrackPower it is not a command and therefore bypasses operation
+// faults and offline command rejection.
+func (s *Simulator) SetTrackPowerState(on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := s.state.TrackPower != on || (on && s.state.EmergencyStop)
+	s.state.TrackPower = on
+	if on {
+		s.state.EmergencyStop = false
+		s.state.Electrical.TrackVoltageMilliVolts = s.state.Electrical.SupplyVoltageMilliVolts
+	} else {
+		s.state.Electrical.TrackVoltageMilliVolts = 0
+	}
+	s.markActivityLocked(s.clock.Now())
+	if changed {
+		s.publishStatusLocked()
+	}
+}
+
+// SetEmergencyStopState injects the station's externally observed emergency
+// state. Activating it immediately sets every remembered locomotive to zero.
+func (s *Simulator) SetEmergencyStopState(active bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := s.state.EmergencyStop != active
+	if active {
+		for address, loco := range s.state.Locomotives {
+			loco.Speed = 0
+			s.state.Locomotives[address] = loco
+		}
+	}
+	s.state.EmergencyStop = active
+	s.markActivityLocked(s.clock.Now())
+	if changed {
+		s.publishStatusLocked()
+	}
+}
+
+func (s *Simulator) StatusEvents() <-chan station.Status { return s.statusEvents }
+
+func (s *Simulator) statusLocked() station.Status {
 	power := "off"
 	if s.state.TrackPower {
 		power = "on"
@@ -316,44 +377,14 @@ func (s *Simulator) Status(ctx context.Context) (station.Status, error) {
 		PowerLost:                    electrical.PowerLost,
 		ExternalShortCircuit:         electrical.ExternalShortCircuit,
 		InternalShortCircuit:         electrical.InternalShortCircuit,
-	}, nil
-}
-
-func (s *Simulator) SetElectricalState(state ElectricalState) {
-	s.mu.Lock()
-	s.state.Electrical = state
-	s.mu.Unlock()
-}
-
-// SetTrackPowerState injects the station's externally observed power state.
-// Unlike SetTrackPower it is not a command and therefore bypasses operation
-// faults and offline command rejection.
-func (s *Simulator) SetTrackPowerState(on bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.state.TrackPower = on
-	if on {
-		s.state.EmergencyStop = false
-		s.state.Electrical.TrackVoltageMilliVolts = s.state.Electrical.SupplyVoltageMilliVolts
-	} else {
-		s.state.Electrical.TrackVoltageMilliVolts = 0
 	}
-	s.markActivityLocked(s.clock.Now())
 }
 
-// SetEmergencyStopState injects the station's externally observed emergency
-// state. Activating it immediately sets every remembered locomotive to zero.
-func (s *Simulator) SetEmergencyStopState(active bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if active {
-		for address, loco := range s.state.Locomotives {
-			loco.Speed = 0
-			s.state.Locomotives[address] = loco
-		}
+func (s *Simulator) publishStatusLocked() {
+	select {
+	case s.statusEvents <- s.statusLocked():
+	default:
 	}
-	s.state.EmergencyStop = active
-	s.markActivityLocked(s.clock.Now())
 }
 
 // SetOperationFault configures a deterministic fault. Remaining == 0 means
@@ -696,6 +727,7 @@ func (s *Simulator) Reset() {
 		s.state.Connectivity = station.Online
 		s.state.LastSeen = timePointer(s.clock.Now())
 	}
+	s.publishStatusLocked()
 	for {
 		select {
 		case <-s.feedback:

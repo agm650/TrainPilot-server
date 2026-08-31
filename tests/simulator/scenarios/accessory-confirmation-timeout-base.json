@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "name": "accessory-confirmation-timeout-base",
+  "initial": {
+    "connectivity": "online",
+    "trackPower": true
+  },
+  "steps": [
+    {
+      "at": "0s",
+      "action": "accessory.behavior",
+      "address": 1,
+      "mode": "no_confirmation"
+    },
+    {
+      "at": "30s",
+      "action": "fault.clear"
+    }
+  ]
+}

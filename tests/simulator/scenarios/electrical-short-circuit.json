@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "name": "electrical-short-circuit",
+  "initial": {
+    "connectivity": "online",
+    "trackPower": true
+  },
+  "steps": [
+    {
+      "at": "1s",
+      "action": "station.electrical",
+      "electrical": {
+        "mainCurrentMilliAmps": 850,
+        "programmingCurrentMilliAmps": 0,
+        "filteredMainCurrentMilliAmps": 810,
+        "temperatureCelsius": 43,
+        "supplyVoltageMilliVolts": 17950,
+        "trackVoltageMilliVolts": 17890,
+        "programmingMode": false,
+        "highTemperature": false,
+        "powerLost": false,
+        "externalShortCircuit": true,
+        "internalShortCircuit": false
+      }
+    },
+    {
+      "at": "1s",
+      "action": "station.track_power",
+      "on": false
+    }
+  ]
+}

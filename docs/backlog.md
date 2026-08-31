@@ -1,6 +1,6 @@
 # Backlog restant — TrainPilot-server
 
-Dernière mise à jour : 30 août 2026.
+Dernière mise à jour : 31 août 2026.
 
 Ce document ne contient que les travaux restant à réaliser. Les fonctionnalités
 terminées et leur historique restent consignés dans `DCC_BACKLOG.md`. Avant de
@@ -43,10 +43,12 @@ Ordre suggéré parmi les tâches P0 détaillées ci-dessous :
 
 ### Simulateur
 
-Le socle déterministe, la télémétrie, les faults, la rétrosignalisation, les
-scénarios JSON reproductibles et leur API de contrôle externe sont terminés.
-Les extensions restantes sont portées par les tickets suivants du chantier
-simulateur.
+Le lot SIM-001 à SIM-008 est terminé : socle déterministe, télémétrie, faults,
+rétrosignalisation, moteur JSON, API de contrôle externe et douze scénarios de
+référence obligatoires dans `go test ./...`. La suite couvre notamment la panne
+sans rejeu, les événements WebSocket, les feedbacks multiples/rebond/perte et
+les bases de confirmation d'accessoire. Aucun ticket du lot simulateur ne reste
+ouvert dans ce backlog.
 
 ### Rétrosignalisation et cantons
 

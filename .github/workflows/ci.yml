@@ -38,7 +38,13 @@ jobs:
             exit 1
           }
 
-      - name: Unit and integration tests
+      - name: Unit, integration and simulator reference scenarios
+        run: go test ./...
+
+      - name: Pure Go tests
+        if: runner.os == 'Linux'
+        env:
+          CGO_ENABLED: "0"
         run: go test ./...
 
       # Le race detector Go exige CGO, même si l'application et modernc.org/sqlite

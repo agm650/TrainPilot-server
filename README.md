@@ -101,7 +101,7 @@ Pour ne construire que les trois binaires de la plateforme courante :
 goreleaser build --single-target --snapshot
 ```
 
-## Démarrage rapide avec le simulateur
+## Développer sans centrale DCC
 
 Le fichier `config.json` versionné est une configuration de développement utilisant le simulateur et une écoute locale.
 
@@ -151,6 +151,13 @@ format v1 utilise des durées Go (`500ms`, `5s`, `1m`) et les actions suivantes 
 - `feedback.set` avec `emit: true|false`, et `feedback.emit` ;
 - `accessory.report` et `accessory.behavior` ;
 - `fault.operation`, `fault.clear` et `simulator.reset`.
+
+La suite versionnée couvre douze situations : conduite nominale, arrêt
+d'urgence, récupération `degraded` et `offline`, court-circuit électrique,
+feedback simple, multiple, avec rebond ou événement perdu, puis confirmation
+d'accessoire réussie, absente ou incohérente. Les scénarios critiques passent
+par l'API HTTP et le WebSocket réels dans `go test ./...`; l'avance reste
+entièrement logique et n'attend jamais 10 ou 30 secondes réelles.
 
 Exemple d'exécution manuelle dans un test :
 
@@ -202,6 +209,35 @@ printf '%s\n' 'correct-horse-2' |
 
 Le mode `bootstrap` ne fonctionne que si la table des utilisateurs est vide.
 
+Après un login, copier l'`accessToken` retourné puis charger et avancer un
+scénario depuis un autre terminal :
+
+```bash
+curl -sS http://127.0.0.1:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"correct-horse-1","clientName":"simulator-console"}'
+
+export TRAINPILOT_TOKEN='<accessToken retourné>'
+
+curl -sS -X POST http://127.0.0.1:8080/test/v1/simulator/scenarios \
+  -H "Authorization: Bearer $TRAINPILOT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data-binary @tests/simulator/scenarios/station-offline-recovery.json
+
+curl -sS -X POST http://127.0.0.1:8080/test/v1/simulator/scenarios/start \
+  -H "Authorization: Bearer $TRAINPILOT_TOKEN"
+
+curl -sS -X POST http://127.0.0.1:8080/test/v1/simulator/scenarios/advance \
+  -H "Authorization: Bearer $TRAINPILOT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"duration":"2s"}'
+```
+
+L'état public est observable avec `dccctl ... power status`. Pour voir le
+snapshot puis les événements ordonnés, un client WebSocket tel que `websocat`
+peut ouvrir `ws://127.0.0.1:8080/api/v1/events` avec l'en-tête
+`Authorization: Bearer <accessToken>`.
+
 Lister les utilisateurs :
 
 ```bash
@@ -249,6 +285,21 @@ Les commandes de voie ne sont exécutées qu'avec
 `--allow-active-commands`. Les mutations temporaires de configuration exigent
 en plus `--allow-configuration-mutations`, `--admin` et `--admin-pass` ; elles
 doivent être réservées à une instance jetable utilisant le simulateur.
+
+Sur une telle instance, les deux familles opt-in peuvent être combinées :
+
+```bash
+go run ./cmd/dcc-api-conformance \
+  --server http://127.0.0.1:8080 \
+  --user1 alice --pass1 correct-horse-1 \
+  --user2 bob --pass2 correct-horse-2 \
+  --admin admin --admin-pass correct-horse-admin \
+  --allow-active-commands \
+  --allow-configuration-mutations
+```
+
+Ces options restent désactivées par défaut et ne doivent jamais viser une
+centrale réelle sans décision explicite de l'opérateur.
 
 L'expiration naturelle des access tokens et refresh tokens est vérifiée
 uniquement avec `--check-session-expiration`. Utilisez une instance de test

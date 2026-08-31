@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "name": "feedback-event-loss",
+  "initial": {},
+  "steps": [
+    {
+      "at": "1s",
+      "action": "feedback.set",
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 1,
+      "active": true,
+      "emit": false
+    }
+  ]
+}
