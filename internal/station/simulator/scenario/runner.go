@@ -341,7 +341,7 @@ func (r *Runner) applyStepLocked(ctx context.Context, step Step) error {
 		r.simulator.SetFeedbackState(event)
 	case ActionAccessoryReport:
 		payload := step.payload.(accessoryReportPayload)
-		return r.simulator.ReportAccessoryState(payload.Address, payload.State)
+		return r.simulator.ReportAccessoryPosition(payload.Address, payload.Position, payload.Quality)
 	case ActionAccessoryBehavior:
 		payload := step.payload.(accessoryBehaviorPayload)
 		return r.simulator.SetAccessoryBehavior(payload.Address, payload.Behavior)

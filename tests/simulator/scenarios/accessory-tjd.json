@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "name": "accessory-tjd",
+  "initial": {},
+  "steps": [
+    {"at": "0s", "action": "accessory.report", "address": 3, "position": "position1", "quality": "physical"},
+    {"at": "0s", "action": "accessory.report", "address": 4, "position": "position1", "quality": "physical"},
+    {"at": "1s", "action": "accessory.report", "address": 3, "position": "position1", "quality": "physical"},
+    {"at": "1s", "action": "accessory.report", "address": 4, "position": "position2", "quality": "physical"},
+    {"at": "2s", "action": "accessory.report", "address": 3, "position": "position2", "quality": "physical"},
+    {"at": "2s", "action": "accessory.report", "address": 4, "position": "position1", "quality": "physical"},
+    {"at": "3s", "action": "accessory.report", "address": 3, "position": "position2", "quality": "physical"},
+    {"at": "3s", "action": "accessory.report", "address": 4, "position": "position2", "quality": "physical"}
+  ]
+}

@@ -144,7 +144,8 @@ contrôle expose le scénario chargé, l'état `loaded/running/completed/stopped
 le temps logique, la prochaine étape et l'erreur éventuelle.
 
 Les scénarios de référence se trouvent dans `tests/simulator/scenarios/`. Le
-format v1 utilise des durées Go (`500ms`, `5s`, `1m`) et les actions suivantes :
+format courant v2 utilise des durées Go (`500ms`, `5s`, `1m`). Le lecteur
+accepte encore le format v1. Les actions disponibles sont :
 
 - `station.connectivity`, `station.track_power`, `station.emergency_stop` et
   `station.electrical` ;
@@ -152,12 +153,16 @@ format v1 utilise des durées Go (`500ms`, `5s`, `1m`) et les actions suivantes 
 - `accessory.report` et `accessory.behavior` ;
 - `fault.operation`, `fault.clear` et `simulator.reset`.
 
-La suite versionnée couvre douze situations : conduite nominale, arrêt
+La suite SIM-008 couvre douze situations : conduite nominale, arrêt
 d'urgence, récupération `degraded` et `offline`, court-circuit électrique,
 feedback simple, multiple, avec rebond ou événement perdu, puis confirmation
 d'accessoire réussie, absente ou incohérente. Les scénarios critiques passent
 par l'API HTTP et le WebSocket réels dans `go test ./...`; l'avance reste
 entièrement logique et n'attend jamais 10 ou 30 secondes réelles.
+
+Les scénarios AIG-003 ajoutent les endpoints binaires simples, les trois
+vecteurs valides et le vecteur interdit d'un triple, les quatre vecteurs d'une
+TJD, une panne ciblée sur un endpoint et une confirmation retardée obsolète.
 
 Exemple d'exécution manuelle dans un test :
 
@@ -558,10 +563,15 @@ Il représente un aiguillage simple, triple, une TJD, une TJS ou un appareil
 personnalisé. Une combinaison physique non déclarée reste inconnue. Elle ne
 devient jamais une position commandable.
 
+Le simulateur applique ces vecteurs séquentiellement et publie un
+`AccessoryStateEvent` de qualité `physical` par confirmation. Il permet aussi
+d'injecter un rapport `station`, `assumed` ou `physical`. Une combinaison non
+déclarée laisse `reportedPosition` vide et conserve `pending=true`.
+
 Les anciennes bases et archives à une adresse sont converties automatiquement
 en aiguillages simples. Les champs historiques restent temporairement exposés
-pour ces appareils. La commande sûre de plusieurs endpoints sera ajoutée dans
-les tickets suivants.
+pour ces appareils. Le rollback après réussite partielle et les séquences de
+transition sûres restent prévus dans un ticket ultérieur.
 
 Le modèle, l'adressage linéaire et les exemples sont décrits dans
 [`docs/TURNOUTS.md`](docs/TURNOUTS.md).

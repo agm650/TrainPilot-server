@@ -116,15 +116,19 @@ message perdu.
 
 ## Accessoires
 
-### `PUT /test/v1/simulator/accessories/{address}/reported-state`
+### `PUT /test/v1/simulator/accessories/{address}/reported-position`
 
 ```json
 {
-  "state": "straight"
+  "position": "position1",
+  "quality": "physical"
 }
 ```
 
-Valeurs : `straight`, `diverging`, `unknown`.
+`position` accepte `position1` ou `position2`. `quality` accepte `station`,
+`assumed` ou `physical`. L'injection modifie l'état reporté, conserve l'état
+demandé, publie un `AccessoryStateEvent` et annule une confirmation retardée
+devenue obsolète.
 
 ### `PUT /test/v1/simulator/accessories/{address}/behavior`
 
@@ -142,7 +146,7 @@ Retour incohérent :
 ```json
 {
   "mode": "inconsistent",
-  "reportedState": "straight"
+  "reportedPosition": "position1"
 }
 ```
 
@@ -164,6 +168,17 @@ Opérations : `status`, `track_power`, `emergency_stop`, `throttle`, `function`,
 `accessory`. `remaining: 0` conserve le fault jusqu'à son effacement ou au
 reset. Une durée positive, une erreur, ou les deux sont obligatoires.
 
+Pour cibler un seul endpoint d'un appareil composé, `address` est accepté
+uniquement avec l'opération `accessory` :
+
+```json
+{
+  "address": 2,
+  "remaining": 1,
+  "error": "endpoint_b_failure"
+}
+```
+
 ### `DELETE /test/v1/simulator/faults`
 
 Efface tous les faults et invalide les opérations artificiellement retardées.
@@ -177,11 +192,13 @@ POST /test/v1/simulator/scenarios
 Content-Type: application/json
 ```
 
-Le body est directement un scénario JSON v1, et non un chemin de fichier :
+Le body est directement un scénario JSON v2, et non un chemin de fichier. Le
+lecteur accepte encore la version 1 et convertit ses valeurs
+`straight/diverging` :
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "name": "offline-recovery",
   "initial": {
     "connectivity": "online"
@@ -262,6 +279,10 @@ utilisés par la CI :
   `feedback-event-loss` ;
 - `accessory-confirmation-success`, `accessory-confirmation-timeout-base`,
   `accessory-wrong-confirmation`.
+
+Les scénarios AIG-003 ajoutent `accessory-simple`, `accessory-triple`,
+`accessory-triple-invalid`, `accessory-tjd`, `accessory-partial-failure` et
+`accessory-stale-confirmation`.
 
 Le chargement HTTP transmet le contenu du document, jamais son chemin sur le
 serveur. Après authentification et copie de l'access token :

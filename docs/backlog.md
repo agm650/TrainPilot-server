@@ -60,7 +60,7 @@ dans ce backlog.
 
 - [x] Refondre le modèle des aiguillages simples et composés avec endpoints, positions explicites, migration SQLite et archives compatibles (`AIG-001`).
 - [x] Typer l'interface station pour les sorties d'accessoires binaires et leurs retours qualifiés (`AIG-002`).
-- [ ] Adapter le simulateur aux endpoints et appareils composés (`AIG-003`).
+- [x] Adapter le simulateur aux endpoints binaires, retours qualifiés, appareils composés, faults ciblés et scénarios de référence (`AIG-003`).
 - [ ] Implémenter les commandes d'aiguillages z21.
 - [ ] Aligner DCC-EX sur l'adresse canonique et la sémantique binaire.
 - [ ] Sérialiser les transitions multi-endpoints et gérer les erreurs partielles.

@@ -41,6 +41,7 @@ All notable changes to this project will be documented in this file.
 - Endpoint explicite de takeover entre sessions d'un même utilisateur, avec arrêt à zéro, transfert atomique du lease et événement `locomotive.control.transferred`.
 - Socle déterministe du simulateur avec état explicite, horloge injectable, snapshot profondément copié, introspection des accessoires et reset sans déconnexion.
 - Simulation déterministe des accessoires avec états demandé et confirmé, confirmations immédiates ou différées, absence de confirmation et retours incohérents.
+- Simulation binaire `position1`/`position2` des endpoints, événements de position qualifiés, rapports externes, faults ciblés par adresse et scénarios simple, triple, TJD, panne partielle et confirmation obsolète.
 - Télémétrie électrique injectable du simulateur couvrant courants, tensions, température, mode programmation, perte d'alimentation, surchauffe et courts-circuits.
 - Injection déterministe de connectivité `online/degraded/offline`, délais context-aware et erreurs limitées par type d'opération dans le simulateur.
 - Rétrosignalisation simulée avec état physique observable, répétitions, rebonds déterministes, pertes volontaires, saturation explicite et intégration multi-cantons.

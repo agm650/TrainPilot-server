@@ -349,10 +349,36 @@ Une combinaison inconnue ne devient jamais une position inventée.
 Une transition partiellement exécutée ne doit jamais être déclarée réussie.
 Une ancienne confirmation ne doit pas écraser une commande récente.
 
-La sérialisation des transitions et les confirmations multi-actionneurs seront
-ajoutées par les tickets suivants du lot.
+Le service compose déjà les endpoints dans l'ordre déclaré et résout leurs
+rapports. La sérialisation avancée, le rollback après succès partiel et les
+transitions sûres seront ajoutés par les tickets suivants du lot.
 
-## 16. Hors modèle
+## 16. Simulation et appareils composés
+
+Le simulateur travaille uniquement au niveau des endpoints physiques. Son état
+utilise `position1` et `position2`, jamais les noms logiques du turnout.
+
+Une confirmation immédiate ou différée publie un
+`station.AccessoryStateEvent` de qualité `physical`. Une injection externe peut
+utiliser `station`, `assumed` ou `physical`. Elle modifie `Reported`, conserve
+`Desired` et annule toute confirmation retardée devenue obsolète.
+
+Pour un triple, le service résout les rapports reçus :
+
+```text
+A=position2, B=position1 -> left
+A=position1, B=position1 -> straight
+A=position1, B=position2 -> right
+A=position2, B=position2 -> position rapportée vide, pending=true
+```
+
+Le simulateur accepte volontairement le dernier vecteur. Il décrit un état
+physique possible, même s'il est interdit par la définition logique.
+
+Un fault `accessory` peut cibler une adresse. Il permet de faire réussir A puis
+échouer B sans hasard et sans rejeu.
+
+## 17. Hors modèle
 
 Les ponts tournants, plaques tournantes et traversers ne sont pas des
 `Turnout`.

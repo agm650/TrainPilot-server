@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "name": "accessory-stale-confirmation",
+  "initial": {},
+  "steps": [
+    {
+      "at": "0s",
+      "action": "accessory.behavior",
+      "address": 1,
+      "mode": "delayed",
+      "delay": "2s"
+    },
+    {
+      "at": "1s",
+      "action": "accessory.behavior",
+      "address": 1,
+      "mode": "immediate"
+    }
+  ]
+}

@@ -89,7 +89,7 @@ func TestSimulatorTestAPIRoutesAreAbsentUnlessExplicitlyEnabledForSimulator(t *t
 		{http.MethodPut, "/test/v1/simulator/connectivity"},
 		{http.MethodPut, "/test/v1/simulator/electrical"},
 		{http.MethodPut, "/test/v1/simulator/feedback"},
-		{http.MethodPut, "/test/v1/simulator/accessories/1/reported-state"},
+		{http.MethodPut, "/test/v1/simulator/accessories/1/reported-position"},
 		{http.MethodPut, "/test/v1/simulator/accessories/1/behavior"},
 		{http.MethodPut, "/test/v1/simulator/faults/status"},
 		{http.MethodDelete, "/test/v1/simulator/faults"},
@@ -126,7 +126,7 @@ func TestSimulatorTestAPISnapshotReflectsInjectedStateAndReset(t *testing.T) {
 	assertStatus(t, fixture.server.URL, http.MethodPut, "/test/v1/simulator/electrical", authorization, []byte(`{"mainCurrentMilliAmps":327,"filteredMainCurrentMilliAmps":300,"temperatureCelsius":42,"supplyVoltageMilliVolts":17950,"trackVoltageMilliVolts":17890,"highTemperature":true}`), http.StatusNoContent)
 	assertStatus(t, fixture.server.URL, http.MethodPut, "/test/v1/simulator/feedback", authorization, []byte(`{"source":"simulator","kind":"occupancy","address":12,"active":true,"emit":false}`), http.StatusNoContent)
 	assertStatus(t, fixture.server.URL, http.MethodPut, "/test/v1/simulator/accessories/12/behavior", authorization, []byte(`{"mode":"delayed","delay":"500ms"}`), http.StatusNoContent)
-	assertStatus(t, fixture.server.URL, http.MethodPut, "/test/v1/simulator/accessories/12/reported-state", authorization, []byte(`{"state":"straight"}`), http.StatusNoContent)
+	assertStatus(t, fixture.server.URL, http.MethodPut, "/test/v1/simulator/accessories/12/reported-position", authorization, []byte(`{"position":"position1","quality":"physical"}`), http.StatusNoContent)
 	assertStatus(t, fixture.server.URL, http.MethodPut, "/test/v1/simulator/faults/throttle", authorization, []byte(`{"delay":"500ms","remaining":2,"error":"injected_failure"}`), http.StatusNoContent)
 
 	var state simulatorStateResponse
@@ -137,7 +137,7 @@ func TestSimulatorTestAPISnapshotReflectsInjectedStateAndReset(t *testing.T) {
 	if state.Electrical.MainCurrentMilliAmps != 327 || state.Electrical.TemperatureCelsius != 42 || !state.Electrical.HighTemperature {
 		t.Fatalf("electrical=%+v", state.Electrical)
 	}
-	if accessory := state.Accessories[12]; accessory.Reported != "straight" {
+	if accessory := state.Accessories[12]; accessory.Reported != station.AccessoryPosition1 {
 		t.Fatalf("accessory=%+v", accessory)
 	}
 	if behavior := state.AccessoryBehaviors[12]; behavior.Mode != simulator.AccessoryBehaviorDelayed || behavior.Delay != "500ms" {
@@ -304,8 +304,11 @@ func TestSimulatorTestAPIRejectsInvalidJSONAndValues(t *testing.T) {
 		{"unknown field", http.MethodPut, "/test/v1/simulator/connectivity", `{"connectivity":"online","extra":true}`},
 		{"invalid connectivity", http.MethodPut, "/test/v1/simulator/connectivity", `{"connectivity":"lost"}`},
 		{"negative feedback address", http.MethodPut, "/test/v1/simulator/feedback", `{"source":"simulator","kind":"occupancy","address":-1,"active":true,"emit":true}`},
-		{"negative path address", http.MethodPut, "/test/v1/simulator/accessories/-1/reported-state", `{"state":"straight"}`},
+		{"negative path address", http.MethodPut, "/test/v1/simulator/accessories/-1/reported-position", `{"position":"position1","quality":"physical"}`},
+		{"invalid accessory position", http.MethodPut, "/test/v1/simulator/accessories/1/reported-position", `{"position":"straight","quality":"physical"}`},
+		{"invalid accessory quality", http.MethodPut, "/test/v1/simulator/accessories/1/reported-position", `{"position":"position1","quality":"unknown"}`},
 		{"invalid behavior duration", http.MethodPut, "/test/v1/simulator/accessories/1/behavior", `{"mode":"delayed","delay":"later"}`},
+		{"fault address on status", http.MethodPut, "/test/v1/simulator/faults/status", `{"address":1,"error":"failure"}`},
 		{"invalid fault duration", http.MethodPut, "/test/v1/simulator/faults/status", `{"delay":"later"}`},
 		{"unknown operation", http.MethodPut, "/test/v1/simulator/faults/unknown", `{"error":"failure"}`},
 		{"invalid scenario", http.MethodPost, "/test/v1/simulator/scenarios", `{"version":1,"name":"bad","initial":{},"steps":[{"at":"later","action":"fault.clear"}]}`},

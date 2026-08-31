@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "name": "accessory-wrong-confirmation",
   "initial": {
     "connectivity": "online",
@@ -16,7 +16,8 @@
       "at": "1s",
       "action": "accessory.report",
       "address": 1,
-      "state": "straight"
+      "position": "position1",
+      "quality": "physical"
     }
   ]
 }

@@ -18,7 +18,7 @@ import (
 )
 
 const minimalScenario = `{
-  "version": 1,
+  "version": 2,
   "name": "minimal",
   "initial": {},
   "steps": []
@@ -41,7 +41,7 @@ func TestParseRejectsInvalidScenarioBeforeExecution(t *testing.T) {
 		want    string
 	}{
 		{"missing version", `{"name":"x","initial":{},"steps":[]}`, "scenario.version"},
-		{"unknown version", `{"version":2,"name":"x","initial":{},"steps":[]}`, "unsupported scenario.version"},
+		{"unknown version", `{"version":3,"name":"x","initial":{},"steps":[]}`, "unsupported scenario.version"},
 		{"missing initial", `{"version":1,"name":"x","steps":[]}`, "scenario.initial"},
 		{"missing steps", `{"version":1,"name":"x","initial":{}}`, "scenario.steps"},
 		{"unknown top field", `{"version":1,"name":"x","initial":{},"steps":[],"extra":true}`, "unknown field"},

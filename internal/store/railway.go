@@ -158,6 +158,30 @@ func (s *Store) SetTurnoutState(ctx context.Context, id, position string) error 
 	return requireAffected(res)
 }
 
+func (s *Store) SetTurnoutDesiredPosition(ctx context.Context, id, position string, pending bool) error {
+	legacy := position
+	if legacy != "straight" && legacy != "diverging" {
+		legacy = "unknown"
+	}
+	res, err := s.DB.ExecContext(ctx, `UPDATE turnouts SET desired_position=?,pending=?,desired_state=? WHERE id=?`, position, pending, legacy, id)
+	if err != nil {
+		return err
+	}
+	return requireAffected(res)
+}
+
+func (s *Store) SetTurnoutReportedPosition(ctx context.Context, id, position string, pending bool) error {
+	legacy := position
+	if legacy != "straight" && legacy != "diverging" {
+		legacy = "unknown"
+	}
+	res, err := s.DB.ExecContext(ctx, `UPDATE turnouts SET reported_position=?,pending=?,reported_state=? WHERE id=?`, position, pending, legacy, id)
+	if err != nil {
+		return err
+	}
+	return requireAffected(res)
+}
+
 func (s *Store) loadTurnoutDefinition(ctx context.Context, turnout *model.Turnout) error {
 	endpointRows, err := s.DB.QueryContext(ctx, `SELECT endpoint_id,linear_address,inverted FROM turnout_endpoints WHERE turnout_id=? ORDER BY ordinal,endpoint_id`, turnout.ID)
 	if err != nil {

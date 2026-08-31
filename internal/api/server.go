@@ -93,7 +93,7 @@ func (s *Server) register(testAPI bool) {
 		s.mux.Handle("PUT /test/v1/simulator/connectivity", s.requireAuth(http.HandlerFunc(s.testSimulatorConnectivity)))
 		s.mux.Handle("PUT /test/v1/simulator/electrical", s.requireAuth(http.HandlerFunc(s.testSimulatorElectrical)))
 		s.mux.Handle("PUT /test/v1/simulator/feedback", s.requireAuth(http.HandlerFunc(s.testSimulatorFeedback)))
-		s.mux.Handle("PUT /test/v1/simulator/accessories/{address}/reported-state", s.requireAuth(http.HandlerFunc(s.testSimulatorAccessoryReportedState)))
+		s.mux.Handle("PUT /test/v1/simulator/accessories/{address}/reported-position", s.requireAuth(http.HandlerFunc(s.testSimulatorAccessoryReportedPosition)))
 		s.mux.Handle("PUT /test/v1/simulator/accessories/{address}/behavior", s.requireAuth(http.HandlerFunc(s.testSimulatorAccessoryBehavior)))
 		s.mux.Handle("PUT /test/v1/simulator/faults/{operation}", s.requireAuth(http.HandlerFunc(s.testSimulatorFault)))
 		s.mux.Handle("DELETE /test/v1/simulator/faults", s.requireAuth(http.HandlerFunc(s.testSimulatorClearFaults)))

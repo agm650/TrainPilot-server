@@ -35,12 +35,13 @@ type simulatorFaultState struct {
 	Delay     string `json:"delay"`
 	Remaining int    `json:"remaining"`
 	Error     string `json:"error,omitempty"`
+	Address   int    `json:"address,omitempty"`
 }
 
 type simulatorAccessoryBehavior struct {
-	Mode          simulator.AccessoryBehaviorMode `json:"mode"`
-	Delay         string                          `json:"delay"`
-	ReportedState string                          `json:"reportedState,omitempty"`
+	Mode             simulator.AccessoryBehaviorMode `json:"mode"`
+	Delay            string                          `json:"delay"`
+	ReportedPosition station.AccessoryPosition       `json:"reportedPosition,omitempty"`
 }
 
 type simulatorScenarioState struct {
@@ -158,11 +159,11 @@ func (s *Server) testSimulatorState(w http.ResponseWriter, _ *http.Request) {
 	})
 	faults := make(map[string]simulatorFaultState, len(snapshot.OperationFaults))
 	for operation, fault := range snapshot.OperationFaults {
-		faults[string(operation)] = simulatorFaultState{Delay: fault.Delay.String(), Remaining: fault.Remaining, Error: fault.Error}
+		faults[string(operation)] = simulatorFaultState{Delay: fault.Delay.String(), Remaining: fault.Remaining, Error: fault.Error, Address: fault.Address}
 	}
 	behaviors := make(map[int]simulatorAccessoryBehavior, len(snapshot.AccessoryBehaviors))
 	for address, behavior := range snapshot.AccessoryBehaviors {
-		behaviors[address] = simulatorAccessoryBehavior{Mode: behavior.Mode, Delay: behavior.Delay.String(), ReportedState: behavior.ReportedState}
+		behaviors[address] = simulatorAccessoryBehavior{Mode: behavior.Mode, Delay: behavior.Delay.String(), ReportedPosition: behavior.ReportedPosition}
 	}
 	writeJSON(w, http.StatusOK, simulatorStateResponse{
 		Connected:          snapshot.Connected,
@@ -239,19 +240,20 @@ func (s *Server) testSimulatorFeedback(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) testSimulatorAccessoryReportedState(w http.ResponseWriter, r *http.Request) {
+func (s *Server) testSimulatorAccessoryReportedPosition(w http.ResponseWriter, r *http.Request) {
 	address, ok := testSimulatorAddress(w, r.PathValue("address"))
 	if !ok {
 		return
 	}
 	var request struct {
-		State string `json:"state"`
+		Position station.AccessoryPosition      `json:"position"`
+		Quality  station.AccessoryReportQuality `json:"quality"`
 	}
 	if !decodeJSON(w, r, &request) {
 		return
 	}
-	if err := s.simulator.ReportAccessoryState(address, request.State); err != nil {
-		writeProblem(w, http.StatusBadRequest, "invalid_accessory_state", err.Error())
+	if err := s.simulator.ReportAccessoryPosition(address, request.Position, request.Quality); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_accessory_position", err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -263,9 +265,9 @@ func (s *Server) testSimulatorAccessoryBehavior(w http.ResponseWriter, r *http.R
 		return
 	}
 	var request struct {
-		Mode          simulator.AccessoryBehaviorMode `json:"mode"`
-		Delay         string                          `json:"delay,omitempty"`
-		ReportedState string                          `json:"reportedState,omitempty"`
+		Mode             simulator.AccessoryBehaviorMode `json:"mode"`
+		Delay            string                          `json:"delay,omitempty"`
+		ReportedPosition station.AccessoryPosition       `json:"reportedPosition,omitempty"`
 	}
 	if !decodeJSON(w, r, &request) {
 		return
@@ -274,7 +276,7 @@ func (s *Server) testSimulatorAccessoryBehavior(w http.ResponseWriter, r *http.R
 	if !ok {
 		return
 	}
-	behavior := simulator.AccessoryBehavior{Mode: request.Mode, Delay: delay, ReportedState: request.ReportedState}
+	behavior := simulator.AccessoryBehavior{Mode: request.Mode, Delay: delay, ReportedPosition: request.ReportedPosition}
 	if err := s.simulator.SetAccessoryBehavior(address, behavior); err != nil {
 		writeProblem(w, http.StatusBadRequest, "invalid_accessory_behavior", err.Error())
 		return
@@ -292,6 +294,7 @@ func (s *Server) testSimulatorFault(w http.ResponseWriter, r *http.Request) {
 		Delay     string `json:"delay,omitempty"`
 		Remaining *int   `json:"remaining,omitempty"`
 		Error     string `json:"error,omitempty"`
+		Address   *int   `json:"address,omitempty"`
 	}
 	if !decodeJSON(w, r, &request) {
 		return
@@ -308,7 +311,11 @@ func (s *Server) testSimulatorFault(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadRequest, "invalid_simulator_fault", "remaining must be non-negative and a positive delay or error is required")
 		return
 	}
-	fault := simulator.OperationFault{Delay: delay, Remaining: remaining}
+	address := 0
+	if request.Address != nil {
+		address = *request.Address
+	}
+	fault := simulator.OperationFault{Delay: delay, Remaining: remaining, Address: address}
 	if request.Error != "" {
 		fault.Error = errors.New(request.Error)
 	}

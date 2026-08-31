@@ -13,7 +13,7 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/station/simulator"
 )
 
-const CurrentVersion = 1
+const CurrentVersion = 2
 
 type Action string
 
@@ -114,19 +114,22 @@ type feedbackEmitStep struct {
 }
 
 type accessoryReportStep struct {
-	At      string `json:"at"`
-	Action  Action `json:"action"`
-	Address *int   `json:"address"`
-	State   string `json:"state"`
+	At       string                         `json:"at"`
+	Action   Action                         `json:"action"`
+	Address  *int                           `json:"address"`
+	Position station.AccessoryPosition      `json:"position,omitempty"`
+	Quality  station.AccessoryReportQuality `json:"quality,omitempty"`
+	State    string                         `json:"state,omitempty"`
 }
 
 type accessoryBehaviorStep struct {
-	At            string                          `json:"at"`
-	Action        Action                          `json:"action"`
-	Address       *int                            `json:"address"`
-	Mode          simulator.AccessoryBehaviorMode `json:"mode"`
-	Delay         string                          `json:"delay,omitempty"`
-	ReportedState string                          `json:"reportedState,omitempty"`
+	At               string                          `json:"at"`
+	Action           Action                          `json:"action"`
+	Address          *int                            `json:"address"`
+	Mode             simulator.AccessoryBehaviorMode `json:"mode"`
+	Delay            string                          `json:"delay,omitempty"`
+	ReportedPosition station.AccessoryPosition       `json:"reportedPosition,omitempty"`
+	ReportedState    string                          `json:"reportedState,omitempty"`
 }
 
 type faultOperationStep struct {
@@ -136,6 +139,7 @@ type faultOperationStep struct {
 	Delay     string              `json:"delay,omitempty"`
 	Error     string              `json:"error,omitempty"`
 	Remaining *int                `json:"remaining,omitempty"`
+	Address   *int                `json:"address,omitempty"`
 }
 
 type emptyStep struct {
@@ -154,8 +158,9 @@ type feedbackPayload struct {
 	Emit    bool
 }
 type accessoryReportPayload struct {
-	Address int
-	State   string
+	Address  int
+	Position station.AccessoryPosition
+	Quality  station.AccessoryReportQuality
 }
 type accessoryBehaviorPayload struct {
 	Address  int
@@ -195,8 +200,8 @@ func Parse(data []byte) (*Definition, error) {
 	if raw.Version == nil {
 		return nil, fmt.Errorf("scenario.version is required")
 	}
-	if *raw.Version != CurrentVersion {
-		return nil, fmt.Errorf("unsupported scenario.version %d (want %d)", *raw.Version, CurrentVersion)
+	if *raw.Version != 1 && *raw.Version != CurrentVersion {
+		return nil, fmt.Errorf("unsupported scenario.version %d (want 1 or %d)", *raw.Version, CurrentVersion)
 	}
 	if strings.TrimSpace(raw.Name) == "" {
 		return nil, fmt.Errorf("scenario.name is required")
@@ -229,7 +234,7 @@ func Parse(data []byte) (*Definition, error) {
 	}
 	var previous time.Duration
 	for index, rawStep := range *raw.Steps {
-		step, err := parseStep(rawStep)
+		step, err := parseStep(rawStep, *raw.Version)
 		if err != nil {
 			return nil, fmt.Errorf("scenario.steps[%d]: %w", index, err)
 		}
@@ -242,7 +247,7 @@ func Parse(data []byte) (*Definition, error) {
 	return definition, nil
 }
 
-func parseStep(data []byte) (Step, error) {
+func parseStep(data []byte, version int) (Step, error) {
 	var header stepHeader
 	if err := json.Unmarshal(data, &header); err != nil {
 		return Step{}, fmt.Errorf("decode step header: %w", err)
@@ -332,29 +337,31 @@ func parseStep(data []byte) (Step, error) {
 		if err := decodeStrict(data, &raw); err != nil {
 			return Step{}, err
 		}
-		if err := validateAddress(raw.Address); err != nil {
+		if err := validateAccessoryAddress(raw.Address); err != nil {
 			return Step{}, err
 		}
-		if raw.State == "" {
-			return Step{}, fmt.Errorf("state is required")
+		position, quality, err := parseAccessoryReport(version, raw)
+		if err != nil {
+			return Step{}, err
 		}
-		if raw.State != "straight" && raw.State != "diverging" && raw.State != "unknown" {
-			return Step{}, fmt.Errorf("unsupported accessory report state %q", raw.State)
-		}
-		step.payload = accessoryReportPayload{Address: *raw.Address, State: raw.State}
+		step.payload = accessoryReportPayload{Address: *raw.Address, Position: position, Quality: quality}
 	case ActionAccessoryBehavior:
 		var raw accessoryBehaviorStep
 		if err := decodeStrict(data, &raw); err != nil {
 			return Step{}, err
 		}
-		if err := validateAddress(raw.Address); err != nil {
+		if err := validateAccessoryAddress(raw.Address); err != nil {
 			return Step{}, err
 		}
 		delay, err := optionalDuration("delay", raw.Delay)
 		if err != nil {
 			return Step{}, err
 		}
-		behavior := simulator.AccessoryBehavior{Mode: raw.Mode, Delay: delay, ReportedState: raw.ReportedState}
+		reportedPosition, err := parseAccessoryBehaviorPosition(version, raw)
+		if err != nil {
+			return Step{}, err
+		}
+		behavior := simulator.AccessoryBehavior{Mode: raw.Mode, Delay: delay, ReportedPosition: reportedPosition}
 		if err := validateAccessoryBehavior(behavior); err != nil {
 			return Step{}, err
 		}
@@ -381,9 +388,19 @@ func parseStep(data []byte) (Step, error) {
 		if delay == 0 && raw.Error == "" {
 			return Step{}, fmt.Errorf("fault.operation requires a positive delay or an error")
 		}
+		address := 0
+		if raw.Address != nil {
+			if err := validateAccessoryAddress(raw.Address); err != nil {
+				return Step{}, err
+			}
+			if raw.Operation != simulator.OpAccessory {
+				return Step{}, fmt.Errorf("address is only valid for accessory faults")
+			}
+			address = *raw.Address
+		}
 		step.payload = faultPayload{
 			Operation: raw.Operation,
-			Fault:     simulator.OperationFault{Delay: delay, Remaining: remaining},
+			Fault:     simulator.OperationFault{Delay: delay, Remaining: remaining, Address: address},
 			Message:   raw.Error,
 		}
 	case ActionFaultClear, ActionSimulatorReset:
@@ -424,6 +441,74 @@ func validateAddress(address *int) error {
 	return nil
 }
 
+func validateAccessoryAddress(address *int) error {
+	if address == nil {
+		return fmt.Errorf("address is required")
+	}
+	if *address < station.MinBasicAccessoryAddress || *address > station.MaxBasicAccessoryAddress {
+		return fmt.Errorf("address must be between %d and %d", station.MinBasicAccessoryAddress, station.MaxBasicAccessoryAddress)
+	}
+	return nil
+}
+
+func parseAccessoryReport(version int, raw accessoryReportStep) (station.AccessoryPosition, station.AccessoryReportQuality, error) {
+	quality := raw.Quality
+	if quality == "" {
+		quality = station.AccessoryReportStation
+	}
+	if !quality.Valid() {
+		return "", "", fmt.Errorf("unsupported accessory report quality %q", quality)
+	}
+	if version == 1 {
+		if raw.Position != "" || raw.Quality != "" {
+			return "", "", fmt.Errorf("position and quality require scenario.version 2")
+		}
+		position, ok := legacyAccessoryPosition(raw.State)
+		if !ok {
+			return "", "", fmt.Errorf("unsupported legacy accessory report state %q", raw.State)
+		}
+		return position, quality, nil
+	}
+	if raw.State != "" {
+		return "", "", fmt.Errorf("state is only valid in scenario.version 1")
+	}
+	if !raw.Position.Valid() {
+		return "", "", fmt.Errorf("unsupported accessory report position %q", raw.Position)
+	}
+	return raw.Position, quality, nil
+}
+
+func parseAccessoryBehaviorPosition(version int, raw accessoryBehaviorStep) (station.AccessoryPosition, error) {
+	if version == 1 {
+		if raw.ReportedPosition != "" {
+			return "", fmt.Errorf("reportedPosition requires scenario.version 2")
+		}
+		if raw.ReportedState == "" {
+			return "", nil
+		}
+		position, ok := legacyAccessoryPosition(raw.ReportedState)
+		if !ok {
+			return "", fmt.Errorf("unsupported legacy reportedState %q", raw.ReportedState)
+		}
+		return position, nil
+	}
+	if raw.ReportedState != "" {
+		return "", fmt.Errorf("reportedState is only valid in scenario.version 1")
+	}
+	return raw.ReportedPosition, nil
+}
+
+func legacyAccessoryPosition(state string) (station.AccessoryPosition, bool) {
+	switch state {
+	case "straight":
+		return station.AccessoryPosition1, true
+	case "diverging":
+		return station.AccessoryPosition2, true
+	default:
+		return "", false
+	}
+}
+
 func optionalDuration(field, value string) (time.Duration, error) {
 	if value == "" {
 		return 0, nil
@@ -441,19 +526,19 @@ func optionalDuration(field, value string) (time.Duration, error) {
 func validateAccessoryBehavior(behavior simulator.AccessoryBehavior) error {
 	switch behavior.Mode {
 	case simulator.AccessoryBehaviorImmediate, simulator.AccessoryBehaviorNoConfirmation:
-		if behavior.ReportedState != "" {
-			return fmt.Errorf("reportedState is only valid for inconsistent behavior")
+		if behavior.ReportedPosition != "" {
+			return fmt.Errorf("reportedPosition is only valid for inconsistent behavior")
 		}
 	case simulator.AccessoryBehaviorDelayed:
 		if behavior.Delay <= 0 {
 			return fmt.Errorf("delayed accessory behavior requires a positive delay")
 		}
-		if behavior.ReportedState != "" {
-			return fmt.Errorf("reportedState is only valid for inconsistent behavior")
+		if behavior.ReportedPosition != "" {
+			return fmt.Errorf("reportedPosition is only valid for inconsistent behavior")
 		}
 	case simulator.AccessoryBehaviorInconsistent:
-		if behavior.ReportedState != "straight" && behavior.ReportedState != "diverging" && behavior.ReportedState != "unknown" {
-			return fmt.Errorf("unsupported reportedState %q", behavior.ReportedState)
+		if !behavior.ReportedPosition.Valid() {
+			return fmt.Errorf("unsupported reportedPosition %q", behavior.ReportedPosition)
 		}
 	default:
 		return fmt.Errorf("unsupported accessory behavior mode %q", behavior.Mode)

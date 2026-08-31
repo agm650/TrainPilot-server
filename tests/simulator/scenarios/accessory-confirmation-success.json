@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "name": "accessory-confirmation-success",
   "initial": {
     "connectivity": "online",
@@ -16,7 +16,8 @@
       "at": "2s",
       "action": "accessory.report",
       "address": 1,
-      "state": "diverging"
+      "position": "position2",
+      "quality": "physical"
     }
   ]
 }

@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "name": "accessory-triple-invalid",
+  "initial": {},
+  "steps": [
+    {"at": "0s", "action": "accessory.report", "address": 1, "position": "position2", "quality": "physical"},
+    {"at": "0s", "action": "accessory.report", "address": 2, "position": "position2", "quality": "physical"}
+  ]
+}

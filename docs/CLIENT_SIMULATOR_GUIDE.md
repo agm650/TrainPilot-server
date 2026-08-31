@@ -765,11 +765,11 @@ le harnais de test et non par le code fonctionnel du client.
 | `PUT /test/v1/simulator/connectivity` | `online/degraded/offline` |
 | `PUT /test/v1/simulator/electrical` | télémétrie et défauts |
 | `PUT /test/v1/simulator/feedback` | état physique avec ou sans événement |
-| `PUT /test/v1/simulator/accessories/{address}/reported-state` | retour physique |
+| `PUT /test/v1/simulator/accessories/{address}/reported-position` | retour d'endpoint qualifié |
 | `PUT /test/v1/simulator/accessories/{address}/behavior` | mode de confirmation |
 | `PUT /test/v1/simulator/faults/{operation}` | délai/erreur déterministe |
 | `DELETE /test/v1/simulator/faults` | effacer les faults |
-| `POST /test/v1/simulator/scenarios` | charger un JSON v1 |
+| `POST /test/v1/simulator/scenarios` | charger un JSON v2, avec lecture v1 compatible |
 | `POST /test/v1/simulator/scenarios/start` | démarrer en mode manuel |
 | `POST /test/v1/simulator/scenarios/advance` | avancer le temps logique |
 | `POST /test/v1/simulator/scenarios/stop` | arrêter le scénario |
@@ -977,19 +977,17 @@ Injecter ensuite le retour :
 
 ```bash
 curl -i -X PUT \
-  http://127.0.0.1:8080/test/v1/simulator/accessories/1/reported-state \
+  http://127.0.0.1:8080/test/v1/simulator/accessories/1/reported-position \
   -H 'Authorization: Bearer <accessToken>' \
   -H 'Content-Type: application/json' \
-  -d '{"state":"diverging"}'
+  -d '{"position":"position2","quality":"physical"}'
 ```
 
-Limite actuelle : l'état `Desired/Reported/Pending` détaillé du simulateur est
-visible dans `/test/v1/simulator/state`. Le modèle public expose désormais les
-endpoints, les positions logiques et `pending`. Pour un appareil simple, la
-commande existante met encore immédiatement `desiredPosition` et
-`reportedPosition` à la valeur commandée. Les modes de non-confirmation et
-d'incohérence servent de base au futur contrôleur multi-endpoints ; le client
-ne doit pas inventer aujourd'hui une confirmation physique qui n'existe pas.
+L'état `Desired/Reported/Pending` détaillé du simulateur est visible dans
+`/test/v1/simulator/state`. Il utilise exclusivement `position1` et
+`position2`. Les noms `straight`, `left` ou `route_a` restent au niveau du
+turnout logique. Une injection externe conserve `Desired`, modifie `Reported`,
+publie un événement et annule une confirmation retardée obsolète.
 
 ```plantuml
 @startuml
@@ -1003,16 +1001,12 @@ participant Simulator
 Harness -> Simulator : behavior=no_confirmation
 Client -> API : PUT turnout state=diverging
 API -> Simulator : SetBasicAccessory(position2)
-Simulator -> Simulator : Desired=diverging\nPending=true
-Harness -> Simulator : report diverging
-Simulator -> Simulator : Reported=diverging\nPending=false
+Simulator -> Simulator : Desired=position2\nPending=true
+Harness -> Simulator : report position2, physical
+Simulator -> Simulator : Reported=position2\nPending=false
 Harness -> Simulator : GET /test/v1/simulator/state
 Simulator --> Harness : desired/reported/pending
 
-note over Client,API
-  Le contrat public de confirmation physique
-  sera étendu dans un ticket distinct.
-end note
 @enduml
 ```
 
@@ -1028,6 +1022,36 @@ curl -i -X PUT http://127.0.0.1:8080/test/v1/simulator/faults/throttle \
   -H 'Authorization: Bearer <accessToken>' \
   -H 'Content-Type: application/json' \
   -d '{"remaining":1,"error":"injected_failure"}'
+```
+
+Faire réussir l'endpoint A et échouer l'endpoint B :
+
+```bash
+curl -i -X PUT http://127.0.0.1:8080/test/v1/simulator/faults/accessory \
+  -H 'Authorization: Bearer <accessToken>' \
+  -H 'Content-Type: application/json' \
+  -d '{"address":2,"remaining":1,"error":"endpoint_b_failure"}'
+```
+
+```plantuml
+@startuml
+title Appareil composé avec échec partiel déterministe
+participant Client
+participant "RailwayService" as Service
+participant Simulator
+
+Client -> Service : position logique right
+Service -> Simulator : A=position1
+Simulator --> Service : confirmation A
+Service -> Simulator : B=position2
+Simulator --> Service : erreur ciblée B
+Service --> Client : erreur explicite
+note over Service,Simulator
+  DesiredPosition=right
+  Pending=true
+  aucune commande n'est rejouée
+end note
+@enduml
 ```
 
 Retarder deux lectures de statut :
@@ -1103,11 +1127,11 @@ Répéter l'avance deux fois. Chaque appel retourne :
 Les états possibles sont `loaded`, `running`, `completed`, `stopped` et
 `failed`. Une erreur conserve son texte dans `error`.
 
-### 10.2 Format v1
+### 10.2 Format v2
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "name": "example",
   "initial": {
     "connectivity": "online",
@@ -1138,15 +1162,17 @@ Actions disponibles :
 | `station.electrical` | `electrical` complet |
 | `feedback.set` | `source`, `kind`, `address`, `active`, `emit` |
 | `feedback.emit` | `source`, `kind`, `address`, `active` |
-| `accessory.report` | `address`, `state` |
-| `accessory.behavior` | `address`, `mode`, `delay`, `reportedState` |
-| `fault.operation` | `operation`, `delay`, `error`, `remaining` |
+| `accessory.report` | `address`, `position`, `quality` |
+| `accessory.behavior` | `address`, `mode`, `delay`, `reportedPosition` |
+| `fault.operation` | `operation`, `delay`, `error`, `remaining`, `address` pour `accessory` |
 | `fault.clear` | aucun |
 | `simulator.reset` | aucun |
 
 Un scénario simule le monde extérieur. Il ne peut pas acquérir un lease,
 envoyer un throttle, appeler un service métier ou modifier directement SQLite.
 Le harnais doit intercaler les actions publiques du client entre les avances.
+La version 1 reste lisible. Ses valeurs `straight/diverging` sont converties en
+`position1/position2`.
 
 ### 10.3 Scénarios livrés
 
@@ -1167,6 +1193,17 @@ Le harnais doit intercaler les actions publiques du client entre les avances.
 
 Deux scénarios complémentaires restent également fournis :
 `feedback-a-to-b` et `accessory-electrical-fault`.
+
+Les scénarios AIG-003 couvrent aussi :
+
+| Scénario | Monde simulé | Assertions client recommandées |
+| --- | --- | --- |
+| `accessory-simple` | un endpoint passe de position1 à position2 | état binaire et ordre |
+| `accessory-triple` | les trois vecteurs valides A/B | left, straight, right |
+| `accessory-triple-invalid` | A=position2, B=position2 | position logique inconnue |
+| `accessory-tjd` | les quatre vecteurs A/B | quatre routes résolues |
+| `accessory-partial-failure` | erreur ciblée sur B | erreur explicite, aucun rejeu |
+| `accessory-stale-confirmation` | ancienne confirmation retardée | la nouvelle commande reste autoritaire |
 
 ## 11. Contrat d'erreur côté client
 

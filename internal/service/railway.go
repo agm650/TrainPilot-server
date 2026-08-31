@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
@@ -13,13 +14,16 @@ import (
 )
 
 type RailwayService struct {
-	store   *store.Store
-	station station.CommandStation
-	events  *events.Bus
+	store            *store.Store
+	station          station.CommandStation
+	events           *events.Bus
+	accessoryMu      sync.Mutex
+	accessoryStates  map[string]map[string]model.AccessoryPosition
+	accessoryStarted bool
 }
 
 func NewRailwayService(s *store.Store, st station.CommandStation, b *events.Bus) *RailwayService {
-	return &RailwayService{store: s, station: st, events: b}
+	return &RailwayService{store: s, station: st, events: b, accessoryStates: map[string]map[string]model.AccessoryPosition{}}
 }
 func (r *RailwayService) Locomotives(ctx context.Context) ([]model.Locomotive, error) {
 	return r.store.ListLocomotives(ctx)
@@ -155,25 +159,31 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, st
 	if !exists {
 		return invalid("turnout position is not declared")
 	}
-	if len(t.Endpoints) != 1 {
-		return station.ErrUnsupported
-	}
-	endpoint := t.Endpoints[0]
-	required, exists := position.Endpoints[endpoint.ID]
-	if !exists {
-		return invalid("turnout position does not define its endpoint")
-	}
-	physical := model.PhysicalAccessoryPosition(endpoint, required)
-	if err := r.station.SetBasicAccessory(ctx, station.AccessoryCommand{
-		Address:  endpoint.LinearAddress,
-		Position: physical,
-	}); err != nil {
+	if err := r.store.SetTurnoutDesiredPosition(ctx, id, state, true); err != nil {
 		return err
 	}
-	if err := r.store.SetTurnoutState(ctx, id, state); err != nil {
-		return err
+	for _, endpoint := range t.Endpoints {
+		required, exists := position.Endpoints[endpoint.ID]
+		if !exists {
+			return invalid("turnout position does not define all endpoints")
+		}
+		if err := r.station.SetBasicAccessory(ctx, station.AccessoryCommand{
+			Address:  endpoint.LinearAddress,
+			Position: model.PhysicalAccessoryPosition(endpoint, required),
+		}); err != nil {
+			return err
+		}
 	}
-	r.events.Publish("turnout.state.changed", map[string]any{"turnoutId": id, "state": state})
+	if r.accessoryObservationsStarted() {
+		if err := r.reconcileTurnout(ctx, t); err != nil {
+			return err
+		}
+	} else {
+		if err := r.store.SetTurnoutState(ctx, id, state); err != nil {
+			return err
+		}
+		r.events.Publish("turnout.state.changed", map[string]any{"turnoutId": id, "state": state})
+	}
 	return nil
 }
 func (r *RailwayService) SetBlockFeedback(ctx context.Context, id string, occupied bool) error {
@@ -202,4 +212,87 @@ func (r *RailwayService) StartFeedback(ctx context.Context) {
 			}
 		}
 	}()
+	provider, ok := r.station.(station.AccessoryStateEventProvider)
+	if !ok {
+		return
+	}
+	r.accessoryMu.Lock()
+	r.accessoryStarted = true
+	r.accessoryMu.Unlock()
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case event, open := <-provider.AccessoryStateEvents():
+				if !open {
+					return
+				}
+				r.handleAccessoryStateEvent(ctx, event)
+			}
+		}
+	}()
+}
+
+func (r *RailwayService) accessoryObservationsStarted() bool {
+	r.accessoryMu.Lock()
+	defer r.accessoryMu.Unlock()
+	return r.accessoryStarted
+}
+
+func (r *RailwayService) handleAccessoryStateEvent(ctx context.Context, event station.AccessoryStateEvent) {
+	turnouts, err := r.store.ListTurnouts(ctx)
+	if err != nil {
+		return
+	}
+	for _, turnout := range turnouts {
+		for _, endpoint := range turnout.Endpoints {
+			if endpoint.LinearAddress != event.Address {
+				continue
+			}
+			r.accessoryMu.Lock()
+			states := r.accessoryStates[turnout.ID]
+			if states == nil {
+				states = map[string]model.AccessoryPosition{}
+				r.accessoryStates[turnout.ID] = states
+			}
+			states[endpoint.ID] = event.Position
+			r.accessoryMu.Unlock()
+			_ = r.reconcileTurnout(ctx, turnout)
+			break
+		}
+	}
+}
+
+func (r *RailwayService) reconcileTurnout(ctx context.Context, turnout model.Turnout) error {
+	r.accessoryMu.Lock()
+	observed := r.accessoryStates[turnout.ID]
+	states := make(map[string]model.AccessoryPosition, len(observed))
+	for endpointID, position := range observed {
+		states[endpointID] = position
+	}
+	r.accessoryMu.Unlock()
+	if len(states) != len(turnout.Endpoints) {
+		return nil
+	}
+	reported, valid := model.ResolveTurnoutPosition(turnout, states)
+	if !valid {
+		reported = ""
+	}
+	current, err := r.store.GetTurnout(ctx, turnout.ID)
+	if err != nil {
+		return err
+	}
+	pending := current.DesiredPosition != "" && current.DesiredPosition != reported
+	if err := r.store.SetTurnoutReportedPosition(ctx, turnout.ID, reported, pending); err != nil {
+		return err
+	}
+	r.events.Publish("turnout.state.changed", map[string]any{
+		"turnoutId":        turnout.ID,
+		"state":            reported,
+		"desiredPosition":  current.DesiredPosition,
+		"reportedPosition": reported,
+		"pending":          pending,
+	})
+	return nil
 }

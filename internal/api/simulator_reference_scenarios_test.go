@@ -28,6 +28,12 @@ var referenceSimulatorScenarios = []string{
 	"accessory-confirmation-success",
 	"accessory-confirmation-timeout-base",
 	"accessory-wrong-confirmation",
+	"accessory-simple",
+	"accessory-triple",
+	"accessory-triple-invalid",
+	"accessory-tjd",
+	"accessory-partial-failure",
+	"accessory-stale-confirmation",
 }
 
 func TestReferenceSimulatorScenarios(t *testing.T) {
@@ -273,11 +279,11 @@ func testReferenceAccessoryConfirmationSuccess(t *testing.T) {
 	if err := fixture.client.SetTurnout(context.Background(), "turnout-1", "diverging"); err != nil {
 		t.Fatal(err)
 	}
-	if accessory := fixture.sim.Accessory(1); accessory.Desired != "diverging" || accessory.Reported == "diverging" || !accessory.Pending {
+	if accessory := fixture.sim.Accessory(1); accessory.Desired != station.AccessoryPosition2 || accessory.Reported == station.AccessoryPosition2 || !accessory.Pending {
 		t.Fatalf("pending accessory=%+v", accessory)
 	}
 	advanceReferenceSimulatorScenario(t, fixture, "2s")
-	if accessory := fixture.sim.Accessory(1); accessory.Desired != "diverging" || accessory.Reported != "diverging" || accessory.Pending {
+	if accessory := fixture.sim.Accessory(1); accessory.Desired != station.AccessoryPosition2 || accessory.Reported != station.AccessoryPosition2 || accessory.Pending {
 		t.Fatalf("confirmed accessory=%+v", accessory)
 	}
 }
@@ -289,7 +295,7 @@ func testReferenceAccessoryConfirmationTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	advanceReferenceSimulatorScenario(t, fixture, "30s")
-	if accessory := fixture.sim.Accessory(1); accessory.Desired != "diverging" || accessory.Reported == "diverging" || !accessory.Pending {
+	if accessory := fixture.sim.Accessory(1); accessory.Desired != station.AccessoryPosition2 || accessory.Reported == station.AccessoryPosition2 || !accessory.Pending {
 		t.Fatalf("unconfirmed accessory=%+v", accessory)
 	}
 }
@@ -301,7 +307,7 @@ func testReferenceAccessoryWrongConfirmation(t *testing.T) {
 		t.Fatal(err)
 	}
 	advanceReferenceSimulatorScenario(t, fixture, "1s")
-	if accessory := fixture.sim.Accessory(1); accessory.Desired != "diverging" || accessory.Reported != "straight" || !accessory.Pending {
+	if accessory := fixture.sim.Accessory(1); accessory.Desired != station.AccessoryPosition2 || accessory.Reported != station.AccessoryPosition1 || !accessory.Pending {
 		t.Fatalf("inconsistent accessory=%+v", accessory)
 	}
 }

@@ -2,6 +2,7 @@ package simulator
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -168,11 +169,11 @@ func TestSnapshotIsDeepCopy(t *testing.T) {
 	snapshot.Locomotives[99] = LocoState{Functions: map[int]bool{1: true}}
 	accessory := snapshot.Accessories[12]
 	commandAt := *accessory.LastCommandAt
-	accessory.Desired = "straight"
-	accessory.Reported = "straight"
+	accessory.Desired = station.AccessoryPosition1
+	accessory.Reported = station.AccessoryPosition1
 	*accessory.LastCommandAt = commandAt.Add(time.Hour)
 	snapshot.Accessories[12] = accessory
-	snapshot.Accessories[13] = AccessoryState{Desired: "diverging"}
+	snapshot.Accessories[13] = AccessoryState{Desired: station.AccessoryPosition2}
 
 	actual := sim.Snapshot()
 	if !actual.Connected || !actual.TrackPower {
@@ -189,7 +190,7 @@ func TestSnapshotIsDeepCopy(t *testing.T) {
 		t.Fatal("locomotive added to snapshot leaked into simulator")
 	}
 	actualAccessory := actual.Accessories[12]
-	if actualAccessory.Desired != "diverging" || actualAccessory.Reported != "diverging" {
+	if actualAccessory.Desired != station.AccessoryPosition2 || actualAccessory.Reported != station.AccessoryPosition2 {
 		t.Fatalf("simulator accessory changed through snapshot: %+v", actualAccessory)
 	}
 	if actualAccessory.LastCommandAt == nil || !actualAccessory.LastCommandAt.Equal(commandAt) {
@@ -442,7 +443,7 @@ func TestResetPreservesConnectionAndClearsState(t *testing.T) {
 	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition1}); err != nil {
 		t.Fatal(err)
 	}
-	if got := sim.Accessory(12); got.Desired != "straight" || got.Reported != "straight" || got.Pending {
+	if got := sim.Accessory(12); got.Desired != station.AccessoryPosition1 || got.Reported != station.AccessoryPosition1 || got.Pending {
 		t.Fatalf("reset retained accessory behavior: %+v", got)
 	}
 	select {
@@ -472,7 +473,7 @@ func TestAccessoryImmediateConfirmationIsDefault(t *testing.T) {
 	}
 
 	state := sim.Accessory(12)
-	if state.Desired != "straight" || state.Reported != "straight" || state.Pending {
+	if state.Desired != station.AccessoryPosition1 || state.Reported != station.AccessoryPosition1 || state.Pending {
 		t.Fatalf("accessory state=%+v", state)
 	}
 	if state.LastCommandAt == nil || !state.LastCommandAt.Equal(start) {
@@ -497,11 +498,34 @@ func TestAccessoryStateProviderPublishesQualifiedObservation(t *testing.T) {
 
 	select {
 	case event := <-provider.AccessoryStateEvents():
-		if event.Address != 12 || event.Position != station.AccessoryPosition2 || event.Quality != station.AccessoryReportAssumed || !event.ObservedAt.Equal(start) {
+		if event.Address != 12 || event.Position != station.AccessoryPosition2 || event.Quality != station.AccessoryReportPhysical || !event.ObservedAt.Equal(start) {
 			t.Fatalf("accessory event=%+v", event)
 		}
 	default:
 		t.Fatal("missing accessory state event")
+	}
+}
+
+func TestAccessoryStateEventsPreserveCommandOrder(t *testing.T) {
+	ctx := context.Background()
+	sim := New()
+	if err := sim.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	commands := []station.AccessoryCommand{
+		{Address: 1, Position: station.AccessoryPosition2},
+		{Address: 2, Position: station.AccessoryPosition1},
+	}
+	for _, command := range commands {
+		if err := sim.SetBasicAccessory(ctx, command); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for index, command := range commands {
+		event := <-sim.AccessoryStateEvents()
+		if event.Address != command.Address || event.Position != command.Position || event.Quality != station.AccessoryReportPhysical {
+			t.Fatalf("event %d=%+v", index, event)
+		}
 	}
 }
 
@@ -541,6 +565,7 @@ func TestAccessoryDelayedConfirmationUsesInjectedClock(t *testing.T) {
 	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition1}); err != nil {
 		t.Fatal(err)
 	}
+	<-sim.AccessoryStateEvents()
 	if err := sim.SetAccessoryBehavior(12, AccessoryBehavior{Mode: AccessoryBehaviorDelayed, Delay: 10 * time.Second}); err != nil {
 		t.Fatal(err)
 	}
@@ -549,16 +574,16 @@ func TestAccessoryDelayedConfirmationUsesInjectedClock(t *testing.T) {
 	}
 
 	before := sim.Accessory(12)
-	if before.Desired != "diverging" || before.Reported != "straight" || !before.Pending {
+	if before.Desired != station.AccessoryPosition2 || before.Reported != station.AccessoryPosition1 || !before.Pending {
 		t.Fatalf("state before delay=%+v", before)
 	}
 	clk.Advance(9 * time.Second)
-	if state := sim.Snapshot().Accessories[12]; state.Reported != "straight" || !state.Pending {
+	if state := sim.Snapshot().Accessories[12]; state.Reported != station.AccessoryPosition1 || !state.Pending {
 		t.Fatalf("state before deadline=%+v", state)
 	}
 	clk.Advance(time.Second)
 	after := sim.Accessory(12)
-	if after.Desired != "diverging" || after.Reported != "diverging" || after.Pending {
+	if after.Desired != station.AccessoryPosition2 || after.Reported != station.AccessoryPosition2 || after.Pending {
 		t.Fatalf("state after deadline=%+v", after)
 	}
 	wantReportAt := start.Add(10 * time.Second)
@@ -577,6 +602,7 @@ func TestAccessoryNoConfirmationNeverReportsSpontaneously(t *testing.T) {
 	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition1}); err != nil {
 		t.Fatal(err)
 	}
+	<-sim.AccessoryStateEvents()
 	if err := sim.SetAccessoryBehavior(12, AccessoryBehavior{Mode: AccessoryBehaviorNoConfirmation}); err != nil {
 		t.Fatal(err)
 	}
@@ -586,8 +612,13 @@ func TestAccessoryNoConfirmationNeverReportsSpontaneously(t *testing.T) {
 
 	clk.Advance(30 * 24 * time.Hour)
 	state := sim.Accessory(12)
-	if state.Desired != "diverging" || state.Reported != "straight" || !state.Pending {
+	if state.Desired != station.AccessoryPosition2 || state.Reported != station.AccessoryPosition1 || !state.Pending {
 		t.Fatalf("state after long clock advance=%+v", state)
+	}
+	select {
+	case event := <-sim.AccessoryStateEvents():
+		t.Fatalf("no-confirmation behavior published event: %+v", event)
+	default:
 	}
 }
 
@@ -605,25 +636,86 @@ func TestAccessoryCanReportInconsistentState(t *testing.T) {
 		t.Fatal(err)
 	}
 	clk.Advance(time.Second)
-	if err := sim.ReportAccessoryState(12, "straight"); err != nil {
+	if err := sim.ReportAccessoryPosition(12, station.AccessoryPosition1, station.AccessoryReportStation); err != nil {
 		t.Fatal(err)
 	}
 	state := sim.Snapshot().Accessories[12]
-	if state.Desired != "diverging" || state.Reported != "straight" || !state.Pending {
+	if state.Desired != station.AccessoryPosition2 || state.Reported != station.AccessoryPosition1 || !state.Pending {
 		t.Fatalf("manually reported inconsistent state=%+v", state)
 	}
 
 	if err := sim.SetAccessoryBehavior(13, AccessoryBehavior{
-		Mode:          AccessoryBehaviorInconsistent,
-		ReportedState: "straight",
+		Mode:             AccessoryBehaviorInconsistent,
+		ReportedPosition: station.AccessoryPosition1,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 13, Position: station.AccessoryPosition2}); err != nil {
 		t.Fatal(err)
 	}
-	if state := sim.Accessory(13); state.Desired != "diverging" || state.Reported != "straight" || !state.Pending {
+	if state := sim.Accessory(13); state.Desired != station.AccessoryPosition2 || state.Reported != station.AccessoryPosition1 || !state.Pending {
 		t.Fatalf("configured inconsistent state=%+v", state)
+	}
+}
+
+func TestAccessoryExternalReportPublishesQualityAndCancelsDelayedConfirmation(t *testing.T) {
+	ctx := context.Background()
+	clk := clock.NewFake(time.Date(2026, time.August, 31, 11, 0, 0, 0, time.UTC))
+	sim := NewWithClock(clk)
+	if err := sim.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition1}); err != nil {
+		t.Fatal(err)
+	}
+	<-sim.AccessoryStateEvents()
+	if err := sim.SetAccessoryBehavior(12, AccessoryBehavior{Mode: AccessoryBehaviorDelayed, Delay: 10 * time.Second}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition2}); err != nil {
+		t.Fatal(err)
+	}
+	clk.Advance(time.Second)
+	if err := sim.ReportAccessoryPosition(12, station.AccessoryPosition1, station.AccessoryReportStation); err != nil {
+		t.Fatal(err)
+	}
+	event := <-sim.AccessoryStateEvents()
+	if event.Address != 12 || event.Position != station.AccessoryPosition1 || event.Quality != station.AccessoryReportStation {
+		t.Fatalf("external event=%+v", event)
+	}
+	clk.Advance(20 * time.Second)
+	state := sim.Accessory(12)
+	if state.Desired != station.AccessoryPosition2 || state.Reported != station.AccessoryPosition1 || !state.Pending {
+		t.Fatalf("stale delayed confirmation changed state: %+v", state)
+	}
+	select {
+	case event := <-sim.AccessoryStateEvents():
+		t.Fatalf("stale confirmation published: %+v", event)
+	default:
+	}
+}
+
+func TestAccessoryFaultCanTargetOneEndpoint(t *testing.T) {
+	ctx := context.Background()
+	sim := New()
+	if err := sim.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	errInjected := errors.New("endpoint B failed")
+	if err := sim.SetOperationFault(OpAccessory, OperationFault{Address: 2, Error: errInjected, Remaining: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 1, Position: station.AccessoryPosition2}); err != nil {
+		t.Fatalf("endpoint A error=%v", err)
+	}
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 2, Position: station.AccessoryPosition2}); !errors.Is(err, errInjected) {
+		t.Fatalf("endpoint B error=%v", err)
+	}
+	if state := sim.Accessory(1); state.Reported != station.AccessoryPosition2 {
+		t.Fatalf("endpoint A=%+v", state)
+	}
+	if state := sim.Accessory(2); state != (AccessoryState{}) {
+		t.Fatalf("failed endpoint B changed: %+v", state)
 	}
 }
 
@@ -650,12 +742,12 @@ func TestAccessoryLatestDelayedCommandWins(t *testing.T) {
 	}
 
 	clk.Advance(5 * time.Second)
-	if state := sim.Accessory(12); state.Desired != "straight" || state.Reported != "straight" || !state.Pending {
+	if state := sim.Accessory(12); state.Desired != station.AccessoryPosition1 || state.Reported != station.AccessoryPosition1 || !state.Pending {
 		t.Fatalf("obsolete report changed current command: %+v", state)
 	}
 	clk.Advance(5 * time.Second)
 	state := sim.Accessory(12)
-	if state.Desired != "straight" || state.Reported != "straight" || state.Pending {
+	if state.Desired != station.AccessoryPosition1 || state.Reported != station.AccessoryPosition1 || state.Pending {
 		t.Fatalf("latest command was not confirmed: %+v", state)
 	}
 	wantReportAt := start.Add(15 * time.Second)
@@ -673,7 +765,7 @@ func TestAccessoryRejectsInvalidConfigurationAndStates(t *testing.T) {
 	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition("invalid")}); err == nil {
 		t.Fatal("invalid desired state accepted")
 	}
-	if err := sim.ReportAccessoryState(12, "invalid"); err == nil {
+	if err := sim.ReportAccessoryPosition(12, station.AccessoryPosition("invalid"), station.AccessoryReportStation); err == nil {
 		t.Fatal("invalid reported state accepted")
 	}
 	if err := sim.SetAccessoryBehavior(12, AccessoryBehavior{Mode: AccessoryBehaviorDelayed}); err == nil {

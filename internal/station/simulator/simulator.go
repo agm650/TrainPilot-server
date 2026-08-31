@@ -37,6 +37,7 @@ type OperationFault struct {
 	Delay     time.Duration
 	Error     error
 	Remaining int
+	Address   int
 }
 
 type FeedbackKey struct {
@@ -60,17 +61,17 @@ const (
 )
 
 type AccessoryBehavior struct {
-	Mode          AccessoryBehaviorMode `json:"mode"`
-	Delay         time.Duration         `json:"delay"`
-	ReportedState string                `json:"reportedState,omitempty"`
+	Mode             AccessoryBehaviorMode     `json:"mode"`
+	Delay            time.Duration             `json:"delay"`
+	ReportedPosition station.AccessoryPosition `json:"reportedPosition,omitempty"`
 }
 
 type AccessoryState struct {
-	Desired       string     `json:"desired"`
-	Reported      string     `json:"reported"`
-	Pending       bool       `json:"pending"`
-	LastCommandAt *time.Time `json:"lastCommandAt,omitempty"`
-	LastReportAt  *time.Time `json:"lastReportAt,omitempty"`
+	Desired       station.AccessoryPosition `json:"desired"`
+	Reported      station.AccessoryPosition `json:"reported"`
+	Pending       bool                      `json:"pending"`
+	LastCommandAt *time.Time                `json:"lastCommandAt,omitempty"`
+	LastReportAt  *time.Time                `json:"lastReportAt,omitempty"`
 }
 
 type ElectricalState struct {
@@ -92,10 +93,11 @@ type OperationFaultState struct {
 	Delay     time.Duration `json:"delay"`
 	Error     string        `json:"error,omitempty"`
 	Remaining int           `json:"remaining"`
+	Address   int           `json:"address,omitempty"`
 }
 
 type scheduledAccessoryReport struct {
-	State      string
+	Position   station.AccessoryPosition
 	DueAt      time.Time
 	Generation uint64
 }
@@ -403,6 +405,14 @@ func (s *Simulator) SetOperationFault(operation Operation, fault OperationFault)
 	if fault.Remaining < 0 {
 		return fmt.Errorf("operation fault remaining count must not be negative")
 	}
+	if fault.Address != 0 {
+		if operation != OpAccessory {
+			return fmt.Errorf("operation fault address is only valid for accessory operations")
+		}
+		if fault.Address < station.MinBasicAccessoryAddress || fault.Address > station.MaxBasicAccessoryAddress {
+			return fmt.Errorf("operation fault accessory address must be between %d and %d", station.MinBasicAccessoryAddress, station.MaxBasicAccessoryAddress)
+		}
+	}
 	s.mu.Lock()
 	s.state.operationFaults[operation] = fault
 	s.mu.Unlock()
@@ -480,21 +490,17 @@ func (s *Simulator) SetLocoFunction(ctx context.Context, address, fn int, on boo
 }
 
 func (s *Simulator) SetBasicAccessory(ctx context.Context, command station.AccessoryCommand) error {
-	epoch, err := s.beforeOperation(ctx, OpAccessory, true)
-	if err != nil {
+	if err := command.Validate(); err != nil {
 		return err
 	}
-	if err := command.Validate(); err != nil {
+	epoch, err := s.beforeOperation(ctx, OpAccessory, true, command.Address)
+	if err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.ensureOperationReadyLocked(epoch, true); err != nil {
 		return err
-	}
-	state := "straight"
-	if command.Position == station.AccessoryPosition2 {
-		state = "diverging"
 	}
 	now := s.clock.Now()
 	s.applyDueAccessoryReportsLocked(now)
@@ -503,7 +509,7 @@ func (s *Simulator) SetBasicAccessory(ctx context.Context, command station.Acces
 	accessory := s.state.Accessories[command.Address]
 	s.state.accessoryGeneration[command.Address]++
 	generation := s.state.accessoryGeneration[command.Address]
-	accessory.Desired = state
+	accessory.Desired = command.Position
 	accessory.LastCommandAt = timePointer(now)
 	delete(s.state.accessoryReports, address)
 
@@ -513,26 +519,24 @@ func (s *Simulator) SetBasicAccessory(ctx context.Context, command station.Acces
 	}
 	switch behavior.Mode {
 	case AccessoryBehaviorImmediate:
-		accessory.Reported = state
+		accessory.Reported = command.Position
 		accessory.Pending = false
 		accessory.LastReportAt = timePointer(now)
-		s.publishAccessoryStateLocked(command.Position, command.Address, station.AccessoryReportAssumed, now)
+		s.publishAccessoryStateLocked(command.Position, command.Address, station.AccessoryReportPhysical, now)
 	case AccessoryBehaviorDelayed:
 		accessory.Pending = true
 		s.state.accessoryReports[address] = scheduledAccessoryReport{
-			State:      state,
+			Position:   command.Position,
 			DueAt:      now.Add(behavior.Delay),
 			Generation: generation,
 		}
 	case AccessoryBehaviorNoConfirmation:
 		accessory.Pending = true
 	case AccessoryBehaviorInconsistent:
-		accessory.Reported = behavior.ReportedState
-		accessory.Pending = behavior.ReportedState != state
+		accessory.Reported = behavior.ReportedPosition
+		accessory.Pending = behavior.ReportedPosition != command.Position
 		accessory.LastReportAt = timePointer(now)
-		if position, ok := accessoryPositionFromLegacyState(behavior.ReportedState); ok {
-			s.publishAccessoryStateLocked(position, command.Address, station.AccessoryReportStation, now)
-		}
+		s.publishAccessoryStateLocked(behavior.ReportedPosition, command.Address, station.AccessoryReportPhysical, now)
 	}
 	s.state.Accessories[address] = accessory
 	s.markActivityLocked(now)
@@ -540,21 +544,30 @@ func (s *Simulator) SetBasicAccessory(ctx context.Context, command station.Acces
 }
 
 func (s *Simulator) SetAccessoryBehavior(address int, behavior AccessoryBehavior) error {
+	if address < station.MinBasicAccessoryAddress || address > station.MaxBasicAccessoryAddress {
+		return fmt.Errorf("accessory address must be between %d and %d", station.MinBasicAccessoryAddress, station.MaxBasicAccessoryAddress)
+	}
 	if behavior.Mode == "" {
 		behavior.Mode = AccessoryBehaviorImmediate
 	}
 	switch behavior.Mode {
 	case AccessoryBehaviorImmediate, AccessoryBehaviorNoConfirmation:
+		if behavior.ReportedPosition != "" {
+			return fmt.Errorf("reported accessory position is only valid for inconsistent behavior")
+		}
 		if behavior.Delay < 0 {
 			return fmt.Errorf("accessory behavior delay must not be negative")
 		}
 	case AccessoryBehaviorDelayed:
+		if behavior.ReportedPosition != "" {
+			return fmt.Errorf("reported accessory position is only valid for inconsistent behavior")
+		}
 		if behavior.Delay <= 0 {
 			return fmt.Errorf("delayed accessory behavior requires a positive delay")
 		}
 	case AccessoryBehaviorInconsistent:
-		if !validAccessoryReportedState(behavior.ReportedState) {
-			return fmt.Errorf("unsupported reported accessory state %q", behavior.ReportedState)
+		if !behavior.ReportedPosition.Valid() {
+			return fmt.Errorf("unsupported reported accessory position %q", behavior.ReportedPosition)
 		}
 		if behavior.Delay < 0 {
 			return fmt.Errorf("accessory behavior delay must not be negative")
@@ -570,9 +583,15 @@ func (s *Simulator) SetAccessoryBehavior(address int, behavior AccessoryBehavior
 	return nil
 }
 
-func (s *Simulator) ReportAccessoryState(address int, state string) error {
-	if !validAccessoryReportedState(state) {
-		return fmt.Errorf("unsupported reported accessory state %q", state)
+func (s *Simulator) ReportAccessoryPosition(address int, position station.AccessoryPosition, quality station.AccessoryReportQuality) error {
+	if address < station.MinBasicAccessoryAddress || address > station.MaxBasicAccessoryAddress {
+		return fmt.Errorf("accessory address must be between %d and %d", station.MinBasicAccessoryAddress, station.MaxBasicAccessoryAddress)
+	}
+	if !position.Valid() {
+		return fmt.Errorf("unsupported reported accessory position %q", position)
+	}
+	if !quality.Valid() {
+		return fmt.Errorf("unsupported accessory report quality %q", quality)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -582,13 +601,11 @@ func (s *Simulator) ReportAccessoryState(address int, state string) error {
 	s.state.accessoryGeneration[address]++
 	delete(s.state.accessoryReports, address)
 	accessory := s.state.Accessories[address]
-	accessory.Reported = state
-	accessory.Pending = accessory.Desired != "" && accessory.Desired != state
+	accessory.Reported = position
+	accessory.Pending = accessory.Desired != "" && accessory.Desired != position
 	accessory.LastReportAt = timePointer(now)
 	s.state.Accessories[address] = accessory
-	if position, ok := accessoryPositionFromLegacyState(state); ok {
-		s.publishAccessoryStateLocked(position, address, station.AccessoryReportStation, now)
-	}
+	s.publishAccessoryStateLocked(position, address, quality, now)
 	return nil
 }
 
@@ -723,7 +740,7 @@ func (s *Simulator) Snapshot() Snapshot {
 		snapshot.FeedbackStates[key] = active
 	}
 	for operation, fault := range s.state.operationFaults {
-		faultState := OperationFaultState{Delay: fault.Delay, Remaining: fault.Remaining}
+		faultState := OperationFaultState{Delay: fault.Delay, Remaining: fault.Remaining, Address: fault.Address}
 		if fault.Error != nil {
 			faultState.Error = fault.Error.Error()
 		}
@@ -802,7 +819,7 @@ func (s *Simulator) closeLifecycleLocked() {
 	}
 }
 
-func (s *Simulator) beforeOperation(ctx context.Context, operation Operation, active bool) (uint64, error) {
+func (s *Simulator) beforeOperation(ctx context.Context, operation Operation, active bool, addresses ...int) (uint64, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -817,6 +834,9 @@ func (s *Simulator) beforeOperation(ctx context.Context, operation Operation, ac
 	}
 	epoch := s.state.operationEpoch
 	fault, hasFault := s.state.operationFaults[operation]
+	if hasFault && fault.Address != 0 {
+		hasFault = len(addresses) == 1 && addresses[0] == fault.Address
+	}
 	if hasFault && fault.Remaining > 0 {
 		remaining := fault.Remaining - 1
 		if remaining == 0 {
@@ -936,25 +956,6 @@ func timePointer(value time.Time) *time.Time {
 	return &copy
 }
 
-func validAccessoryDesiredState(state string) bool {
-	return state == "straight" || state == "diverging"
-}
-
-func validAccessoryReportedState(state string) bool {
-	return validAccessoryDesiredState(state) || state == "unknown"
-}
-
-func accessoryPositionFromLegacyState(state string) (station.AccessoryPosition, bool) {
-	switch state {
-	case "straight":
-		return station.AccessoryPosition1, true
-	case "diverging":
-		return station.AccessoryPosition2, true
-	default:
-		return "", false
-	}
-}
-
 func (s *Simulator) publishAccessoryStateLocked(position station.AccessoryPosition, address int, quality station.AccessoryReportQuality, observedAt time.Time) {
 	event := station.AccessoryStateEvent{
 		Address:    address,
@@ -975,14 +976,12 @@ func (s *Simulator) applyDueAccessoryReportsLocked(now time.Time) {
 		}
 		if s.state.accessoryGeneration[address] == report.Generation {
 			accessory := s.state.Accessories[address]
-			if accessory.Desired == report.State {
-				accessory.Reported = report.State
+			if accessory.Desired == report.Position {
+				accessory.Reported = report.Position
 				accessory.Pending = false
 				accessory.LastReportAt = timePointer(report.DueAt)
 				s.state.Accessories[address] = accessory
-				if position, ok := accessoryPositionFromLegacyState(report.State); ok {
-					s.publishAccessoryStateLocked(position, address, station.AccessoryReportStation, report.DueAt)
-				}
+				s.publishAccessoryStateLocked(report.Position, address, station.AccessoryReportPhysical, report.DueAt)
 			}
 		}
 		delete(s.state.accessoryReports, address)

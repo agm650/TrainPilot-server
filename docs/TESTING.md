@@ -36,7 +36,7 @@
 - la télémétrie simulée possède un état nominal déterministe, expose tous les champs électriques de `station.Status` et combine les défauts sans effet implicite sur la puissance ;
 - le simulateur permet les transitions `online/degraded/offline`, refuse toute commande active hors ligne, conserve un `LastSeen` cohérent et injecte sans rejeu des délais annulables ou un nombre exact d'erreurs par opération ;
 - les capteurs simulés mémorisent leur état physique indépendamment des événements, reproduisent répétitions, rebonds et pertes, signalent la saturation et alimentent simultanément deux cantons via `RailwayService` ;
-- les scénarios JSON v1 sont validés intégralement avant exécution, conservent l'ordre des étapes simultanées et sont reproductibles avec `clock.Fake` sans attente réelle ;
+- les scénarios JSON v2, avec lecture v1 compatible, sont validés intégralement avant exécution, conservent l'ordre des étapes simultanées et sont reproductibles avec `clock.Fake` sans attente réelle ;
 - un scénario expose son cycle de vie et son erreur, s'arrête sur une étape impossible et son mode temps réel est annulé par le contexte, `Close()` ou un reset externe du simulateur ;
 - l'API de test du simulateur disparaît avec `testAPI=false` ou un pilote matériel, exige une authentification et expose snapshot, reset, connectivité, télémétrie, feedback, accessoires, faults et scénarios sans polluer l'API publique ;
 - le feedback injecté par HTTP traverse le mapping de `RailwayService` jusqu'au WebSocket, tandis qu'une connectivité `offline` injectée produit le refus métier `503 station_offline` sans rejeu au retour `online` ;
@@ -161,7 +161,7 @@ par la centrale simulée. Ils sont distincts des scénarios contractuels HTTP de
 modifie aucune base SQLite.
 
 Un fichier contient obligatoirement `version`, `name`, `initial` et `steps`.
-La version courante est `1`, les timestamps `at` sont relatifs au démarrage et
+La version courante est `2`, les timestamps `at` sont relatifs au démarrage et
 utilisent `time.ParseDuration`. Les étapes doivent être triées ; deux étapes au
 même instant restent exécutées dans leur ordre JSON. Le parsing rejette avant
 démarrage les champs inconnus, actions inconnues, durées invalides, adresses
@@ -194,6 +194,14 @@ restent occupés simultanément, qu'un feedback perdu ne modifie pas l'état con
 du service et que les trois bases de confirmation d'accessoire restent
 observables. Les anciens scénarios complémentaires `feedback-a-to-b.json` et
 `accessory-electrical-fault.json` restent disponibles pour les essais ciblés.
+Le lecteur accepte aussi les scénarios v1 et convertit leurs états
+`straight/diverging` en `position1/position2`.
+
+Les scénarios AIG-003 complètent cette base avec `accessory-simple`,
+`accessory-triple`, `accessory-triple-invalid`, `accessory-tjd`,
+`accessory-partial-failure` et `accessory-stale-confirmation`. Les tests du
+service vérifient la résolution d'un triple, l'état physique interdit, les
+quatre positions d'une TJD et une panne ciblée sur le second endpoint.
 
 L'interface HTTP destinée aux tests externes est décrite dans
 [`SIMULATOR_TEST_API.md`](SIMULATOR_TEST_API.md). Les tests API vérifient aussi

@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "name": "accessory-partial-failure",
+  "initial": {},
+  "steps": [
+    {
+      "at": "0s",
+      "action": "fault.operation",
+      "operation": "accessory",
+      "address": 2,
+      "error": "simulated endpoint B failure",
+      "remaining": 1
+    }
+  ]
+}

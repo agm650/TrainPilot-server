@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
@@ -29,6 +30,7 @@ func TestRailwayListsAndMutations(t *testing.T) {
 	ch, unsubscribe := bus.Subscribe(4)
 	defer unsubscribe()
 	svc := NewRailwayService(db, sim, bus)
+	svc.StartFeedback(ctx)
 
 	if items, err := svc.Locomotives(ctx); err != nil || len(items) != 2 {
 		t.Fatalf("locomotives len=%d err=%v", len(items), err)
@@ -63,9 +65,17 @@ func TestRailwayListsAndMutations(t *testing.T) {
 	if err := svc.SetTurnout(ctx, dispatcher, "turnout-1", "diverging"); err != nil {
 		t.Fatal(err)
 	}
-	turnout, err := db.GetTurnout(ctx, "turnout-1")
-	if err != nil || turnout.DesiredState != "diverging" || turnout.ReportedState != "diverging" {
-		t.Fatalf("turnout=%+v err=%v", turnout, err)
+	deadline := time.Now().Add(time.Second)
+	var turnout model.Turnout
+	for {
+		turnout, err = db.GetTurnout(ctx, "turnout-1")
+		if err == nil && turnout.DesiredState == "diverging" && turnout.ReportedState == "diverging" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("turnout=%+v err=%v", turnout, err)
+		}
+		time.Sleep(time.Millisecond)
 	}
 	if event := <-ch; event.Type != "turnout.state.changed" {
 		t.Fatalf("event=%+v", event)
