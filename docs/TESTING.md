@@ -134,6 +134,10 @@ Sur macOS, utiliser `TMPDIR=/tmp go test ./...` si le chemin temporaire par déf
 
 ## Scénarios déterministes du simulateur
 
+Le parcours complet destiné aux développeurs de clients est documenté dans
+[`CLIENT_SIMULATOR_GUIDE.md`](CLIENT_SIMULATOR_GUIDE.md). Le présent document
+se concentre sur les validations du dépôt serveur.
+
 Les fichiers sous `tests/simulator/scenarios/` décrivent le monde extérieur vu
 par la centrale simulée. Ils sont distincts des scénarios contractuels HTTP de
 `contract-tests/scenarios/` : le moteur n'appelle aucun service métier et ne

@@ -46,6 +46,7 @@ All notable changes to this project will be documented in this file.
 - API de test authentifiée du simulateur pour snapshots, reset, connectivité, télémétrie, feedback, accessoires, faults et scénarios, entièrement absente avec les pilotes matériels ou lorsque `testAPI=false`.
 - Douze scénarios de référence du simulateur exécutés en temps logique par la suite d'intégration HTTP/WebSocket et la CI, avec non-rejeu hors ligne, télémétrie, feedbacks et confirmations d'accessoire.
 - Publication générique des changements d'état injectés par le simulateur via `station.StatusEventProvider`.
+- Guide exhaustif du banc simulateur pour le développement de clients, avec exemples HTTP/WebSocket, scénarios et diagrammes PlantUML, inclus dans les archives de livraison.
 
 ### Changed
 

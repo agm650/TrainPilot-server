@@ -4,6 +4,10 @@ Cette API pilote le banc virtuel TrainPilot depuis un processus externe. Elle
 ne fait pas partie de l'API publique de production et n'est pas décrite dans
 `api/openapi.yaml`.
 
+Pour l'intégration complète dans un client — authentification, WebSocket,
+leases, erreurs, scénarios de référence et stratégies de tests — consulter
+[`CLIENT_SIMULATOR_GUIDE.md`](CLIENT_SIMULATOR_GUIDE.md).
+
 ## Activation et sécurité
 
 Les routes existent uniquement lorsque les deux conditions suivantes sont

@@ -183,6 +183,11 @@ contrat séparé est documenté dans
 [`docs/SIMULATOR_TEST_API.md`](docs/SIMULATOR_TEST_API.md) ; elles ne sont pas
 ajoutées à l'OpenAPI public de production.
 
+Le guide complet destiné aux développeurs de clients, avec les flux HTTP,
+WebSocket, leases, scénarios, erreurs et diagrammes PlantUML, est disponible
+dans [`docs/CLIENT_SIMULATOR_GUIDE.md`](docs/CLIENT_SIMULATOR_GUIDE.md). Il est
+inclus dans chaque archive de livraison.
+
 ```bash
 go run ./cmd/dccd serve --config config.json
 ```
@@ -215,7 +220,7 @@ scénario depuis un autre terminal :
 ```bash
 curl -sS http://127.0.0.1:8080/api/v1/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"alice","password":"correct-horse-1","clientName":"simulator-console"}'
+  -d '{"username":"alice","password":"correct-horse-1","clientId":"simulator-console-1","clientName":"simulator-console","platform":"cli"}'
 
 export TRAINPILOT_TOKEN='<accessToken retourné>'
 

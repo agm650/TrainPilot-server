@@ -47,8 +47,9 @@ Le lot SIM-001 à SIM-008 est terminé : socle déterministe, télémétrie, fau
 rétrosignalisation, moteur JSON, API de contrôle externe et douze scénarios de
 référence obligatoires dans `go test ./...`. La suite couvre notamment la panne
 sans rejeu, les événements WebSocket, les feedbacks multiples/rebond/perte et
-les bases de confirmation d'accessoire. Aucun ticket du lot simulateur ne reste
-ouvert dans ce backlog.
+les bases de confirmation d'accessoire. Le guide client exhaustif est livré
+avec chaque archive du serveur. Aucun ticket du lot simulateur ne reste ouvert
+dans ce backlog.
 
 ### Rétrosignalisation et cantons
 
