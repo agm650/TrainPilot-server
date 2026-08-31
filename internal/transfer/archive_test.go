@@ -1,7 +1,9 @@
 package transfer
 
 import (
+	"bytes"
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -76,6 +78,98 @@ func TestLayoutArchiveRoundTrip(t *testing.T) {
 		t.Fatalf("blocks=%d routes=%d", len(layout.Blocks), len(layout.Routes))
 	}
 }
+
+func TestLegacyLayoutArchiveImportsAsSimpleTurnout(t *testing.T) {
+	ctx := context.Background()
+	legacyDocument := map[string]any{
+		"layout": map[string]any{
+			"blocks": []any{},
+			"turnouts": []any{map[string]any{
+				"id": "legacy-12", "name": "Legacy", "dccAddress": 12,
+				"desiredState": "straight", "reportedState": "diverging",
+			}},
+			"routes":           []any{},
+			"feedbackMappings": []any{},
+		},
+	}
+	data, err := writeArchive(Manifest{Format: FormatID, Version: 1, PackageType: "layout", CreatedAt: time.Now()}, "layout.json", legacyDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	admin := model.User{ID: "admin", Role: model.RoleAdministrator}
+	if err := New(target, events.New(), clock.Real{}).ImportLayout(ctx, admin, data, true); err != nil {
+		t.Fatal(err)
+	}
+	turnout, err := target.GetTurnout(ctx, "legacy-12")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if turnout.Kind != model.TurnoutKindSimple || turnout.DesiredPosition != "straight" || turnout.ReportedPosition != "diverging" || len(turnout.Endpoints) != 1 || turnout.Endpoints[0].LinearAddress != 12 {
+		t.Fatalf("unexpected legacy conversion: %+v", turnout)
+	}
+}
+
+func TestCompoundLayoutArchiveRoundTripIsDeterministic(t *testing.T) {
+	ctx := context.Background()
+	source, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	want := archiveThreeWayTurnout()
+	layout := model.LayoutDefinition{
+		Blocks:   []model.Block{{ID: "block-a", Name: "Block A"}},
+		Turnouts: []model.Turnout{want},
+		Routes: []model.RouteDefinition{{
+			ID: "route-left", Name: "Route left", BlockIDs: []string{"block-a"},
+			TurnoutStates: map[string]string{want.ID: "left"},
+		}},
+	}
+	if err := source.ImportLayout(ctx, layout, false); err != nil {
+		t.Fatal(err)
+	}
+	clk := clock.NewFake(time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC))
+	svc := New(source, events.New(), clk)
+	first, err := svc.ExportLayout(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := svc.ExportLayout(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatal("two exports of unchanged layout differ")
+	}
+	target, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	admin := model.User{ID: "admin", Role: model.RoleAdministrator}
+	if err := New(target, events.New(), clock.Real{}).ImportLayout(ctx, admin, first, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := target.GetTurnout(ctx, want.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("round trip mismatch:\n got: %#v\nwant: %#v", got, want)
+	}
+	exported, err := target.ExportLayout(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exported.Routes) != 1 || exported.Routes[0].TurnoutStates[want.ID] != "left" {
+		t.Fatalf("compound route was not preserved: %#v", exported.Routes)
+	}
+}
 func TestDriverCannotImport(t *testing.T) {
 	ctx := context.Background()
 	db, err := store.Open(":memory:")
@@ -122,5 +216,18 @@ func TestInvalidLayoutDoesNotModifyDatabase(t *testing.T) {
 	}
 	if len(before.Blocks) != len(after.Blocks) || len(before.Routes) != len(after.Routes) {
 		t.Fatalf("database changed after rejected import: before blocks/routes=%d/%d after=%d/%d", len(before.Blocks), len(before.Routes), len(after.Blocks), len(after.Routes))
+	}
+}
+
+func archiveThreeWayTurnout() model.Turnout {
+	return model.Turnout{
+		ID: "three-way", Name: "Three way", Kind: model.TurnoutKindThreeWay,
+		Endpoints: []model.AccessoryEndpoint{{ID: "A", LinearAddress: 20}, {ID: "B", LinearAddress: 21}},
+		Positions: []model.TurnoutPositionDefinition{
+			{ID: "left", Endpoints: map[string]model.AccessoryPosition{"A": model.AccessoryPosition2, "B": model.AccessoryPosition1}},
+			{ID: "straight", Endpoints: map[string]model.AccessoryPosition{"A": model.AccessoryPosition1, "B": model.AccessoryPosition1}},
+			{ID: "right", Endpoints: map[string]model.AccessoryPosition{"A": model.AccessoryPosition1, "B": model.AccessoryPosition2}},
+		},
+		DesiredPosition: "straight",
 	}
 }

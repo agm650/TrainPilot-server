@@ -144,9 +144,6 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, st
 	if !Allowed(user.Role, PermissionDispatch) {
 		return ErrPermissionDenied
 	}
-	if state != "straight" && state != "diverging" {
-		return invalid("state must be straight or diverging")
-	}
 	if err := station.CheckCommandAllowed(r.station); err != nil {
 		return err
 	}
@@ -154,7 +151,24 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, st
 	if err != nil {
 		return err
 	}
-	if err := r.station.SetAccessory(ctx, t.DCCAddress, state); err != nil {
+	position, exists := t.Position(state)
+	if !exists {
+		return invalid("turnout position is not declared")
+	}
+	if len(t.Endpoints) != 1 {
+		return station.ErrUnsupported
+	}
+	endpoint := t.Endpoints[0]
+	required, exists := position.Endpoints[endpoint.ID]
+	if !exists {
+		return invalid("turnout position does not define its endpoint")
+	}
+	physical := model.PhysicalAccessoryPosition(endpoint, required)
+	driverState := "straight"
+	if physical == model.AccessoryPosition2 {
+		driverState = "diverging"
+	}
+	if err := r.station.SetAccessory(ctx, endpoint.LinearAddress, driverState); err != nil {
 		return err
 	}
 	if err := r.store.SetTurnoutState(ctx, id, state); err != nil {

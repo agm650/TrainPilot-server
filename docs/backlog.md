@@ -58,10 +58,15 @@ dans ce backlog.
 
 ### Accessoires
 
-- [ ] Généraliser le modèle d'aiguillage aux autres accessoires et à leurs capacités.
+- [x] Refondre le modèle des aiguillages simples et composés avec endpoints, positions explicites, migration SQLite et archives compatibles (`AIG-001`).
+- [ ] Typer l'interface station pour les sorties d'accessoires binaires (`AIG-002`).
+- [ ] Adapter le simulateur aux endpoints et appareils composés (`AIG-003`).
 - [ ] Implémenter les commandes d'aiguillages z21.
+- [ ] Aligner DCC-EX sur l'adresse canonique et la sémantique binaire.
+- [ ] Sérialiser les transitions multi-endpoints et gérer les erreurs partielles.
 - [ ] Ajouter la lecture ou confirmation de position lorsque la centrale et le matériel le permettent.
 - [ ] Gérer les délais, échecs et incohérences entre position demandée et position confirmée.
+- [ ] Étendre REST, WebSocket, CLI et conformité au modèle composé.
 - [ ] Préparer les sorties nécessaires au pilotage futur des signaux.
 
 ## P2 — Itinéraires et conduite sécurisée

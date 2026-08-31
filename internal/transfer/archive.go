@@ -20,7 +20,8 @@ import (
 
 const (
 	FormatID       = "org.dcc-control.package"
-	FormatVersion  = 1
+	FormatVersion  = 2
+	OldestVersion  = 1
 	MaxArchiveSize = 25 << 20
 	MaxEntrySize   = 10 << 20
 )
@@ -91,7 +92,7 @@ func (s *Service) ImportLayout(ctx context.Context, user model.User, data []byte
 	if err := readArchive(data, "layout", "layout.json", &doc); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidArchive, err)
 	}
-	if err := validateLayout(doc.Layout); err != nil {
+	if err := validateLayout(&doc.Layout); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidArchive, err)
 	}
 	if err := s.store.ImportLayout(ctx, doc.Layout, replace); err != nil {
@@ -104,14 +105,17 @@ func (s *Service) ImportLayout(ctx context.Context, user model.User, data []byte
 func writeArchive(manifest Manifest, name string, doc any) ([]byte, error) {
 	var out bytes.Buffer
 	zw := zip.NewWriter(&out)
-	for filename, value := range map[string]any{"manifest.json": manifest, name: doc} {
-		w, err := zw.Create(filename)
+	for _, entry := range []struct {
+		filename string
+		value    any
+	}{{"manifest.json", manifest}, {name, doc}} {
+		w, err := zw.Create(entry.filename)
 		if err != nil {
 			return nil, err
 		}
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
-		if err := enc.Encode(value); err != nil {
+		if err := enc.Encode(entry.value); err != nil {
 			return nil, err
 		}
 	}
@@ -148,7 +152,7 @@ func readArchive(data []byte, packageType, documentName string, target any) erro
 	if err := decodeZipJSON(manifestFile, &manifest); err != nil {
 		return err
 	}
-	if manifest.Format != FormatID || manifest.Version != FormatVersion || manifest.PackageType != packageType {
+	if manifest.Format != FormatID || manifest.Version < OldestVersion || manifest.Version > FormatVersion || manifest.PackageType != packageType {
 		return fmt.Errorf("unsupported archive format %q version %d type %q", manifest.Format, manifest.Version, manifest.PackageType)
 	}
 	return decodeZipJSON(docFile, target)
@@ -188,9 +192,12 @@ func validateLocomotives(items []model.Locomotive) error {
 	}
 	return nil
 }
-func validateLayout(layout model.LayoutDefinition) error {
+func validateLayout(layout *model.LayoutDefinition) error {
+	if layout == nil {
+		return errors.New("layout is required")
+	}
 	blocks := map[string]bool{}
-	turnouts := map[string]bool{}
+	turnouts := map[string]model.Turnout{}
 	routes := map[string]bool{}
 	for _, b := range layout.Blocks {
 		if b.ID == "" || b.Name == "" {
@@ -201,14 +208,16 @@ func validateLayout(layout model.LayoutDefinition) error {
 		}
 		blocks[b.ID] = true
 	}
-	for _, t := range layout.Turnouts {
-		if t.ID == "" || t.Name == "" || t.DCCAddress < 1 {
-			return fmt.Errorf("invalid turnout %q", t.ID)
+	for i, t := range layout.Turnouts {
+		normalized, err := model.NormalizeTurnout(t)
+		if err != nil {
+			return err
 		}
-		if turnouts[t.ID] {
+		if _, exists := turnouts[normalized.ID]; exists {
 			return fmt.Errorf("duplicate turnout %q", t.ID)
 		}
-		turnouts[t.ID] = true
+		layout.Turnouts[i] = normalized
+		turnouts[normalized.ID] = normalized
 	}
 	for _, r := range layout.Routes {
 		if r.ID == "" || r.Name == "" {
@@ -231,11 +240,12 @@ func validateLayout(layout model.LayoutDefinition) error {
 			}
 		}
 		for id, state := range r.TurnoutStates {
-			if !turnouts[id] {
+			turnout, exists := turnouts[id]
+			if !exists {
 				return fmt.Errorf("route %q references unknown turnout %q", r.ID, id)
 			}
-			if state != "straight" && state != "diverging" {
-				return fmt.Errorf("route %q has invalid turnout state", r.ID)
+			if _, exists := turnout.Position(state); !exists {
+				return fmt.Errorf("route %q references unknown position %q on turnout %q", r.ID, state, id)
 			}
 		}
 		for _, id := range r.ConflictRouteIDs {

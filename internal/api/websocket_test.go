@@ -149,6 +149,10 @@ func TestSystemSnapshotContainsCompleteClientState(t *testing.T) {
 	if len(snapshot.Payload.Locomotives) != len(fixture.locomotives) || len(snapshot.Payload.Blocks) == 0 || len(snapshot.Payload.Turnouts) == 0 || len(snapshot.Payload.Routes) == 0 {
 		t.Fatalf("incomplete snapshot=%+v", snapshot.Payload)
 	}
+	turnout := snapshot.Payload.Turnouts[0]
+	if turnout.Kind != model.TurnoutKindSimple || len(turnout.Endpoints) != 1 || len(turnout.Positions) != 2 || turnout.DesiredPosition != "straight" || turnout.ReportedPosition != "straight" {
+		t.Fatalf("turnout model=%+v", turnout)
+	}
 	if len(snapshot.Payload.ControlLeases) != 1 || snapshot.Payload.ControlLeases[0].ID != fixture.lease.ID || snapshot.Payload.ControlLeases[0].HeartbeatMillis <= 0 {
 		t.Fatalf("leases=%+v", snapshot.Payload.ControlLeases)
 	}

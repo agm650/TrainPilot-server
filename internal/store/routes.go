@@ -4,13 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/sqlite"
 )
 
 func (s *Store) ListRoutes(ctx context.Context) ([]model.Route, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT id,name,state,reserved_by_session FROM routes ORDER BY name`)
+	rows, err := s.DB.QueryContext(ctx, `SELECT id,name,state,reserved_by_session FROM routes ORDER BY name,id`)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +164,11 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 			}
 		}
 		for _, t := range layout.Turnouts {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO turnouts(id,name,dcc_address,desired_state,reported_state) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,dcc_address=excluded.dcc_address,desired_state=excluded.desired_state,reported_state=excluded.reported_state`, t.ID, t.Name, t.DCCAddress, t.DesiredState, t.ReportedState); err != nil {
+			normalized, err := model.NormalizeTurnout(t)
+			if err != nil {
+				return err
+			}
+			if err := upsertTurnout(ctx, tx, normalized); err != nil {
 				return err
 			}
 		}
@@ -203,4 +208,45 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 		}
 		return nil
 	})
+}
+
+func upsertTurnout(ctx context.Context, tx *sqlite.Tx, turnout model.Turnout) error {
+	legacyAddress := turnout.Endpoints[0].LinearAddress
+	legacyDesired := legacyState(turnout.DesiredPosition)
+	legacyReported := legacyState(turnout.ReportedPosition)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO turnouts(id,name,dcc_address,desired_state,reported_state,kind,desired_position,reported_position,pending) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,dcc_address=excluded.dcc_address,desired_state=excluded.desired_state,reported_state=excluded.reported_state,kind=excluded.kind,desired_position=excluded.desired_position,reported_position=excluded.reported_position,pending=excluded.pending`, turnout.ID, turnout.Name, legacyAddress, legacyDesired, legacyReported, turnout.Kind, turnout.DesiredPosition, turnout.ReportedPosition, boolInt(turnout.Pending)); err != nil {
+		return fmt.Errorf("store turnout %q: %w", turnout.ID, err)
+	}
+	for _, query := range []string{
+		`DELETE FROM turnout_position_endpoints WHERE turnout_id=?`,
+		`DELETE FROM turnout_positions WHERE turnout_id=?`,
+		`DELETE FROM turnout_endpoints WHERE turnout_id=?`,
+	} {
+		if _, err := tx.ExecContext(ctx, query, turnout.ID); err != nil {
+			return fmt.Errorf("replace turnout %q definition: %w", turnout.ID, err)
+		}
+	}
+	for ordinal, endpoint := range turnout.Endpoints {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO turnout_endpoints(turnout_id,endpoint_id,linear_address,inverted,ordinal) VALUES(?,?,?,?,?)`, turnout.ID, endpoint.ID, endpoint.LinearAddress, boolInt(endpoint.Inverted), ordinal); err != nil {
+			return fmt.Errorf("store turnout %q endpoint %q: %w", turnout.ID, endpoint.ID, err)
+		}
+	}
+	for ordinal, position := range turnout.Positions {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO turnout_positions(turnout_id,position_id,label,ordinal) VALUES(?,?,?,?)`, turnout.ID, position.ID, position.Label, ordinal); err != nil {
+			return fmt.Errorf("store turnout %q position %q: %w", turnout.ID, position.ID, err)
+		}
+		for endpointID, required := range position.Endpoints {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO turnout_position_endpoints(turnout_id,position_id,endpoint_id,required_position) VALUES(?,?,?,?)`, turnout.ID, position.ID, endpointID, required); err != nil {
+				return fmt.Errorf("store turnout %q position %q endpoint %q: %w", turnout.ID, position.ID, endpointID, err)
+			}
+		}
+	}
+	return nil
+}
+
+func legacyState(position string) string {
+	if position == "straight" || position == "diverging" {
+		return position
+	}
+	return "unknown"
 }

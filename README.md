@@ -459,7 +459,7 @@ implicitement une locomotive : `acquire` reste obligatoire.
 
 ## Import et export
 
-Les exports sont des archives ZIP versionnées contenant un `manifest.json` et un document JSON. Les imports utilisent le mode `merge` par défaut ; `--replace` remplace la bibliothèque correspondante après validation.
+Les exports sont des archives ZIP version 2 contenant un `manifest.json` et un document JSON. Les archives version 1 restent importables. Les imports utilisent le mode `merge` par défaut ; `--replace` remplace la bibliothèque correspondante après validation.
 
 ```bash
 # Export accessible à tout utilisateur authentifié
@@ -542,6 +542,24 @@ La fermeture d'un WebSocket ne libère pas immédiatement les leases : une
 brève coupure réseau ne doit pas provoquer une perte de contrôle. Ils restent
 valides jusqu'à une libération explicite ou leur expiration par absence de
 heartbeat, qui déclenche l'arrêt contrôlé habituel.
+
+## Aiguillages et appareils composés
+
+Le modèle distingue désormais l'appareil logique de ses sorties DCC binaires.
+Un aiguillage possède un `kind`, des endpoints et des positions logiques
+définies par des vecteurs `position1`/`position2`.
+
+Il représente un aiguillage simple, triple, une TJD, une TJS ou un appareil
+personnalisé. Une combinaison physique non déclarée reste inconnue. Elle ne
+devient jamais une position commandable.
+
+Les anciennes bases et archives à une adresse sont converties automatiquement
+en aiguillages simples. Les champs historiques restent temporairement exposés
+pour ces appareils. La commande sûre de plusieurs endpoints sera ajoutée dans
+les tickets suivants.
+
+Le modèle, l'adressage linéaire et les exemples sont décrits dans
+[`docs/TURNOUTS.md`](docs/TURNOUTS.md).
 
 ## Configuration des centrales
 

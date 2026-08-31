@@ -132,6 +132,23 @@ les TTL du serveur de test ou augmenter explicitement cette limite.
 
 Sur macOS, utiliser `TMPDIR=/tmp go test ./...` si le chemin temporaire par défaut rend le nom du socket Unix d’administration trop long.
 
+## Aiguillages simples et composés
+
+Les tests de `internal/model` couvrent les appareils simples, triples, TJD,
+TJS et personnalisés. Ils vérifient la validation, les vecteurs inconnus et
+l'inversion des endpoints.
+
+Les tests de `internal/store` créent aussi une ancienne table `turnouts`, puis
+exécutent deux fois la migration. Les tests de `internal/transfer` importent une
+archive de circuit version 1 et vérifient un round-trip déterministe en version
+2.
+
+```bash
+go test ./internal/model ./internal/store ./internal/transfer
+```
+
+Le modèle et les exemples sont décrits dans [`TURNOUTS.md`](TURNOUTS.md).
+
 ## Scénarios déterministes du simulateur
 
 Le parcours complet destiné aux développeurs de clients est documenté dans

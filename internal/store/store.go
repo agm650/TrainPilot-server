@@ -95,7 +95,38 @@ func (s *Store) Migrate(ctx context.Context) error {
 			name TEXT NOT NULL,
 			dcc_address INTEGER NOT NULL,
 			desired_state TEXT NOT NULL DEFAULT 'straight',
-			reported_state TEXT NOT NULL DEFAULT 'unknown'
+			reported_state TEXT NOT NULL DEFAULT 'unknown',
+			kind TEXT NOT NULL DEFAULT 'simple',
+			desired_position TEXT NOT NULL DEFAULT '',
+			reported_position TEXT NOT NULL DEFAULT '',
+			pending INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE TABLE IF NOT EXISTS turnout_endpoints (
+			turnout_id TEXT NOT NULL REFERENCES turnouts(id) ON DELETE CASCADE,
+			endpoint_id TEXT NOT NULL,
+			linear_address INTEGER NOT NULL CHECK(linear_address >= 1),
+			inverted INTEGER NOT NULL DEFAULT 0,
+			ordinal INTEGER NOT NULL,
+			PRIMARY KEY(turnout_id, endpoint_id),
+			UNIQUE(turnout_id, linear_address),
+			UNIQUE(turnout_id, ordinal)
+		)`,
+		`CREATE TABLE IF NOT EXISTS turnout_positions (
+			turnout_id TEXT NOT NULL REFERENCES turnouts(id) ON DELETE CASCADE,
+			position_id TEXT NOT NULL,
+			label TEXT NOT NULL DEFAULT '',
+			ordinal INTEGER NOT NULL,
+			PRIMARY KEY(turnout_id, position_id),
+			UNIQUE(turnout_id, ordinal)
+		)`,
+		`CREATE TABLE IF NOT EXISTS turnout_position_endpoints (
+			turnout_id TEXT NOT NULL,
+			position_id TEXT NOT NULL,
+			endpoint_id TEXT NOT NULL,
+			required_position TEXT NOT NULL CHECK(required_position IN ('position1','position2')),
+			PRIMARY KEY(turnout_id, position_id, endpoint_id),
+			FOREIGN KEY(turnout_id, position_id) REFERENCES turnout_positions(turnout_id, position_id) ON DELETE CASCADE,
+			FOREIGN KEY(turnout_id, endpoint_id) REFERENCES turnout_endpoints(turnout_id, endpoint_id) ON DELETE CASCADE
 		)`,
 		`CREATE TABLE IF NOT EXISTS routes (
 			id TEXT PRIMARY KEY,
@@ -136,7 +167,116 @@ func (s *Store) Migrate(ctx context.Context) error {
 			return fmt.Errorf("migration %d: %w", i+1, err)
 		}
 	}
-	return nil
+	return s.migrateTurnoutSchema(ctx)
+}
+
+func (s *Store) migrateTurnoutSchema(ctx context.Context) error {
+	columns, err := s.tableColumns(ctx, "turnouts")
+	if err != nil {
+		return fmt.Errorf("inspect turnout schema: %w", err)
+	}
+	additions := []struct {
+		name string
+		sql  string
+	}{
+		{"kind", `ALTER TABLE turnouts ADD COLUMN kind TEXT NOT NULL DEFAULT 'simple'`},
+		{"desired_position", `ALTER TABLE turnouts ADD COLUMN desired_position TEXT NOT NULL DEFAULT ''`},
+		{"reported_position", `ALTER TABLE turnouts ADD COLUMN reported_position TEXT NOT NULL DEFAULT ''`},
+		{"pending", `ALTER TABLE turnouts ADD COLUMN pending INTEGER NOT NULL DEFAULT 0`},
+	}
+	for _, addition := range additions {
+		if columns[addition.name] {
+			continue
+		}
+		if _, err := s.DB.ExecContext(ctx, addition.sql); err != nil {
+			return fmt.Errorf("add turnouts.%s: %w", addition.name, err)
+		}
+	}
+
+	type legacyTurnout struct {
+		id, desired, reported string
+		address               int
+		needsMigration        bool
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT id,dcc_address,desired_state,reported_state FROM turnouts ORDER BY id`)
+	if err != nil {
+		return fmt.Errorf("list legacy turnouts: %w", err)
+	}
+	var legacy []legacyTurnout
+	for rows.Next() {
+		var item legacyTurnout
+		if err := rows.Scan(&item.id, &item.address, &item.desired, &item.reported); err != nil {
+			rows.Close()
+			return fmt.Errorf("read legacy turnout: %w", err)
+		}
+		legacy = append(legacy, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("list legacy turnouts: %w", err)
+	}
+	rows.Close()
+	for i := range legacy {
+		var endpointCount int
+		if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM turnout_endpoints WHERE turnout_id=?`, legacy[i].id).Scan(&endpointCount); err != nil {
+			return fmt.Errorf("inspect turnout %q endpoints: %w", legacy[i].id, err)
+		}
+		legacy[i].needsMigration = endpointCount == 0
+	}
+
+	return s.DB.WithTransaction(ctx, func(tx *sqlite.Tx) error {
+		for _, item := range legacy {
+			if !item.needsMigration {
+				continue
+			}
+			desired := legacyPosition(item.desired)
+			reported := legacyPosition(item.reported)
+			if _, err := tx.ExecContext(ctx, `UPDATE turnouts SET kind=CASE WHEN kind='' THEN 'simple' ELSE kind END,desired_position=CASE WHEN desired_position='' THEN ? ELSE desired_position END,reported_position=CASE WHEN reported_position='' THEN ? ELSE reported_position END WHERE id=?`, desired, reported, item.id); err != nil {
+				return fmt.Errorf("migrate turnout %q state: %w", item.id, err)
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO turnout_endpoints(turnout_id,endpoint_id,linear_address,inverted,ordinal) VALUES(?,?,?,0,0)`, item.id, "main", item.address); err != nil {
+				return fmt.Errorf("migrate turnout %q endpoint: %w", item.id, err)
+			}
+			for ordinal, position := range []struct {
+				id       string
+				required string
+			}{{"straight", "position1"}, {"diverging", "position2"}} {
+				if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO turnout_positions(turnout_id,position_id,label,ordinal) VALUES(?,?,?,?)`, item.id, position.id, "", ordinal); err != nil {
+					return fmt.Errorf("migrate turnout %q position %q: %w", item.id, position.id, err)
+				}
+				if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO turnout_position_endpoints(turnout_id,position_id,endpoint_id,required_position) VALUES(?,?,?,?)`, item.id, position.id, "main", position.required); err != nil {
+					return fmt.Errorf("migrate turnout %q vector %q: %w", item.id, position.id, err)
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func (s *Store) tableColumns(ctx context.Context, table string) (map[string]bool, error) {
+	rows, err := s.DB.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return nil, err
+		}
+		columns[name] = true
+	}
+	return columns, rows.Err()
+}
+
+func legacyPosition(value string) string {
+	if value == "straight" || value == "diverging" {
+		return value
+	}
+	return ""
 }
 
 func parseTime(value string) (time.Time, error) { return time.Parse(time.RFC3339Nano, value) }

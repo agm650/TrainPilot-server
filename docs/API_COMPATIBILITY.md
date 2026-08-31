@@ -80,3 +80,23 @@ nouveau et d'une procédure de migration testable.
 Les contrats `api/openapi.yaml` et `api/asyncapi.yaml`, les tests d'intégration
 et l'inventaire de `dcc-api-conformance --list-endpoints` constituent ensemble
 la référence vérifiable de compatibilité.
+
+## Migration des aiguillages en API HTTP 1.5 et événements 1.7
+
+Le modèle canonique ajoute `kind`, `endpoints`, `positions`,
+`desiredPosition`, `reportedPosition` et `pending`.
+
+Pour un aiguillage simple, `dccAddress`, `desiredState` et `reportedState`
+restent exposés pendant la période de dépréciation. Un client récent doit lire
+les champs canoniques. Un appareil composé n'a pas de valeur historique fidèle
+pour une adresse unique. Il n'expose donc pas ces champs dépréciés.
+
+Un client annonçant la prise en charge de l'API 1.5 ou des événements 1.7 doit :
+
+- construire les positions depuis leurs vecteurs d'endpoints ;
+- traiter une position rapportée vide comme inconnue ou invalide ;
+- ne pas déduire la géométrie depuis `position1` ou `position2` ;
+- ignorer les champs historiques lorsqu'un modèle canonique est présent.
+
+Les commandes REST multi-endpoints ne font pas partie de cette évolution.
+Elles seront introduites avec un contrat distinct.

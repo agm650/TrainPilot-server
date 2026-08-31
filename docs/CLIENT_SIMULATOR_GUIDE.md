@@ -5,8 +5,8 @@ Dernière validation : 31 août 2026.
 Versions du contrat au moment de cette validation :
 
 - serveur : `0.2.0` ;
-- API HTTP : `1.4.0` ;
-- API événementielle : `1.6.0` ;
+- API HTTP : `1.5.0` ;
+- API événementielle : `1.7.0` ;
 - format des scénarios du simulateur : `1`.
 
 Ce guide explique comment utiliser TrainPilot-server comme banc virtuel pour
@@ -253,9 +253,9 @@ Exemple :
 ```json
 {
   "serverVersion": "0.2.0",
-  "apiVersion": "1.4.0",
+  "apiVersion": "1.5.0",
   "minimumClientApiVersion": "1.0.0",
-  "eventApiVersion": "1.6.0",
+  "eventApiVersion": "1.7.0",
   "minimumClientEventApiVersion": "1.3.0",
   "station": {
     "driver": "simulator",
@@ -984,11 +984,12 @@ curl -i -X PUT \
 ```
 
 Limite actuelle : l'état `Desired/Reported/Pending` détaillé du simulateur est
-visible dans `/test/v1/simulator/state`. Le service public d'aiguillage met
-actuellement `desiredState` et `reportedState` à la valeur commandée après une
-commande réussie. Les modes de non-confirmation et d'incohérence servent donc
-de base aux futurs contrats de confirmation physique ; le client ne doit pas
-inventer aujourd'hui un événement public qui n'existe pas.
+visible dans `/test/v1/simulator/state`. Le modèle public expose désormais les
+endpoints, les positions logiques et `pending`. Pour un appareil simple, la
+commande existante met encore immédiatement `desiredPosition` et
+`reportedPosition` à la valeur commandée. Les modes de non-confirmation et
+d'incohérence servent de base au futur contrôleur multi-endpoints ; le client
+ne doit pas inventer aujourd'hui une confirmation physique qui n'existe pas.
 
 ```plantuml
 @startuml

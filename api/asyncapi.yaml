@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: DCC Control Server Events
-  version: 1.6.0
+  version: 1.7.0
   description: >-
     WebSocket event contract for native clients, including complete sequenced
     snapshots and explicit resynchronization requests. After a snapshot, clients
@@ -184,15 +184,45 @@ components:
         id: { type: string }
         name: { type: string }
         occupied: { type: boolean }
+    AccessoryEndpoint:
+      type: object
+      required: [id, linearAddress]
+      properties:
+        id: { type: string, minLength: 1 }
+        linearAddress: { type: integer, minimum: 1 }
+        inverted: { type: boolean, default: false }
+    TurnoutPositionDefinition:
+      type: object
+      required: [id, endpoints]
+      properties:
+        id: { type: string, minLength: 1 }
+        label: { type: string }
+        endpoints:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [position1, position2]
     Turnout:
       type: object
-      required: [id, name, dccAddress, desiredState, reportedState]
+      required: [id, name, kind, endpoints, positions, desiredPosition, reportedPosition, pending]
       properties:
         id: { type: string }
         name: { type: string }
-        dccAddress: { type: integer, minimum: 1 }
-        desiredState: { type: string, enum: [straight, diverging] }
-        reportedState: { type: string, enum: [straight, diverging, unknown] }
+        kind: { type: string, enum: [simple, three_way, double_slip, single_slip, custom] }
+        endpoints:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/AccessoryEndpoint' }
+        positions:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/TurnoutPositionDefinition' }
+        desiredPosition: { type: string, description: Empty when unknown. }
+        reportedPosition: { type: string, description: Empty when unknown or physically invalid. }
+        pending: { type: boolean }
+        dccAddress: { type: integer, minimum: 1, deprecated: true }
+        desiredState: { type: string, enum: [straight, diverging, unknown], deprecated: true }
+        reportedState: { type: string, enum: [straight, diverging, unknown], deprecated: true }
     Route:
       type: object
       required: [id, name, state]

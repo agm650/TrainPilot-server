@@ -1,6 +1,6 @@
 # Format des archives DCC Control
 
-Version actuelle : **1**.
+Version actuelle : **2**. Les archives version 1 restent importables.
 
 Les extensions recommandées sont :
 
@@ -15,7 +15,7 @@ Chaque archive contient obligatoirement `manifest.json` :
 ```json
 {
   "format": "org.dcc-control.package",
-  "version": 1,
+  "version": 2,
   "packageType": "rolling-stock",
   "createdAt": "2026-07-29T20:00:00Z"
 }
@@ -59,6 +59,23 @@ Une archive de type `layout` contient `layout.json` :
       {
         "id": "turnout-1",
         "name": "Aiguille entrée",
+        "kind": "simple",
+        "endpoints": [
+          { "id": "main", "linearAddress": 1 }
+        ],
+        "positions": [
+          {
+            "id": "straight",
+            "endpoints": { "main": "position1" }
+          },
+          {
+            "id": "diverging",
+            "endpoints": { "main": "position2" }
+          }
+        ],
+        "desiredPosition": "straight",
+        "reportedPosition": "straight",
+        "pending": false,
         "dccAddress": 1,
         "desiredState": "straight",
         "reportedState": "straight"
@@ -80,7 +97,15 @@ Une archive de type `layout` contient `layout.json` :
 }
 ```
 
-L’import vérifie toutes les références avant d’ouvrir la transaction d’écriture : cantons d’itinéraire, aiguillages, conflits et mappings de rétrosignalisation.
+L’import vérifie toutes les références avant d’ouvrir la transaction d’écriture : cantons d’itinéraire, aiguillages, positions logiques, conflits et mappings de rétrosignalisation.
+
+Les champs `dccAddress`, `desiredState` et `reportedState` sont conservés pour
+la compatibilité des aiguillages simples. Ils sont dépréciés. Une archive
+version 1 est convertie automatiquement vers un endpoint `main` et les
+positions `straight` et `diverging`.
+
+Le modèle complet des appareils composés est décrit dans
+[`TURNOUTS.md`](TURNOUTS.md).
 
 ## Modes d’import
 
@@ -97,4 +122,4 @@ L’import vérifie toutes les références avant d’ouvrir la transaction d’
 - import autorisé uniquement au rôle applicatif `administrator` ;
 - les imports réussis publient `rolling-stock.imported` ou `layout.imported` sur le WebSocket.
 
-Les ressources graphiques, images et migrations entre versions futures ne sont pas encore définies dans la version 1.
+Les ressources graphiques et images ne sont pas encore définies dans la version 2.

@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Modèle d'aiguillage simple ou composé avec endpoints binaires, positions logiques explicites, inversion, résolution physique, migration SQLite et archives version 2 compatibles avec la version 1.
 - Authentification persistée avec access tokens et refresh tokens révocables.
 - Administration des utilisateurs par socket Unix local uniquement.
 - CRUD des locomotives avec validation des adresses DCC et contrôle par rôle.
@@ -50,6 +51,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Le contrat OpenAPI passe à `1.5.0` et AsyncAPI à `1.7.0`. Les aiguillages exposent le modèle canonique composé. Les anciens champs restent dépréciés sur les appareils simples.
 - SQLite utilise le pilote pur Go `modernc.org/sqlite`.
 - Une commande de traction ou de fonction valide renouvelle désormais le lease de conduite.
 - Le snapshot WebSocket inclut les capacités et l’état courant de la centrale.

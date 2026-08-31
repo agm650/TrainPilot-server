@@ -1,6 +1,12 @@
 package model
 
-import "time"
+import (
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+)
 
 type Role string
 
@@ -126,12 +132,284 @@ type Block struct {
 	Occupied bool   `json:"occupied"`
 }
 
-type Turnout struct {
+type AccessoryPosition string
+
+const (
+	AccessoryPosition1 AccessoryPosition = "position1"
+	AccessoryPosition2 AccessoryPosition = "position2"
+)
+
+func (p AccessoryPosition) Valid() bool {
+	return p == AccessoryPosition1 || p == AccessoryPosition2
+}
+
+func (p AccessoryPosition) Inverted() AccessoryPosition {
+	switch p {
+	case AccessoryPosition1:
+		return AccessoryPosition2
+	case AccessoryPosition2:
+		return AccessoryPosition1
+	default:
+		return p
+	}
+}
+
+type TurnoutKind string
+
+const (
+	TurnoutKindSimple     TurnoutKind = "simple"
+	TurnoutKindThreeWay   TurnoutKind = "three_way"
+	TurnoutKindDoubleSlip TurnoutKind = "double_slip"
+	TurnoutKindSingleSlip TurnoutKind = "single_slip"
+	TurnoutKindCustom     TurnoutKind = "custom"
+)
+
+func (k TurnoutKind) Valid() bool {
+	switch k {
+	case TurnoutKindSimple, TurnoutKindThreeWay, TurnoutKindDoubleSlip, TurnoutKindSingleSlip, TurnoutKindCustom:
+		return true
+	default:
+		return false
+	}
+}
+
+type AccessoryEndpoint struct {
 	ID            string `json:"id"`
-	Name          string `json:"name"`
-	DCCAddress    int    `json:"dccAddress"`
-	DesiredState  string `json:"desiredState"`
-	ReportedState string `json:"reportedState"`
+	LinearAddress int    `json:"linearAddress"`
+	Inverted      bool   `json:"inverted,omitempty"`
+}
+
+type TurnoutPositionDefinition struct {
+	ID        string                       `json:"id"`
+	Label     string                       `json:"label,omitempty"`
+	Endpoints map[string]AccessoryPosition `json:"endpoints"`
+}
+
+type Turnout struct {
+	ID               string                      `json:"id"`
+	Name             string                      `json:"name"`
+	Kind             TurnoutKind                 `json:"kind"`
+	Endpoints        []AccessoryEndpoint         `json:"endpoints"`
+	Positions        []TurnoutPositionDefinition `json:"positions"`
+	DesiredPosition  string                      `json:"desiredPosition"`
+	ReportedPosition string                      `json:"reportedPosition"`
+	Pending          bool                        `json:"pending"`
+
+	// Deprecated compatibility fields. They remain populated for simple
+	// turnouts while version 1 archives and existing clients migrate.
+	DCCAddress    int    `json:"dccAddress,omitempty"`
+	DesiredState  string `json:"desiredState,omitempty"`
+	ReportedState string `json:"reportedState,omitempty"`
+}
+
+var ErrInvalidTurnout = errors.New("invalid turnout definition")
+
+func NewSimpleTurnout(id, name string, linearAddress int, desired, reported string) Turnout {
+	return Turnout{
+		ID:   id,
+		Name: name,
+		Kind: TurnoutKindSimple,
+		Endpoints: []AccessoryEndpoint{{
+			ID:            "main",
+			LinearAddress: linearAddress,
+		}},
+		Positions: []TurnoutPositionDefinition{
+			{ID: "straight", Endpoints: map[string]AccessoryPosition{"main": AccessoryPosition1}},
+			{ID: "diverging", Endpoints: map[string]AccessoryPosition{"main": AccessoryPosition2}},
+		},
+		DesiredPosition:  legacyTurnoutPosition(desired),
+		ReportedPosition: legacyTurnoutPosition(reported),
+		DCCAddress:       linearAddress,
+		DesiredState:     legacyTurnoutState(desired),
+		ReportedState:    legacyTurnoutState(reported),
+	}
+}
+
+func NormalizeTurnout(t Turnout) (Turnout, error) {
+	if len(t.Endpoints) == 0 && t.DCCAddress > 0 {
+		t = NewSimpleTurnout(t.ID, t.Name, t.DCCAddress, t.DesiredState, t.ReportedState)
+	}
+	populateLegacyTurnoutFields(&t)
+	if err := ValidateTurnout(t); err != nil {
+		return Turnout{}, err
+	}
+	return t, nil
+}
+
+func ValidateTurnout(t Turnout) error {
+	invalid := func(format string, args ...any) error {
+		return fmt.Errorf("%w: %s", ErrInvalidTurnout, fmt.Sprintf(format, args...))
+	}
+	if strings.TrimSpace(t.ID) == "" {
+		return invalid("id is required")
+	}
+	if strings.TrimSpace(t.Name) == "" {
+		return invalid("turnout %q requires a name", t.ID)
+	}
+	if !t.Kind.Valid() {
+		return invalid("turnout %q has invalid kind %q", t.ID, t.Kind)
+	}
+	if len(t.Endpoints) == 0 {
+		return invalid("turnout %q requires at least one endpoint", t.ID)
+	}
+	endpointIDs := make(map[string]AccessoryEndpoint, len(t.Endpoints))
+	addresses := make(map[int]string, len(t.Endpoints))
+	for _, endpoint := range t.Endpoints {
+		if strings.TrimSpace(endpoint.ID) == "" {
+			return invalid("turnout %q has an endpoint without id", t.ID)
+		}
+		if endpoint.LinearAddress < 1 {
+			return invalid("turnout %q endpoint %q has invalid linear address %d", t.ID, endpoint.ID, endpoint.LinearAddress)
+		}
+		if _, exists := endpointIDs[endpoint.ID]; exists {
+			return invalid("turnout %q has duplicate endpoint id %q", t.ID, endpoint.ID)
+		}
+		if other, exists := addresses[endpoint.LinearAddress]; exists {
+			return invalid("turnout %q endpoints %q and %q share linear address %d", t.ID, other, endpoint.ID, endpoint.LinearAddress)
+		}
+		endpointIDs[endpoint.ID] = endpoint
+		addresses[endpoint.LinearAddress] = endpoint.ID
+	}
+	if len(t.Positions) == 0 {
+		return invalid("turnout %q requires at least one position", t.ID)
+	}
+	positionIDs := make(map[string]bool, len(t.Positions))
+	vectors := make(map[string]string, len(t.Positions))
+	for _, position := range t.Positions {
+		if strings.TrimSpace(position.ID) == "" {
+			return invalid("turnout %q has a position without id", t.ID)
+		}
+		if position.ID == "unknown" || position.ID == "invalid" {
+			return invalid("turnout %q position id %q is reserved", t.ID, position.ID)
+		}
+		if positionIDs[position.ID] {
+			return invalid("turnout %q has duplicate position id %q", t.ID, position.ID)
+		}
+		positionIDs[position.ID] = true
+		if len(position.Endpoints) != len(endpointIDs) {
+			return invalid("turnout %q position %q must define every endpoint", t.ID, position.ID)
+		}
+		for endpointID, value := range position.Endpoints {
+			if _, exists := endpointIDs[endpointID]; !exists {
+				return invalid("turnout %q position %q references unknown endpoint %q", t.ID, position.ID, endpointID)
+			}
+			if !value.Valid() {
+				return invalid("turnout %q position %q has invalid value %q for endpoint %q", t.ID, position.ID, value, endpointID)
+			}
+		}
+		vector := turnoutVectorKey(t.Endpoints, position.Endpoints)
+		if other, exists := vectors[vector]; exists {
+			return invalid("turnout %q positions %q and %q use the same endpoint vector", t.ID, other, position.ID)
+		}
+		vectors[vector] = position.ID
+	}
+	if t.DesiredPosition != "" && !positionIDs[t.DesiredPosition] {
+		return invalid("turnout %q has unknown desired position %q", t.ID, t.DesiredPosition)
+	}
+	if t.ReportedPosition != "" && !positionIDs[t.ReportedPosition] {
+		return invalid("turnout %q has unknown reported position %q", t.ID, t.ReportedPosition)
+	}
+	return nil
+}
+
+func ResolveTurnoutPosition(t Turnout, endpointStates map[string]AccessoryPosition) (string, bool) {
+	if err := ValidateTurnout(t); err != nil {
+		return "", false
+	}
+	normalized := make(map[string]AccessoryPosition, len(t.Endpoints))
+	for _, endpoint := range t.Endpoints {
+		state, exists := endpointStates[endpoint.ID]
+		if !exists || !state.Valid() {
+			return "", false
+		}
+		if endpoint.Inverted {
+			state = state.Inverted()
+		}
+		normalized[endpoint.ID] = state
+	}
+	for _, position := range t.Positions {
+		matches := true
+		for endpointID, expected := range position.Endpoints {
+			if normalized[endpointID] != expected {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return position.ID, true
+		}
+	}
+	return "", false
+}
+
+func (t Turnout) Position(id string) (TurnoutPositionDefinition, bool) {
+	for _, position := range t.Positions {
+		if position.ID == id {
+			return position, true
+		}
+	}
+	return TurnoutPositionDefinition{}, false
+}
+
+func (t Turnout) Endpoint(id string) (AccessoryEndpoint, bool) {
+	for _, endpoint := range t.Endpoints {
+		if endpoint.ID == id {
+			return endpoint, true
+		}
+	}
+	return AccessoryEndpoint{}, false
+}
+
+func PhysicalAccessoryPosition(endpoint AccessoryEndpoint, logical AccessoryPosition) AccessoryPosition {
+	if endpoint.Inverted {
+		return logical.Inverted()
+	}
+	return logical
+}
+
+func populateLegacyTurnoutFields(t *Turnout) {
+	if t == nil {
+		return
+	}
+	if t.Kind != TurnoutKindSimple || len(t.Endpoints) != 1 {
+		t.DCCAddress = 0
+		t.DesiredState = ""
+		t.ReportedState = ""
+		return
+	}
+	t.DCCAddress = t.Endpoints[0].LinearAddress
+	t.DesiredState = legacyTurnoutState(t.DesiredPosition)
+	t.ReportedState = legacyTurnoutState(t.ReportedPosition)
+}
+
+func legacyTurnoutPosition(value string) string {
+	if value == "straight" || value == "diverging" {
+		return value
+	}
+	return ""
+}
+
+func legacyTurnoutState(value string) string {
+	if value == "straight" || value == "diverging" {
+		return value
+	}
+	return "unknown"
+}
+
+func turnoutVectorKey(endpoints []AccessoryEndpoint, values map[string]AccessoryPosition) string {
+	ids := make([]string, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		ids = append(ids, endpoint.ID)
+	}
+	sort.Strings(ids)
+	var b strings.Builder
+	for _, id := range ids {
+		b.WriteString(id)
+		b.WriteByte('=')
+		b.WriteString(string(values[id]))
+		b.WriteByte(';')
+	}
+	return b.String()
 }
 
 type Route struct {
