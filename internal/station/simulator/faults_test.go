@@ -113,10 +113,10 @@ func TestOfflineRejectsEveryActiveOperationWithoutChangingState(t *testing.T) {
 		{
 			name: "accessory",
 			setup: func(ctx context.Context, sim *Simulator) error {
-				return sim.SetAccessory(ctx, 12, "straight")
+				return sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition1})
 			},
 			call: func(ctx context.Context, sim *Simulator) error {
-				return sim.SetAccessory(ctx, 12, "diverging")
+				return sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition2})
 			},
 		},
 	}
@@ -338,12 +338,12 @@ func TestResetClearsUnlimitedFault(t *testing.T) {
 		t.Fatal(err)
 	}
 	for attempt := 0; attempt < 2; attempt++ {
-		if err := sim.SetAccessory(ctx, 12, "straight"); !errors.Is(err, errInjected) {
+		if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition1}); !errors.Is(err, errInjected) {
 			t.Fatalf("attempt %d error=%v", attempt, err)
 		}
 	}
 	sim.Reset()
-	if err := sim.SetAccessory(ctx, 12, "straight"); err != nil {
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition1}); err != nil {
 		t.Fatalf("accessory after reset error=%v", err)
 	}
 }
@@ -381,7 +381,7 @@ func TestConcurrentFaultRulesAreIndependent(t *testing.T) {
 				case OpFunction:
 					err = sim.SetLocoFunction(ctx, 3, attempt%69, true)
 				case OpAccessory:
-					err = sim.SetAccessory(ctx, 12, "straight")
+					err = sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition1})
 				}
 				if errors.Is(err, errInjected) {
 					failures++

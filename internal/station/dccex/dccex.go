@@ -43,6 +43,7 @@ type Driver struct {
 
 var _ station.HealthProvider = (*Driver)(nil)
 var _ station.StatusEventProvider = (*Driver)(nil)
+var _ station.CommandStation = (*Driver)(nil)
 
 func NewTCP(address string, offlineAfter time.Duration) *Driver {
 	runCtx, cancel := context.WithCancel(context.Background())
@@ -171,12 +172,15 @@ func (d *Driver) SetLocoFunction(ctx context.Context, address, fn int, on bool) 
 	}
 	return d.send(ctx, fmt.Sprintf("<F %d %d %d>\n", address, fn, state))
 }
-func (d *Driver) SetAccessory(ctx context.Context, address int, state string) error {
+func (d *Driver) SetBasicAccessory(ctx context.Context, command station.AccessoryCommand) error {
+	if err := command.Validate(); err != nil {
+		return err
+	}
 	activate := 0
-	if state == "diverging" || state == "thrown" || state == "on" {
+	if command.Position == station.AccessoryPosition2 {
 		activate = 1
 	}
-	return d.send(ctx, fmt.Sprintf("<a %d 0 %d>\n", address, activate))
+	return d.send(ctx, fmt.Sprintf("<a %d 0 %d>\n", command.Address, activate))
 }
 func (d *Driver) Feedback() <-chan station.FeedbackEvent { return d.feedback }
 func (d *Driver) StatusEvents() <-chan station.Status    { return d.statusEvents }

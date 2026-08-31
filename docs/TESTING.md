@@ -201,6 +201,10 @@ le routage absent en production, la validation JSON stricte, le snapshot, les
 faults, l'avance manuelle et les lectures métier concurrentes sous le détecteur
 de races.
 
+Les tests du contrat accessoire vérifient aussi `position1`/`position2`, la
+plage linéaire `1..2040`, les erreurs typées, le refus hors ligne et le provider
+d'observations. Le simulateur utilise une file non bloquante de 64 événements.
+
 ## Couverture restant à ajouter
 
 - parité contractuelle complète entre DCC-EX et z21 pour leurs capacités communes ;

@@ -1002,7 +1002,7 @@ participant Simulator
 
 Harness -> Simulator : behavior=no_confirmation
 Client -> API : PUT turnout state=diverging
-API -> Simulator : SetAccessory(diverging)
+API -> Simulator : SetBasicAccessory(position2)
 Simulator -> Simulator : Desired=diverging\nPending=true
 Harness -> Simulator : report diverging
 Simulator -> Simulator : Reported=diverging\nPending=false

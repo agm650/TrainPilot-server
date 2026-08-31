@@ -3,6 +3,7 @@ package z21
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/agm650/TrainPilot-server/internal/station"
@@ -19,6 +20,24 @@ func TestCapabilitiesAndCommandBounds(t *testing.T) {
 	}
 	if err := d.SetLocoFunction(context.Background(), 3, 29, true); err != station.ErrUnsupported {
 		t.Fatalf("out-of-range function error=%v", err)
+	}
+}
+
+func TestBasicAccessoryValidationAndOffline(t *testing.T) {
+	driver := New("unused", station.DefaultOfflineAfter)
+	if err := driver.SetBasicAccessory(context.Background(), station.AccessoryCommand{Address: 0, Position: station.AccessoryPosition1}); !errors.Is(err, station.ErrInvalidAccessoryAddress) {
+		t.Fatalf("invalid address error=%v", err)
+	}
+	if err := driver.SetBasicAccessory(context.Background(), station.AccessoryCommand{Address: 1, Position: station.AccessoryPosition("invalid")}); !errors.Is(err, station.ErrInvalidAccessoryPosition) {
+		t.Fatalf("invalid position error=%v", err)
+	}
+	if err := driver.SetBasicAccessory(context.Background(), station.AccessoryCommand{Address: 1, Position: station.AccessoryPosition1}); !errors.Is(err, station.ErrOffline) {
+		t.Fatalf("offline accessory error=%v", err)
+	}
+	driver.health.Connected()
+	driver.health.ValidResponse()
+	if err := driver.SetBasicAccessory(context.Background(), station.AccessoryCommand{Address: 1, Position: station.AccessoryPosition1}); !errors.Is(err, station.ErrUnsupported) {
+		t.Fatalf("online accessory error=%v", err)
 	}
 }
 

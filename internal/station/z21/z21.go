@@ -33,6 +33,8 @@ type systemState struct {
 	centralState, centralStateEx, capabilities                        byte
 }
 
+var _ station.CommandStation = (*Driver)(nil)
+
 func New(address string, offlineAfter time.Duration) *Driver {
 	return &Driver{
 		address:      address,
@@ -180,9 +182,17 @@ func (d *Driver) SetLocoFunction(ctx context.Context, address, fn int, on bool) 
 	value := mode | byte(fn&0x3f)
 	return d.send(ctx, xbus(0xE4, 0xF8, byte((address>>8)&0x3f), byte(address), value))
 }
-func (d *Driver) SetAccessory(context.Context, int, string) error { return station.ErrUnsupported }
-func (d *Driver) Feedback() <-chan station.FeedbackEvent          { return d.feedback }
-func (d *Driver) StatusEvents() <-chan station.Status             { return d.statusEvents }
+func (d *Driver) SetBasicAccessory(_ context.Context, command station.AccessoryCommand) error {
+	if err := command.Validate(); err != nil {
+		return err
+	}
+	if err := station.CheckCommandAllowed(d); err != nil {
+		return err
+	}
+	return station.ErrUnsupported
+}
+func (d *Driver) Feedback() <-chan station.FeedbackEvent { return d.feedback }
+func (d *Driver) StatusEvents() <-chan station.Status    { return d.statusEvents }
 func (d *Driver) readLoop(c *net.UDPConn) {
 	buf := make([]byte, 2048)
 	for {

@@ -20,6 +20,7 @@ func TestValidateTurnoutDefinitions(t *testing.T) {
 		{"no endpoint", mutateTurnout(simpleTurnoutFixture(), func(x *Turnout) { x.Endpoints = nil }), false},
 		{"missing endpoint", mutateTurnout(threeWayTurnoutFixture(), func(x *Turnout) { delete(x.Positions[0].Endpoints, "B") }), false},
 		{"invalid address", mutateTurnout(simpleTurnoutFixture(), func(x *Turnout) { x.Endpoints[0].LinearAddress = 0 }), false},
+		{"reserved broadcast address", mutateTurnout(simpleTurnoutFixture(), func(x *Turnout) { x.Endpoints[0].LinearAddress = 2041 }), false},
 		{"duplicate endpoint id", mutateTurnout(threeWayTurnoutFixture(), func(x *Turnout) { x.Endpoints[1].ID = "A" }), false},
 		{"duplicate endpoint address", mutateTurnout(threeWayTurnoutFixture(), func(x *Turnout) { x.Endpoints[1].LinearAddress = x.Endpoints[0].LinearAddress }), false},
 		{"duplicate position", mutateTurnout(threeWayTurnoutFixture(), func(x *Turnout) { x.Positions[1].ID = x.Positions[0].ID }), false},

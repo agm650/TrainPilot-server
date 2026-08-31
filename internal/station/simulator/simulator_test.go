@@ -21,7 +21,9 @@ func TestOperationsFailWhileDisconnected(t *testing.T) {
 		{"emergency stop", func() error { return sim.EmergencyStop(ctx) }},
 		{"speed", func() error { return sim.SetLocoSpeed(ctx, 3, 0.5, station.Forward) }},
 		{"function", func() error { return sim.SetLocoFunction(ctx, 3, 1, true) }},
-		{"accessory", func() error { return sim.SetAccessory(ctx, 3, "straight") }},
+		{"accessory", func() error {
+			return sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 3, Position: station.AccessoryPosition1})
+		}},
 	}
 	for _, tc := range operations {
 		t.Run(tc.name, func(t *testing.T) {
@@ -62,7 +64,7 @@ func TestSimulatorLifecycleAndLocomotiveState(t *testing.T) {
 	if err := sim.SetLocoFunction(ctx, 2601, 69, true); err == nil {
 		t.Fatal("unsupported function accepted")
 	}
-	if err := sim.SetAccessory(ctx, 12, "diverging"); err != nil {
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition2}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -149,7 +151,7 @@ func TestSnapshotIsDeepCopy(t *testing.T) {
 	if err := sim.SetLocoFunction(ctx, 2601, 2, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := sim.SetAccessory(ctx, 12, "diverging"); err != nil {
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition2}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -400,7 +402,7 @@ func TestResetPreservesConnectionAndClearsState(t *testing.T) {
 	if err := sim.SetAccessoryBehavior(12, AccessoryBehavior{Mode: AccessoryBehaviorDelayed, Delay: time.Hour}); err != nil {
 		t.Fatal(err)
 	}
-	if err := sim.SetAccessory(ctx, 12, "diverging"); err != nil {
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition2}); err != nil {
 		t.Fatal(err)
 	}
 	if err := sim.EmergencyStop(ctx); err != nil {
@@ -437,7 +439,7 @@ func TestResetPreservesConnectionAndClearsState(t *testing.T) {
 	if got := sim.Accessory(12); got != (AccessoryState{}) {
 		t.Fatalf("reset accessory state=%+v", got)
 	}
-	if err := sim.SetAccessory(ctx, 12, "straight"); err != nil {
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition1}); err != nil {
 		t.Fatal(err)
 	}
 	if got := sim.Accessory(12); got.Desired != "straight" || got.Reported != "straight" || got.Pending {
@@ -465,7 +467,7 @@ func TestAccessoryImmediateConfirmationIsDefault(t *testing.T) {
 	if err := sim.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := sim.SetAccessory(ctx, 12, "straight"); err != nil {
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition1}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -481,6 +483,53 @@ func TestAccessoryImmediateConfirmationIsDefault(t *testing.T) {
 	}
 }
 
+func TestAccessoryStateProviderPublishesQualifiedObservation(t *testing.T) {
+	ctx := context.Background()
+	start := time.Date(2026, time.August, 31, 10, 0, 0, 0, time.UTC)
+	sim := NewWithClock(clock.NewFake(start))
+	if err := sim.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	provider := station.AccessoryStateEventProvider(sim)
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition2}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case event := <-provider.AccessoryStateEvents():
+		if event.Address != 12 || event.Position != station.AccessoryPosition2 || event.Quality != station.AccessoryReportAssumed || !event.ObservedAt.Equal(start) {
+			t.Fatalf("accessory event=%+v", event)
+		}
+	default:
+		t.Fatal("missing accessory state event")
+	}
+}
+
+func TestAccessoryStateProviderNeverBlocksCommandsWhenFull(t *testing.T) {
+	ctx := context.Background()
+	sim := New()
+	if err := sim.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 65; i++ {
+		position := station.AccessoryPosition1
+		if i%2 != 0 {
+			position = station.AccessoryPosition2
+		}
+		if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: position}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 64; i++ {
+		<-sim.AccessoryStateEvents()
+	}
+	select {
+	case event := <-sim.AccessoryStateEvents():
+		t.Fatalf("unexpected event after buffer saturation: %+v", event)
+	default:
+	}
+}
+
 func TestAccessoryDelayedConfirmationUsesInjectedClock(t *testing.T) {
 	ctx := context.Background()
 	start := time.Date(2026, time.August, 30, 10, 0, 0, 0, time.UTC)
@@ -489,13 +538,13 @@ func TestAccessoryDelayedConfirmationUsesInjectedClock(t *testing.T) {
 	if err := sim.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := sim.SetAccessory(ctx, 12, "straight"); err != nil {
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition1}); err != nil {
 		t.Fatal(err)
 	}
 	if err := sim.SetAccessoryBehavior(12, AccessoryBehavior{Mode: AccessoryBehaviorDelayed, Delay: 10 * time.Second}); err != nil {
 		t.Fatal(err)
 	}
-	if err := sim.SetAccessory(ctx, 12, "diverging"); err != nil {
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition2}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -525,13 +574,13 @@ func TestAccessoryNoConfirmationNeverReportsSpontaneously(t *testing.T) {
 	if err := sim.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := sim.SetAccessory(ctx, 12, "straight"); err != nil {
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition1}); err != nil {
 		t.Fatal(err)
 	}
 	if err := sim.SetAccessoryBehavior(12, AccessoryBehavior{Mode: AccessoryBehaviorNoConfirmation}); err != nil {
 		t.Fatal(err)
 	}
-	if err := sim.SetAccessory(ctx, 12, "diverging"); err != nil {
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition2}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -552,7 +601,7 @@ func TestAccessoryCanReportInconsistentState(t *testing.T) {
 	if err := sim.SetAccessoryBehavior(12, AccessoryBehavior{Mode: AccessoryBehaviorNoConfirmation}); err != nil {
 		t.Fatal(err)
 	}
-	if err := sim.SetAccessory(ctx, 12, "diverging"); err != nil {
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition2}); err != nil {
 		t.Fatal(err)
 	}
 	clk.Advance(time.Second)
@@ -570,7 +619,7 @@ func TestAccessoryCanReportInconsistentState(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := sim.SetAccessory(ctx, 13, "diverging"); err != nil {
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 13, Position: station.AccessoryPosition2}); err != nil {
 		t.Fatal(err)
 	}
 	if state := sim.Accessory(13); state.Desired != "diverging" || state.Reported != "straight" || !state.Pending {
@@ -586,17 +635,17 @@ func TestAccessoryLatestDelayedCommandWins(t *testing.T) {
 	if err := sim.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := sim.SetAccessory(ctx, 12, "straight"); err != nil {
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition1}); err != nil {
 		t.Fatal(err)
 	}
 	if err := sim.SetAccessoryBehavior(12, AccessoryBehavior{Mode: AccessoryBehaviorDelayed, Delay: 10 * time.Second}); err != nil {
 		t.Fatal(err)
 	}
-	if err := sim.SetAccessory(ctx, 12, "diverging"); err != nil {
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition2}); err != nil {
 		t.Fatal(err)
 	}
 	clk.Advance(5 * time.Second)
-	if err := sim.SetAccessory(ctx, 12, "straight"); err != nil {
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition1}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -621,7 +670,7 @@ func TestAccessoryRejectsInvalidConfigurationAndStates(t *testing.T) {
 	if err := sim.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := sim.SetAccessory(ctx, 12, "invalid"); err == nil {
+	if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition("invalid")}); err == nil {
 		t.Fatal("invalid desired state accepted")
 	}
 	if err := sim.ReportAccessoryState(12, "invalid"); err == nil {
@@ -680,7 +729,7 @@ func TestSnapshotAndCommandsAreConcurrentSafe(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < iterations; i++ {
-			if err := sim.SetAccessory(ctx, i%16, "straight"); err != nil {
+			if err := sim.SetBasicAccessory(ctx, station.AccessoryCommand{Address: i%16 + 1, Position: station.AccessoryPosition1}); err != nil {
 				errors <- err
 			}
 		}

@@ -35,8 +35,9 @@ Les endpoints utilisent seulement `position1` et `position2`.
 
 ## 2. Adresse linéaire canonique
 
-TrainPilot utilise une adresse d'accessoire linéaire strictement positive.
-Cette valeur est indépendante du pilote.
+TrainPilot utilise une adresse d'accessoire linéaire comprise entre `1` et
+`2040` inclus. Cette plage commune évite les adresses `2041..2044`, réservées
+à la diffusion par DCC-EX. Cette valeur est indépendante du pilote.
 
 Chaque pilote convertit cette adresse vers son protocole.
 Il valide aussi la borne réellement supportée par ce protocole.
@@ -78,7 +79,51 @@ position2 logique -> position1 envoyée au pilote
 La définition des positions métier ne change pas.
 La résolution d'un retour physique applique l'inversion inverse.
 
-## 4. Modèle JSON
+## 4. Abstraction station
+
+`station.CommandStation` reçoit une commande binaire typée :
+
+```go
+station.AccessoryCommand{
+    Address:  12,
+    Position: station.AccessoryPosition2,
+}
+```
+
+La méthode s'appelle `SetBasicAccessory`.
+Elle reste distincte d'un futur contrat d'accessoire étendu pour les signaux.
+Une adresse ou une position invalide produit respectivement
+`station.ErrInvalidAccessoryAddress` ou
+`station.ErrInvalidAccessoryPosition`.
+
+| Niveau | Exemple | Sens |
+| --- | --- | --- |
+| logique | `left`, `straight`, `route_a` | position métier du turnout |
+| station | `position1`, `position2` | choix binaire indépendant de la géométrie |
+| protocole z21 | `P=0`, `P=1` | choix de la sortie 1 ou 2 |
+| DCC-EX | `activate=0`, `activate=1` | commande binaire à l'adresse linéaire |
+
+Le provider facultatif `station.AccessoryStateEventProvider` publie :
+
+- l'adresse linéaire ;
+- la position binaire ;
+- l'heure d'observation ;
+- la qualité `station`, `assumed` ou `physical`.
+
+`station` signifie que la centrale rapporte son état de fonction.
+`assumed` signifie que l'état est déduit d'une commande ou d'un écho.
+`physical` est réservé à un capteur mécanique réel.
+Aucun de ces niveaux ne doit être promu en preuve physique sans capteur adapté.
+
+La capability historique `accessoryControl` reste exposée pour compatibilité.
+La présence de retours s'observe côté serveur par le provider facultatif ; elle
+n'impose pas à un driver de fabriquer des événements.
+
+Le simulateur expose ce provider avec une file de 64 événements.
+La publication ne bloque jamais une commande. Si la file est pleine, le nouvel
+événement est abandonné ; le snapshot du simulateur permet la resynchronisation.
+
+## 5. Modèle JSON
 
 ```json
 {
@@ -122,7 +167,7 @@ Le `kind` aide le domaine et l'interface graphique.
 Il ne définit jamais les vecteurs valides.
 La liste `positions` reste la source de vérité.
 
-## 5. États courants
+## 6. États courants
 
 `desiredPosition` contient la position logique demandée.
 
@@ -145,7 +190,7 @@ reportedState
 Ils sont dépréciés.
 Les appareils composés ne les exposent pas.
 
-## 6. Aiguillage simple
+## 7. Aiguillage simple
 
 ```text
 straight  -> main=position1
@@ -155,7 +200,7 @@ diverging -> main=position2
 Un aiguillage enroulé, symétrique ou courbe reste généralement `simple`.
 Ses libellés peuvent être adaptés à l'interface.
 
-## 7. Aiguillage triple
+## 8. Aiguillage triple
 
 ```json
 {
@@ -195,7 +240,7 @@ A=position2, B=position2
 Elle ne peut pas être commandée comme position logique.
 Si elle est observée, `reportedPosition` reste vide.
 
-## 8. Traversée-jonction double
+## 9. Traversée-jonction double
 
 Une TJD peut déclarer quatre positions génériques :
 
@@ -210,7 +255,7 @@ Ces noms ne décrivent pas une géométrie universelle.
 Le câblage, la motorisation et le fabricant déterminent la correspondance.
 La configuration explicite doit toujours être vérifiée sur le réseau concerné.
 
-## 9. Traversée-jonction simple
+## 10. Traversée-jonction simple
 
 Une TJS peut avoir deux endpoints sans utiliser les quatre combinaisons.
 
@@ -225,7 +270,7 @@ route_c -> A=position2, B=position1
 La combinaison absente reste invalide.
 Aucun traitement spécial n'est nécessaire dans le modèle.
 
-## 10. Appareil personnalisé
+## 11. Appareil personnalisé
 
 `custom` accepte un nombre quelconque d'endpoints.
 
@@ -239,14 +284,14 @@ position two -> A=position2, B=position1, C=position2
 Chaque position doit définir tous les endpoints.
 Deux positions ne peuvent pas partager le même vecteur.
 
-## 11. Validation
+## 12. Validation
 
 Une définition est refusée si :
 
 - l'identifiant ou le nom est vide ;
 - le `kind` est inconnu ;
 - aucun endpoint ou aucune position n'est défini ;
-- une adresse est nulle ou négative ;
+- une adresse est hors de la plage portable `1..2040` ;
 - deux endpoints partagent un identifiant ou une adresse ;
 - une position référence un endpoint absent ;
 - une position omet un endpoint ;
@@ -257,7 +302,7 @@ Une définition est refusée si :
 
 Les erreurs incluent l'identifiant de l'appareil et la cause exploitable.
 
-## 12. Persistance et migration
+## 13. Persistance et migration
 
 Les définitions sont normalisées dans quatre ensembles :
 
@@ -283,7 +328,7 @@ diverging -> main=position2
 
 Une ancienne valeur `unknown` devient une position rapportée vide.
 
-## 13. Archives
+## 14. Archives
 
 Les exports utilisent le format d'archive version 2.
 Ils sont déterministes pour un état et un timestamp identiques.
@@ -291,7 +336,7 @@ Ils sont déterministes pour un état et un timestamp identiques.
 Les archives version 1 restent importables.
 Leur modèle à une adresse est converti en aiguillage simple.
 
-## 14. Confirmation et sécurité
+## 15. Confirmation et sécurité
 
 `reportedPosition` indique ce que TrainPilot peut résoudre depuis les retours
 disponibles.
@@ -307,7 +352,7 @@ Une ancienne confirmation ne doit pas écraser une commande récente.
 La sérialisation des transitions et les confirmations multi-actionneurs seront
 ajoutées par les tickets suivants du lot.
 
-## 15. Hors modèle
+## 16. Hors modèle
 
 Les ponts tournants, plaques tournantes et traversers ne sont pas des
 `Turnout`.

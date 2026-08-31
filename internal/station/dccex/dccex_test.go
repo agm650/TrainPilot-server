@@ -485,3 +485,46 @@ func TestThrottleCommand(t *testing.T) {
 		t.Fatalf("commands=%v", got)
 	}
 }
+
+func TestBasicAccessoryCommand(t *testing.T) {
+	server := newFakeTCPServer(t)
+	driver := newConnectedDriver(t, server, station.DefaultOfflineAfter)
+	for _, command := range []station.AccessoryCommand{
+		{Address: 12, Position: station.AccessoryPosition1},
+		{Address: 12, Position: station.AccessoryPosition2},
+	} {
+		if err := driver.SetBasicAccessory(context.Background(), command); err != nil {
+			t.Fatal(err)
+		}
+	}
+	eventually(t, time.Second, "basic accessory commands", func() bool { return len(server.Commands()) == 2 })
+	if got := server.Commands(); !equalStringSlices(got, []string{"<a 12 0 0>", "<a 12 0 1>"}) {
+		t.Fatalf("commands=%v", got)
+	}
+}
+
+func TestBasicAccessoryValidationAndOffline(t *testing.T) {
+	driver := NewTCP("unused", station.DefaultOfflineAfter)
+	t.Cleanup(func() { _ = driver.Close() })
+	if err := driver.SetBasicAccessory(context.Background(), station.AccessoryCommand{Address: 0, Position: station.AccessoryPosition1}); !errors.Is(err, station.ErrInvalidAccessoryAddress) {
+		t.Fatalf("invalid address error=%v", err)
+	}
+	if err := driver.SetBasicAccessory(context.Background(), station.AccessoryCommand{Address: 1, Position: station.AccessoryPosition("invalid")}); !errors.Is(err, station.ErrInvalidAccessoryPosition) {
+		t.Fatalf("invalid position error=%v", err)
+	}
+	if err := driver.SetBasicAccessory(context.Background(), station.AccessoryCommand{Address: 1, Position: station.AccessoryPosition1}); !errors.Is(err, station.ErrOffline) {
+		t.Fatalf("offline accessory error=%v", err)
+	}
+}
+
+func equalStringSlices(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}

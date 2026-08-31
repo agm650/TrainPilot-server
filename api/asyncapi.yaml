@@ -189,7 +189,7 @@ components:
       required: [id, linearAddress]
       properties:
         id: { type: string, minLength: 1 }
-        linearAddress: { type: integer, minimum: 1 }
+        linearAddress: { type: integer, minimum: 1, maximum: 2040 }
         inverted: { type: boolean, default: false }
     TurnoutPositionDefinition:
       type: object

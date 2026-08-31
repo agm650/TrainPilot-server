@@ -21,6 +21,9 @@ Chaque archive contient obligatoirement `manifest.json` :
 }
 ```
 
+Chaque `linearAddress` d'endpoint doit être compris entre `1` et `2040`.
+Les adresses `2041..2044` sont exclues de la plage portable TrainPilot.
+
 `packageType` vaut `rolling-stock` ou `layout`. Un format, une version ou un type inconnu est refusé.
 
 ## Bibliothèque de matériel

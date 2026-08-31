@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/agm650/TrainPilot-server/internal/station"
 )
 
 type Role string
@@ -132,27 +134,12 @@ type Block struct {
 	Occupied bool   `json:"occupied"`
 }
 
-type AccessoryPosition string
+type AccessoryPosition = station.AccessoryPosition
 
 const (
-	AccessoryPosition1 AccessoryPosition = "position1"
-	AccessoryPosition2 AccessoryPosition = "position2"
+	AccessoryPosition1 = station.AccessoryPosition1
+	AccessoryPosition2 = station.AccessoryPosition2
 )
-
-func (p AccessoryPosition) Valid() bool {
-	return p == AccessoryPosition1 || p == AccessoryPosition2
-}
-
-func (p AccessoryPosition) Inverted() AccessoryPosition {
-	switch p {
-	case AccessoryPosition1:
-		return AccessoryPosition2
-	case AccessoryPosition2:
-		return AccessoryPosition1
-	default:
-		return p
-	}
-}
 
 type TurnoutKind string
 
@@ -258,7 +245,7 @@ func ValidateTurnout(t Turnout) error {
 		if strings.TrimSpace(endpoint.ID) == "" {
 			return invalid("turnout %q has an endpoint without id", t.ID)
 		}
-		if endpoint.LinearAddress < 1 {
+		if endpoint.LinearAddress < station.MinBasicAccessoryAddress || endpoint.LinearAddress > station.MaxBasicAccessoryAddress {
 			return invalid("turnout %q endpoint %q has invalid linear address %d", t.ID, endpoint.ID, endpoint.LinearAddress)
 		}
 		if _, exists := endpointIDs[endpoint.ID]; exists {

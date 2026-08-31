@@ -549,6 +549,11 @@ Le modèle distingue désormais l'appareil logique de ses sorties DCC binaires.
 Un aiguillage possède un `kind`, des endpoints et des positions logiques
 définies par des vecteurs `position1`/`position2`.
 
+L'abstraction de centrale utilise `SetBasicAccessory` avec une adresse linéaire
+portable `1..2040` et une position typée. Elle ne transmet plus
+`straight/diverging` aux drivers. Un provider facultatif distingue les retours
+de centrale, les états supposés et les futurs capteurs physiques.
+
 Il représente un aiguillage simple, triple, une TJD, une TJS ou un appareil
 personnalisé. Une combinaison physique non déclarée reste inconnue. Elle ne
 devient jamais une position commandable.

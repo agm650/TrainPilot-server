@@ -718,6 +718,7 @@ components:
         linearAddress:
           type: integer
           minimum: 1
+          maximum: 2040
           description: Canonical linear DCC accessory address used by TrainPilot.
         inverted:
           type: boolean

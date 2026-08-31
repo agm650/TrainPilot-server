@@ -134,15 +134,18 @@ type Snapshot struct {
 }
 
 type Simulator struct {
-	mu           sync.RWMutex
-	clock        clock.Clock
-	state        State
-	feedback     chan station.FeedbackEvent
-	statusEvents chan station.Status
-	lifecycle    chan struct{}
+	mu                   sync.RWMutex
+	clock                clock.Clock
+	state                State
+	feedback             chan station.FeedbackEvent
+	statusEvents         chan station.Status
+	accessoryStateEvents chan station.AccessoryStateEvent
+	lifecycle            chan struct{}
 }
 
+var _ station.CommandStation = (*Simulator)(nil)
 var _ station.StatusEventProvider = (*Simulator)(nil)
+var _ station.AccessoryStateEventProvider = (*Simulator)(nil)
 
 type deadlineWaiter interface {
 	WaitUntil(context.Context, time.Time) error
@@ -157,11 +160,12 @@ func NewWithClock(clk clock.Clock) *Simulator {
 		clk = clock.Real{}
 	}
 	return &Simulator{
-		clock:        clk,
-		state:        newState(false),
-		feedback:     make(chan station.FeedbackEvent, 64),
-		statusEvents: make(chan station.Status, 64),
-		lifecycle:    make(chan struct{}),
+		clock:                clk,
+		state:                newState(false),
+		feedback:             make(chan station.FeedbackEvent, 64),
+		statusEvents:         make(chan station.Status, 64),
+		accessoryStateEvents: make(chan station.AccessoryStateEvent, 64),
+		lifecycle:            make(chan struct{}),
 	}
 }
 
@@ -475,9 +479,12 @@ func (s *Simulator) SetLocoFunction(ctx context.Context, address, fn int, on boo
 	return nil
 }
 
-func (s *Simulator) SetAccessory(ctx context.Context, address int, state string) error {
+func (s *Simulator) SetBasicAccessory(ctx context.Context, command station.AccessoryCommand) error {
 	epoch, err := s.beforeOperation(ctx, OpAccessory, true)
 	if err != nil {
+		return err
+	}
+	if err := command.Validate(); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -485,15 +492,17 @@ func (s *Simulator) SetAccessory(ctx context.Context, address int, state string)
 	if err := s.ensureOperationReadyLocked(epoch, true); err != nil {
 		return err
 	}
-	if !validAccessoryDesiredState(state) {
-		return fmt.Errorf("unsupported accessory state %q", state)
+	state := "straight"
+	if command.Position == station.AccessoryPosition2 {
+		state = "diverging"
 	}
 	now := s.clock.Now()
 	s.applyDueAccessoryReportsLocked(now)
 
-	accessory := s.state.Accessories[address]
-	s.state.accessoryGeneration[address]++
-	generation := s.state.accessoryGeneration[address]
+	address := command.Address
+	accessory := s.state.Accessories[command.Address]
+	s.state.accessoryGeneration[command.Address]++
+	generation := s.state.accessoryGeneration[command.Address]
 	accessory.Desired = state
 	accessory.LastCommandAt = timePointer(now)
 	delete(s.state.accessoryReports, address)
@@ -507,6 +516,7 @@ func (s *Simulator) SetAccessory(ctx context.Context, address int, state string)
 		accessory.Reported = state
 		accessory.Pending = false
 		accessory.LastReportAt = timePointer(now)
+		s.publishAccessoryStateLocked(command.Position, command.Address, station.AccessoryReportAssumed, now)
 	case AccessoryBehaviorDelayed:
 		accessory.Pending = true
 		s.state.accessoryReports[address] = scheduledAccessoryReport{
@@ -520,6 +530,9 @@ func (s *Simulator) SetAccessory(ctx context.Context, address int, state string)
 		accessory.Reported = behavior.ReportedState
 		accessory.Pending = behavior.ReportedState != state
 		accessory.LastReportAt = timePointer(now)
+		if position, ok := accessoryPositionFromLegacyState(behavior.ReportedState); ok {
+			s.publishAccessoryStateLocked(position, command.Address, station.AccessoryReportStation, now)
+		}
 	}
 	s.state.Accessories[address] = accessory
 	s.markActivityLocked(now)
@@ -573,10 +586,20 @@ func (s *Simulator) ReportAccessoryState(address int, state string) error {
 	accessory.Pending = accessory.Desired != "" && accessory.Desired != state
 	accessory.LastReportAt = timePointer(now)
 	s.state.Accessories[address] = accessory
+	if position, ok := accessoryPositionFromLegacyState(state); ok {
+		s.publishAccessoryStateLocked(position, address, station.AccessoryReportStation, now)
+	}
 	return nil
 }
 
 func (s *Simulator) Feedback() <-chan station.FeedbackEvent { return s.feedback }
+
+// AccessoryStateEvents returns a best-effort buffered stream. Producers never
+// block a station command; the newest event is dropped when the buffer is full.
+// Snapshot remains the authoritative simulator state for resynchronization.
+func (s *Simulator) AccessoryStateEvents() <-chan station.AccessoryStateEvent {
+	return s.accessoryStateEvents
+}
 
 // InjectFeedback preserves the historical best-effort API. It always updates
 // the physical sensor state but intentionally ignores a full feedback buffer.
@@ -731,6 +754,15 @@ func (s *Simulator) Reset() {
 	for {
 		select {
 		case <-s.feedback:
+		default:
+			goto feedbackDrained
+		}
+	}
+
+feedbackDrained:
+	for {
+		select {
+		case <-s.accessoryStateEvents:
 		default:
 			return
 		}
@@ -912,6 +944,30 @@ func validAccessoryReportedState(state string) bool {
 	return validAccessoryDesiredState(state) || state == "unknown"
 }
 
+func accessoryPositionFromLegacyState(state string) (station.AccessoryPosition, bool) {
+	switch state {
+	case "straight":
+		return station.AccessoryPosition1, true
+	case "diverging":
+		return station.AccessoryPosition2, true
+	default:
+		return "", false
+	}
+}
+
+func (s *Simulator) publishAccessoryStateLocked(position station.AccessoryPosition, address int, quality station.AccessoryReportQuality, observedAt time.Time) {
+	event := station.AccessoryStateEvent{
+		Address:    address,
+		Position:   position,
+		Quality:    quality,
+		ObservedAt: observedAt,
+	}
+	select {
+	case s.accessoryStateEvents <- event:
+	default:
+	}
+}
+
 func (s *Simulator) applyDueAccessoryReportsLocked(now time.Time) {
 	for address, report := range s.state.accessoryReports {
 		if now.Before(report.DueAt) {
@@ -924,6 +980,9 @@ func (s *Simulator) applyDueAccessoryReportsLocked(now time.Time) {
 				accessory.Pending = false
 				accessory.LastReportAt = timePointer(report.DueAt)
 				s.state.Accessories[address] = accessory
+				if position, ok := accessoryPositionFromLegacyState(report.State); ok {
+					s.publishAccessoryStateLocked(position, address, station.AccessoryReportStation, report.DueAt)
+				}
 			}
 		}
 		delete(s.state.accessoryReports, address)

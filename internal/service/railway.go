@@ -164,11 +164,10 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, st
 		return invalid("turnout position does not define its endpoint")
 	}
 	physical := model.PhysicalAccessoryPosition(endpoint, required)
-	driverState := "straight"
-	if physical == model.AccessoryPosition2 {
-		driverState = "diverging"
-	}
-	if err := r.station.SetAccessory(ctx, endpoint.LinearAddress, driverState); err != nil {
+	if err := r.station.SetBasicAccessory(ctx, station.AccessoryCommand{
+		Address:  endpoint.LinearAddress,
+		Position: physical,
+	}); err != nil {
 		return err
 	}
 	if err := r.store.SetTurnoutState(ctx, id, state); err != nil {

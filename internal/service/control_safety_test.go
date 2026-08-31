@@ -319,8 +319,10 @@ func (s *blockingCommandStation) SetLocoFunction(context.Context, int, int, bool
 	s.record("function")
 	return nil
 }
-func (s *blockingCommandStation) SetAccessory(context.Context, int, string) error { return nil }
-func (s *blockingCommandStation) Feedback() <-chan station.FeedbackEvent          { return s.feedback }
+func (s *blockingCommandStation) SetBasicAccessory(context.Context, station.AccessoryCommand) error {
+	return nil
+}
+func (s *blockingCommandStation) Feedback() <-chan station.FeedbackEvent { return s.feedback }
 func (s *blockingCommandStation) Health() station.Health {
 	return station.Health{Connectivity: station.Online}
 }
