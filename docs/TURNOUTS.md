@@ -1,6 +1,6 @@
 # Aiguillages et accessoires DCC
 
-Dernière mise à jour : 31 août 2026.
+Dernière mise à jour : 1er septembre 2026.
 
 Ce document décrit le modèle canonique des aiguillages de TrainPilot.
 Il couvre les appareils simples et composés.
@@ -155,7 +155,10 @@ centrale confirme son état de fonction, pas la position mécanique des lames.
   ],
   "desiredPosition": "straight",
   "reportedPosition": "straight",
-  "pending": false
+  "pending": false,
+  "reportedStatus": "known",
+  "quality": "physical",
+  "commandStatus": "succeeded"
 }
 ```
 
@@ -179,6 +182,10 @@ La liste `positions` reste la source de vérité.
 Une chaîne vide signifie que la combinaison est inconnue ou invalide.
 
 `pending=true` signifie qu'une transition attend encore sa confirmation.
+
+`reportedStatus` distingue `known`, `unknown` et `invalid`. `quality` agrège
+la confiance des endpoints. `commandStatus` vaut `idle`, `pending`,
+`succeeded`, `failed` ou `timeout`.
 
 `unknown` et `invalid` sont réservés à la qualité d'état.
 Ils ne peuvent pas être déclarés comme identifiants de positions normales.
@@ -340,7 +347,110 @@ Ils sont déterministes pour un état et un timestamp identiques.
 Les archives version 1 restent importables.
 Leur modèle à une adresse est converti en aiguillage simple.
 
-## 15. Confirmation et sécurité
+## 15. Machine de contrôle et sécurité
+
+Une commande logique suit cette machine d'état :
+
+```text
+commande validée
+  -> desiredPosition=cible, pending=true, commandStatus=pending
+  -> expansion en endpoints ordonnés
+  -> attente des rapports de chaque étape
+  -> cible résolue: pending=false, commandStatus=succeeded
+  -> erreur driver: pending=false, commandStatus=failed
+  -> délai expiré: pending=false, commandStatus=timeout
+```
+
+`reportedPosition` n'est jamais copié depuis la commande. Il est recalculé
+uniquement à partir des `AccessoryStateEvent` connus. Un rapport `assumed` peut
+terminer une commande, mais la qualité finale reste `assumed`.
+
+La qualité globale est la moins fiable des qualités disponibles :
+
+```text
+assumed < station < physical
+```
+
+Deux rapports `station` donnent `station`. Un rapport `assumed` et un rapport
+`station` donnent `assumed`. Seuls des rapports tous `physical` donnent
+`physical`.
+
+### Transition sûre
+
+Le contrôleur construit un graphe générique à partir des positions déclarées.
+Deux positions sont voisines si leur vecteur diffère sur exactement un
+endpoint. Le chemin le plus court est parcouru dans l'ordre des positions de
+la définition. Aucun traitement spécial n'examine `kind`.
+
+Pour le triple :
+
+```text
+left A2/B1 -> straight A1/B1 -> right A1/B2
+```
+
+La combinaison interdite `A2/B2` n'est donc jamais commandée. Chaque étape est
+confirmée avant la suivante. Quand l'état initial est inconnu, les endpoints
+de la cible sont commandés dans l'ordre déclaré ; l'exploitant doit alors
+considérer qu'aucun chemin mécanique ne peut être garanti depuis un état
+inconnu.
+
+Si aucun chemin à un endpoint par étape n'existe entre deux positions connues,
+la commande échoue avec `unsafe_turnout_transition`. Une définition future
+pourra expliciter des arêtes plus complexes ; la V1 ne traverse pas directement
+un vecteur intermédiaire non déclaré.
+
+### Sérialisation et confirmations obsolètes
+
+Les commandes sont sérialisées par identifiant de turnout. Deux commandes du
+même appareil ne peuvent pas entrelacer leurs endpoints. Deux appareils
+indépendants restent commandables en parallèle. Les verrous sans utilisateur
+sont supprimés.
+
+Chaque commande et chaque étape possède une génération. Un rapport dont
+`observedAt` précède l'étape courante peut mettre à jour l'observation
+historique, mais ne peut pas confirmer la nouvelle commande. Les drivers
+doivent donc fournir un timestamp d'observation fidèle.
+
+### Timeout
+
+`turnout.confirmationTimeout` règle le délai maximal d'une étape. Sa valeur par
+défaut est `2s` et son format suit `time.ParseDuration` (`500ms`, `2s`, `1m`).
+Une valeur absente utilise le défaut ; une valeur invalide, nulle ou négative
+empêche le démarrage.
+
+À expiration, `desiredPosition` reste la cible, `reportedPosition` conserve la
+dernière observation, `pending` devient faux et `commandStatus` devient
+`timeout`. Le serveur ne prétend jamais que la cible a été atteinte.
+
+### Échec partiel et rollback
+
+Si A confirme puis B échoue, les rapports réellement reçus sont conservés.
+Le vecteur peut résoudre une position intermédiaire ou devenir `invalid`. Un
+événement `turnout.command.failed` est publié et l'erreur est retournée au
+client.
+
+La V1 ne fait aucun rollback aveugle. Le graphe déduit des vecteurs ne constitue
+pas une déclaration explicite qu'un retour est mécaniquement sûr. Une action
+ultérieure de l'utilisateur est nécessaire après un échec partiel.
+
+### Changement externe
+
+Un changement reçu depuis une application de centrale, une commande manuelle
+ou un autre client met à jour `reportedPosition` et publie
+`turnout.state.changed`. Il ne modifie pas `desiredPosition` et ne relance
+aucune commande automatiquement. `reportedPosition != desiredPosition` est un
+état légitime.
+
+### Événements
+
+- `turnout.commanded` annonce la cible acceptée ;
+- `turnout.state.changed` expose desired, reported, statut, pending, qualité et
+  résultat de commande ;
+- `turnout.command.failed` expose la cible et une raison publique stable.
+
+Le contrat exact est dans `api/asyncapi.yaml` version `1.8.0`.
+
+## 16. Confirmation physique
 
 `reportedPosition` indique ce que TrainPilot peut résoudre depuis les retours
 disponibles.
@@ -353,11 +463,11 @@ Une combinaison inconnue ne devient jamais une position inventée.
 Une transition partiellement exécutée ne doit jamais être déclarée réussie.
 Une ancienne confirmation ne doit pas écraser une commande récente.
 
-Le service compose déjà les endpoints dans l'ordre déclaré et résout leurs
-rapports. La sérialisation avancée, le rollback après succès partiel et les
-transitions sûres seront ajoutés par les tickets suivants du lot.
+Le contrôleur agrège ces niveaux sans les promouvoir. Un itinéraire qui exige
+une preuve mécanique devra imposer une politique `physical` dans un futur
+ticket.
 
-## 16. Simulation et appareils composés
+## 17. Simulation et appareils composés
 
 Le simulateur travaille uniquement au niveau des endpoints physiques. Son état
 utilise `position1` et `position2`, jamais les noms logiques du turnout.
@@ -373,7 +483,7 @@ Pour un triple, le service résout les rapports reçus :
 A=position2, B=position1 -> left
 A=position1, B=position1 -> straight
 A=position1, B=position2 -> right
-A=position2, B=position2 -> position rapportée vide, pending=true
+A=position2, B=position2 -> position rapportée vide, reportedStatus=invalid
 ```
 
 Le simulateur accepte volontairement le dernier vecteur. Il décrit un état
@@ -382,7 +492,7 @@ physique possible, même s'il est interdit par la définition logique.
 Un fault `accessory` peut cibler une adresse. Il permet de faire réussir A puis
 échouer B sans hasard et sans rejeu.
 
-## 17. Hors modèle
+## 18. Hors modèle
 
 Les ponts tournants, plaques tournantes et traversers ne sont pas des
 `Turnout`.
@@ -391,7 +501,7 @@ Ils ont des positions indexées nombreuses, une durée de mouvement, un
 verrouillage et parfois une occupation propre.
 Ils nécessitent une famille métier distincte.
 
-## 18. Protocole accessoire z21
+## 19. Protocole accessoire z21
 
 Le pilote convertit l'adresse linéaire canonique avec :
 
@@ -433,7 +543,7 @@ refus hors ligne sont couverts par un faux serveur UDP. Une validation sur
 centrale réelle reste requise avant de considérer l'adressage affiché par un
 constructeur ou la position mécanique comme confirmés.
 
-## 19. Protocole accessoire DCC-EX
+## 20. Protocole accessoire DCC-EX
 
 Le pilote utilise uniquement la commande brute à adresse linéaire :
 

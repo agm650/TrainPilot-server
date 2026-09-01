@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
@@ -14,16 +15,58 @@ import (
 )
 
 type RailwayService struct {
-	store            *store.Store
-	station          station.CommandStation
-	events           *events.Bus
-	accessoryMu      sync.Mutex
-	accessoryStates  map[string]map[string]model.AccessoryPosition
-	accessoryStarted bool
+	store               *store.Store
+	station             station.CommandStation
+	events              *events.Bus
+	confirmationTimeout time.Duration
+
+	turnoutLocksMu sync.Mutex
+	turnoutLocks   map[string]*turnoutCommandLock
+
+	accessoryMu          sync.Mutex
+	accessoryStates      map[string]map[string]model.AccessoryPosition
+	accessoryReports     map[string]map[string]station.AccessoryReportState
+	accessoryQualities   map[string]map[string]station.AccessoryReportQuality
+	accessoryGenerations map[string]map[string]uint64
+	turnoutRuntime       map[string]*turnoutCommandRuntime
 }
 
-func NewRailwayService(s *store.Store, st station.CommandStation, b *events.Bus) *RailwayService {
-	return &RailwayService{store: s, station: st, events: b, accessoryStates: map[string]map[string]model.AccessoryPosition{}}
+const DefaultTurnoutConfirmationTimeout = 2 * time.Second
+
+var (
+	ErrTurnoutConfirmationTimeout = errors.New("turnout confirmation timeout")
+	ErrUnsafeTurnoutTransition    = errors.New("no safe turnout transition")
+)
+
+type turnoutCommandLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+type turnoutCommandRuntime struct {
+	generation   uint64
+	confirmation uint64
+	startedAt    time.Time
+	updates      chan struct{}
+}
+
+func NewRailwayService(s *store.Store, st station.CommandStation, b *events.Bus, confirmationTimeout ...time.Duration) *RailwayService {
+	timeout := DefaultTurnoutConfirmationTimeout
+	if len(confirmationTimeout) > 0 && confirmationTimeout[0] > 0 {
+		timeout = confirmationTimeout[0]
+	}
+	return &RailwayService{
+		store:                s,
+		station:              st,
+		events:               b,
+		confirmationTimeout:  timeout,
+		turnoutLocks:         map[string]*turnoutCommandLock{},
+		accessoryStates:      map[string]map[string]model.AccessoryPosition{},
+		accessoryReports:     map[string]map[string]station.AccessoryReportState{},
+		accessoryQualities:   map[string]map[string]station.AccessoryReportQuality{},
+		accessoryGenerations: map[string]map[string]uint64{},
+		turnoutRuntime:       map[string]*turnoutCommandRuntime{},
+	}
 }
 func (r *RailwayService) Locomotives(ctx context.Context) ([]model.Locomotive, error) {
 	return r.store.ListLocomotives(ctx)
@@ -148,6 +191,8 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, st
 	if !Allowed(user.Role, PermissionDispatch) {
 		return ErrPermissionDenied
 	}
+	release := r.lockTurnout(id)
+	defer release()
 	if err := station.CheckCommandAllowed(r.station); err != nil {
 		return err
 	}
@@ -155,35 +200,71 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, st
 	if err != nil {
 		return err
 	}
-	position, exists := t.Position(state)
+	_, exists := t.Position(state)
 	if !exists {
 		return invalid("turnout position is not declared")
 	}
+	r.seedAccessoryState(t)
+	generation := r.beginTurnoutCommand(id)
 	if err := r.store.SetTurnoutDesiredPosition(ctx, id, state, true); err != nil {
 		return err
 	}
-	for _, endpoint := range t.Endpoints {
-		required, exists := position.Endpoints[endpoint.ID]
-		if !exists {
-			return invalid("turnout position does not define all endpoints")
-		}
-		if err := r.station.SetBasicAccessory(ctx, station.AccessoryCommand{
-			Address:  endpoint.LinearAddress,
-			Position: model.PhysicalAccessoryPosition(endpoint, required),
-		}); err != nil {
-			return err
-		}
+	r.events.Publish("turnout.commanded", map[string]any{
+		"turnoutId":      id,
+		"targetPosition": state,
+	})
+
+	path, err := safeTurnoutPath(t, t.ReportedPosition, state)
+	if err != nil {
+		return r.failTurnoutCommand(ctx, t, state, "unsafe_transition", err)
 	}
-	if r.accessoryObservationsStarted() {
-		if err := r.reconcileTurnout(ctx, t); err != nil {
+	if len(path) == 0 {
+		if err := r.store.SetTurnoutCommandResult(ctx, id, false, model.TurnoutCommandSucceeded); err != nil {
 			return err
 		}
-	} else {
-		if err := r.store.SetTurnoutState(ctx, id, state); err != nil {
-			return err
-		}
-		r.events.Publish("turnout.state.changed", map[string]any{"turnoutId": id, "state": state})
+		r.publishTurnoutState(ctx, id)
+		return nil
 	}
+
+	currentPosition := t.ReportedPosition
+	for _, next := range path {
+		changed := changedTurnoutEndpoints(t, currentPosition, next.ID)
+		if len(changed) == 0 {
+			currentPosition = next.ID
+			continue
+		}
+		confirmation := r.beginTurnoutStep(id, generation)
+		for _, endpoint := range t.Endpoints {
+			if !changed[endpoint.ID] {
+				continue
+			}
+			required, ok := next.Endpoints[endpoint.ID]
+			if !ok {
+				return r.failTurnoutCommand(ctx, t, state, "invalid_definition", invalid("turnout position does not define all endpoints"))
+			}
+			command := station.AccessoryCommand{
+				Address:  endpoint.LinearAddress,
+				Position: model.PhysicalAccessoryPosition(endpoint, required),
+			}
+			if err := r.station.SetBasicAccessory(ctx, command); err != nil {
+				return r.failTurnoutCommand(ctx, t, state, "driver_error", err)
+			}
+		}
+		if err := r.waitForTurnoutPosition(ctx, t, generation, confirmation, next.ID, changed); err != nil {
+			reason := "confirmation_timeout"
+			status := model.TurnoutCommandTimeout
+			if !errors.Is(err, ErrTurnoutConfirmationTimeout) {
+				reason = "confirmation_interrupted"
+				status = model.TurnoutCommandFailed
+			}
+			return r.failTurnoutCommandWithStatus(ctx, t, state, reason, status, err)
+		}
+		currentPosition = next.ID
+	}
+	if err := r.store.SetTurnoutCommandResult(ctx, id, false, model.TurnoutCommandSucceeded); err != nil {
+		return err
+	}
+	r.publishTurnoutState(ctx, id)
 	return nil
 }
 func (r *RailwayService) SetBlockFeedback(ctx context.Context, id string, occupied bool) error {
@@ -216,9 +297,6 @@ func (r *RailwayService) StartFeedback(ctx context.Context) {
 	if !ok {
 		return
 	}
-	r.accessoryMu.Lock()
-	r.accessoryStarted = true
-	r.accessoryMu.Unlock()
 	go func() {
 		for {
 			select {
@@ -234,12 +312,6 @@ func (r *RailwayService) StartFeedback(ctx context.Context) {
 	}()
 }
 
-func (r *RailwayService) accessoryObservationsStarted() bool {
-	r.accessoryMu.Lock()
-	defer r.accessoryMu.Unlock()
-	return r.accessoryStarted
-}
-
 func (r *RailwayService) handleAccessoryStateEvent(ctx context.Context, event station.AccessoryStateEvent) {
 	turnouts, err := r.store.ListTurnouts(ctx)
 	if err != nil {
@@ -251,55 +323,324 @@ func (r *RailwayService) handleAccessoryStateEvent(ctx context.Context, event st
 				continue
 			}
 			r.accessoryMu.Lock()
+			r.ensureAccessoryMapsLocked(turnout.ID)
 			states := r.accessoryStates[turnout.ID]
-			if states == nil {
-				states = map[string]model.AccessoryPosition{}
-				r.accessoryStates[turnout.ID] = states
-			}
 			if event.HasKnownPosition() {
 				states[endpoint.ID] = event.Position
-			} else if event.State == station.AccessoryReportUnknown || event.State == station.AccessoryReportInvalid {
+				r.accessoryReports[turnout.ID][endpoint.ID] = station.AccessoryReportKnown
+			} else if event.State.Valid() {
 				states[endpoint.ID] = ""
+				r.accessoryReports[turnout.ID][endpoint.ID] = event.State
 			} else {
 				r.accessoryMu.Unlock()
 				break
 			}
+			if event.Quality.Valid() {
+				r.accessoryQualities[turnout.ID][endpoint.ID] = event.Quality
+			}
+			if runtime := r.turnoutRuntime[turnout.ID]; runtime != nil &&
+				(event.ObservedAt.IsZero() || !event.ObservedAt.Before(runtime.startedAt)) {
+				r.accessoryGenerations[turnout.ID][endpoint.ID] = runtime.confirmation
+			}
+			position, reportState, quality := r.resolveTurnoutObservationLocked(turnout)
 			r.accessoryMu.Unlock()
-			_ = r.reconcileTurnout(ctx, turnout)
+			_ = r.persistTurnoutObservation(ctx, turnout.ID, position, reportState, quality)
+			r.accessoryMu.Lock()
+			r.signalTurnoutUpdateLocked(turnout.ID)
+			r.accessoryMu.Unlock()
 			break
 		}
 	}
 }
 
-func (r *RailwayService) reconcileTurnout(ctx context.Context, turnout model.Turnout) error {
-	r.accessoryMu.Lock()
-	observed := r.accessoryStates[turnout.ID]
-	states := make(map[string]model.AccessoryPosition, len(observed))
-	for endpointID, position := range observed {
-		states[endpointID] = position
-	}
-	r.accessoryMu.Unlock()
-	if len(states) != len(turnout.Endpoints) {
-		return nil
-	}
-	reported, valid := model.ResolveTurnoutPosition(turnout, states)
-	if !valid {
-		reported = ""
-	}
-	current, err := r.store.GetTurnout(ctx, turnout.ID)
+func (r *RailwayService) persistTurnoutObservation(ctx context.Context, turnoutID, position string, reportState station.AccessoryReportState, quality station.AccessoryReportQuality) error {
+	current, err := r.store.GetTurnout(ctx, turnoutID)
 	if err != nil {
 		return err
 	}
-	pending := current.DesiredPosition != "" && current.DesiredPosition != reported
-	if err := r.store.SetTurnoutReportedPosition(ctx, turnout.ID, reported, pending); err != nil {
+	status := current.CommandStatus
+	if current.Pending {
+		status = model.TurnoutCommandPending
+	}
+	if err := r.store.SetTurnoutObservation(ctx, turnoutID, position, reportState, quality, current.Pending, status); err != nil {
 		return err
 	}
-	r.events.Publish("turnout.state.changed", map[string]any{
-		"turnoutId":        turnout.ID,
-		"state":            reported,
-		"desiredPosition":  current.DesiredPosition,
-		"reportedPosition": reported,
-		"pending":          pending,
-	})
+	r.publishTurnoutState(ctx, turnoutID)
 	return nil
+}
+
+func (r *RailwayService) resolveTurnoutObservationLocked(turnout model.Turnout) (string, station.AccessoryReportState, station.AccessoryReportQuality) {
+	states := r.accessoryStates[turnout.ID]
+	reports := r.accessoryReports[turnout.ID]
+	qualities := r.accessoryQualities[turnout.ID]
+	quality := station.AccessoryReportPhysical
+	for _, endpoint := range turnout.Endpoints {
+		report, exists := reports[endpoint.ID]
+		if !exists || report == station.AccessoryReportUnknown {
+			return "", station.AccessoryReportUnknown, aggregateAccessoryQuality(quality, qualities[endpoint.ID])
+		}
+		if report == station.AccessoryReportInvalid {
+			return "", station.AccessoryReportInvalid, aggregateAccessoryQuality(quality, qualities[endpoint.ID])
+		}
+		if !states[endpoint.ID].Valid() {
+			return "", station.AccessoryReportUnknown, aggregateAccessoryQuality(quality, qualities[endpoint.ID])
+		}
+		quality = aggregateAccessoryQuality(quality, qualities[endpoint.ID])
+	}
+	position, ok := model.ResolveTurnoutPosition(turnout, states)
+	if !ok {
+		return "", station.AccessoryReportInvalid, quality
+	}
+	return position, station.AccessoryReportKnown, quality
+}
+
+func aggregateAccessoryQuality(current, next station.AccessoryReportQuality) station.AccessoryReportQuality {
+	if !next.Valid() {
+		return station.AccessoryReportAssumed
+	}
+	rank := func(quality station.AccessoryReportQuality) int {
+		switch quality {
+		case station.AccessoryReportPhysical:
+			return 3
+		case station.AccessoryReportStation:
+			return 2
+		default:
+			return 1
+		}
+	}
+	if rank(next) < rank(current) {
+		return next
+	}
+	return current
+}
+
+func (r *RailwayService) seedAccessoryState(turnout model.Turnout) {
+	position, ok := turnout.Position(turnout.ReportedPosition)
+	if !ok {
+		return
+	}
+	r.accessoryMu.Lock()
+	defer r.accessoryMu.Unlock()
+	r.ensureAccessoryMapsLocked(turnout.ID)
+	for _, endpoint := range turnout.Endpoints {
+		if _, exists := r.accessoryReports[turnout.ID][endpoint.ID]; exists {
+			continue
+		}
+		r.accessoryStates[turnout.ID][endpoint.ID] = model.PhysicalAccessoryPosition(endpoint, position.Endpoints[endpoint.ID])
+		r.accessoryReports[turnout.ID][endpoint.ID] = station.AccessoryReportKnown
+		quality := turnout.Quality
+		if !quality.Valid() {
+			quality = station.AccessoryReportAssumed
+		}
+		r.accessoryQualities[turnout.ID][endpoint.ID] = quality
+	}
+}
+
+func (r *RailwayService) ensureAccessoryMapsLocked(turnoutID string) {
+	if r.accessoryStates[turnoutID] == nil {
+		r.accessoryStates[turnoutID] = map[string]model.AccessoryPosition{}
+	}
+	if r.accessoryReports[turnoutID] == nil {
+		r.accessoryReports[turnoutID] = map[string]station.AccessoryReportState{}
+	}
+	if r.accessoryQualities[turnoutID] == nil {
+		r.accessoryQualities[turnoutID] = map[string]station.AccessoryReportQuality{}
+	}
+	if r.accessoryGenerations[turnoutID] == nil {
+		r.accessoryGenerations[turnoutID] = map[string]uint64{}
+	}
+}
+
+func (r *RailwayService) beginTurnoutCommand(turnoutID string) uint64 {
+	r.accessoryMu.Lock()
+	defer r.accessoryMu.Unlock()
+	runtime := r.turnoutRuntime[turnoutID]
+	if runtime == nil {
+		runtime = &turnoutCommandRuntime{updates: make(chan struct{})}
+		r.turnoutRuntime[turnoutID] = runtime
+	}
+	runtime.generation++
+	r.signalTurnoutUpdateLocked(turnoutID)
+	return runtime.generation
+}
+
+func (r *RailwayService) beginTurnoutStep(turnoutID string, generation uint64) uint64 {
+	r.accessoryMu.Lock()
+	defer r.accessoryMu.Unlock()
+	runtime := r.turnoutRuntime[turnoutID]
+	if runtime == nil || runtime.generation != generation {
+		return 0
+	}
+	runtime.confirmation++
+	runtime.startedAt = time.Now()
+	r.signalTurnoutUpdateLocked(turnoutID)
+	return runtime.confirmation
+}
+
+func (r *RailwayService) signalTurnoutUpdateLocked(turnoutID string) {
+	runtime := r.turnoutRuntime[turnoutID]
+	if runtime == nil {
+		return
+	}
+	close(runtime.updates)
+	runtime.updates = make(chan struct{})
+}
+
+func (r *RailwayService) waitForTurnoutPosition(ctx context.Context, turnout model.Turnout, generation, confirmation uint64, target string, changed map[string]bool) error {
+	timer := time.NewTimer(r.confirmationTimeout)
+	defer timer.Stop()
+	for {
+		current, err := r.store.GetTurnout(ctx, turnout.ID)
+		if err != nil {
+			return err
+		}
+		r.accessoryMu.Lock()
+		runtime := r.turnoutRuntime[turnout.ID]
+		if runtime == nil || runtime.generation != generation {
+			r.accessoryMu.Unlock()
+			return errors.New("turnout command superseded")
+		}
+		confirmed := true
+		for endpointID := range changed {
+			if r.accessoryGenerations[turnout.ID][endpointID] != confirmation {
+				confirmed = false
+				break
+			}
+		}
+		updates := runtime.updates
+		r.accessoryMu.Unlock()
+		if current.ReportedStatus == station.AccessoryReportKnown && current.ReportedPosition == target && confirmed {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return ErrTurnoutConfirmationTimeout
+		case <-updates:
+		}
+	}
+}
+
+func (r *RailwayService) failTurnoutCommand(ctx context.Context, turnout model.Turnout, target, reason string, cause error) error {
+	return r.failTurnoutCommandWithStatus(ctx, turnout, target, reason, model.TurnoutCommandFailed, cause)
+}
+
+func (r *RailwayService) failTurnoutCommandWithStatus(ctx context.Context, turnout model.Turnout, target, reason string, status model.TurnoutCommandStatus, cause error) error {
+	if err := r.store.SetTurnoutCommandResult(ctx, turnout.ID, false, status); err != nil {
+		return errors.Join(cause, err)
+	}
+	r.events.Publish("turnout.command.failed", map[string]any{
+		"turnoutId":      turnout.ID,
+		"targetPosition": target,
+		"reason":         reason,
+	})
+	r.publishTurnoutState(ctx, turnout.ID)
+	return cause
+}
+
+func (r *RailwayService) publishTurnoutState(ctx context.Context, turnoutID string) {
+	turnout, err := r.store.GetTurnout(ctx, turnoutID)
+	if err != nil {
+		return
+	}
+	payload := map[string]any{
+		"turnoutId":        turnout.ID,
+		"desiredPosition":  turnout.DesiredPosition,
+		"reportedPosition": turnout.ReportedPosition,
+		"reportedStatus":   turnout.ReportedStatus,
+		"pending":          turnout.Pending,
+		"commandStatus":    turnout.CommandStatus,
+	}
+	if turnout.Quality.Valid() {
+		payload["quality"] = turnout.Quality
+	}
+	r.events.Publish("turnout.state.changed", payload)
+}
+
+func (r *RailwayService) lockTurnout(turnoutID string) func() {
+	r.turnoutLocksMu.Lock()
+	lock := r.turnoutLocks[turnoutID]
+	if lock == nil {
+		lock = &turnoutCommandLock{}
+		r.turnoutLocks[turnoutID] = lock
+	}
+	lock.refs++
+	r.turnoutLocksMu.Unlock()
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+		r.turnoutLocksMu.Lock()
+		lock.refs--
+		if lock.refs == 0 {
+			delete(r.turnoutLocks, turnoutID)
+		}
+		r.turnoutLocksMu.Unlock()
+	}
+}
+
+func safeTurnoutPath(turnout model.Turnout, from, target string) ([]model.TurnoutPositionDefinition, error) {
+	targetPosition, ok := turnout.Position(target)
+	if !ok {
+		return nil, invalid("turnout position is not declared")
+	}
+	if from == "" {
+		return []model.TurnoutPositionDefinition{targetPosition}, nil
+	}
+	if from == target {
+		return nil, nil
+	}
+	if _, ok := turnout.Position(from); !ok {
+		return nil, fmt.Errorf("%w: current position %q is not declared", ErrUnsafeTurnoutTransition, from)
+	}
+	type pathItem struct {
+		id   string
+		path []string
+	}
+	queue := []pathItem{{id: from}}
+	visited := map[string]bool{from: true}
+	for len(queue) > 0 {
+		item := queue[0]
+		queue = queue[1:]
+		current, _ := turnout.Position(item.id)
+		for _, candidate := range turnout.Positions {
+			if visited[candidate.ID] || endpointVectorDistance(turnout, current, candidate) != 1 {
+				continue
+			}
+			path := append(append([]string(nil), item.path...), candidate.ID)
+			if candidate.ID == target {
+				result := make([]model.TurnoutPositionDefinition, 0, len(path))
+				for _, id := range path {
+					position, _ := turnout.Position(id)
+					result = append(result, position)
+				}
+				return result, nil
+			}
+			visited[candidate.ID] = true
+			queue = append(queue, pathItem{id: candidate.ID, path: path})
+		}
+	}
+	return nil, fmt.Errorf("%w: %s -> %s", ErrUnsafeTurnoutTransition, from, target)
+}
+
+func endpointVectorDistance(turnout model.Turnout, left, right model.TurnoutPositionDefinition) int {
+	distance := 0
+	for _, endpoint := range turnout.Endpoints {
+		if left.Endpoints[endpoint.ID] != right.Endpoints[endpoint.ID] {
+			distance++
+		}
+	}
+	return distance
+}
+
+func changedTurnoutEndpoints(turnout model.Turnout, from, target string) map[string]bool {
+	changed := make(map[string]bool, len(turnout.Endpoints))
+	targetPosition, _ := turnout.Position(target)
+	fromPosition, hasFrom := turnout.Position(from)
+	for _, endpoint := range turnout.Endpoints {
+		if !hasFrom || fromPosition.Endpoints[endpoint.ID] != targetPosition.Endpoints[endpoint.ID] {
+			changed[endpoint.ID] = true
+		}
+	}
+	return changed
 }

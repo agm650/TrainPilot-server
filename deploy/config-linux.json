@@ -5,6 +5,7 @@
   "station": { "driver": "simulator", "address": "127.0.0.1", "port": 21105, "transport": "tcp", "offlineAfter": "10s", "accessoryPulse": "100ms" },
   "security": { "accessTokenTTL": "15m", "refreshTokenTTL": "720h" },
   "control": { "leaseTTL": "10m", "stopGrace": "2s", "monitorPeriod": "250ms" },
+  "turnout": { "confirmationTimeout": "2s" },
   "testAPI": false,
   "seedDemo": false
 }

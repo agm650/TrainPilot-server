@@ -121,7 +121,7 @@ func TestRouteActivationAndRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	seenActivated := false
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 3; i++ {
 		if event := <-ch; event.Type == "route.activated" {
 			seenActivated = true
 		}

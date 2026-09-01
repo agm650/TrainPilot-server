@@ -77,8 +77,14 @@ func TestRailwayListsAndMutations(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	if event := <-ch; event.Type != "turnout.state.changed" {
-		t.Fatalf("event=%+v", event)
+	seenStateChanged := false
+	for i := 0; i < 3; i++ {
+		if event := <-ch; event.Type == "turnout.state.changed" {
+			seenStateChanged = true
+		}
+	}
+	if !seenStateChanged {
+		t.Fatal("turnout.state.changed event not published")
 	}
 
 	if err := svc.SetBlockFeedback(ctx, "missing", true); !errors.Is(err, store.ErrNotFound) {

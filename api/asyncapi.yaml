@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: DCC Control Server Events
-  version: 1.7.0
+  version: 1.8.0
   description: >-
     WebSocket event contract for native clients, including complete sequenced
     snapshots and explicit resynchronization requests. After a snapshot, clients
@@ -39,6 +39,8 @@ channels:
       trackEmergencyStop: { $ref: '#/components/messages/TrackEmergencyStop' }
       blockOccupancyChanged: { $ref: '#/components/messages/BlockOccupancyChanged' }
       turnoutStateChanged: { $ref: '#/components/messages/TurnoutStateChanged' }
+      turnoutCommanded: { $ref: '#/components/messages/TurnoutCommanded' }
+      turnoutCommandFailed: { $ref: '#/components/messages/TurnoutCommandFailed' }
       routeReserved: { $ref: '#/components/messages/RouteReserved' }
       routeActivated: { $ref: '#/components/messages/RouteActivated' }
       routeReleased: { $ref: '#/components/messages/RouteReleased' }
@@ -66,6 +68,8 @@ operations:
       - $ref: '#/channels/events/messages/trackEmergencyStop'
       - $ref: '#/channels/events/messages/blockOccupancyChanged'
       - $ref: '#/channels/events/messages/turnoutStateChanged'
+      - $ref: '#/channels/events/messages/turnoutCommanded'
+      - $ref: '#/channels/events/messages/turnoutCommandFailed'
       - $ref: '#/channels/events/messages/routeReserved'
       - $ref: '#/channels/events/messages/routeActivated'
       - $ref: '#/channels/events/messages/routeReleased'
@@ -204,7 +208,7 @@ components:
             enum: [position1, position2]
     Turnout:
       type: object
-      required: [id, name, kind, endpoints, positions, desiredPosition, reportedPosition, pending]
+      required: [id, name, kind, endpoints, positions, desiredPosition, reportedPosition, pending, reportedStatus, commandStatus]
       properties:
         id: { type: string }
         name: { type: string }
@@ -220,6 +224,12 @@ components:
         desiredPosition: { type: string, description: Empty when unknown. }
         reportedPosition: { type: string, description: Empty when unknown or physically invalid. }
         pending: { type: boolean }
+        reportedStatus: { type: string, enum: [known, unknown, invalid] }
+        quality:
+          type: string
+          enum: [assumed, station, physical]
+          description: Lowest confidence among all endpoint observations.
+        commandStatus: { type: string, enum: [idle, pending, succeeded, failed, timeout] }
         dccAddress: { type: integer, minimum: 1, deprecated: true }
         desiredState: { type: string, enum: [straight, diverging, unknown], deprecated: true }
         reportedState: { type: string, enum: [straight, diverging, unknown], deprecated: true }
@@ -493,10 +503,48 @@ components:
               type: { const: turnout.state.changed }
               payload:
                 type: object
-                required: [turnoutId, state]
+                required: [turnoutId, desiredPosition, reportedPosition, reportedStatus, pending, commandStatus]
                 properties:
                   turnoutId: { type: string }
-                  state: { type: string, enum: [straight, diverging] }
+                  desiredPosition: { type: string }
+                  reportedPosition:
+                    type: string
+                    description: Empty when the physical endpoint vector is unknown or invalid.
+                  reportedStatus: { type: string, enum: [known, unknown, invalid] }
+                  pending: { type: boolean }
+                  quality: { type: string, enum: [assumed, station, physical] }
+                  commandStatus: { type: string, enum: [idle, pending, succeeded, failed, timeout] }
+    TurnoutCommanded:
+      name: turnout.commanded
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: turnout.commanded }
+              payload:
+                type: object
+                required: [turnoutId, targetPosition]
+                properties:
+                  turnoutId: { type: string }
+                  targetPosition: { type: string }
+    TurnoutCommandFailed:
+      name: turnout.command.failed
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: turnout.command.failed }
+              payload:
+                type: object
+                required: [turnoutId, targetPosition, reason]
+                properties:
+                  turnoutId: { type: string }
+                  targetPosition: { type: string }
+                  reason:
+                    type: string
+                    enum: [confirmation_timeout, confirmation_interrupted, driver_error, unsafe_transition, invalid_definition]
     RouteReserved:
       name: route.reserved
       payload:

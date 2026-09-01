@@ -8,6 +8,7 @@ import (
 
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/sqlite"
+	"github.com/agm650/TrainPilot-server/internal/station"
 )
 
 func (s *Store) ListLocomotives(ctx context.Context) ([]model.Locomotive, error) {
@@ -94,7 +95,7 @@ func (s *Store) SetBlockOccupied(ctx context.Context, id string, occupied bool) 
 	return requireAffected(res)
 }
 func (s *Store) ListTurnouts(ctx context.Context) ([]model.Turnout, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT id,name,kind,desired_position,reported_position,pending,dcc_address,desired_state,reported_state FROM turnouts ORDER BY name,id`)
+	rows, err := s.DB.QueryContext(ctx, `SELECT id,name,kind,desired_position,reported_position,pending,reported_status,quality,command_status,dcc_address,desired_state,reported_state FROM turnouts ORDER BY name,id`)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +103,7 @@ func (s *Store) ListTurnouts(ctx context.Context) ([]model.Turnout, error) {
 	for rows.Next() {
 		var x model.Turnout
 		var pending int
-		if err := rows.Scan(&x.ID, &x.Name, &x.Kind, &x.DesiredPosition, &x.ReportedPosition, &pending, &x.DCCAddress, &x.DesiredState, &x.ReportedState); err != nil {
+		if err := rows.Scan(&x.ID, &x.Name, &x.Kind, &x.DesiredPosition, &x.ReportedPosition, &pending, &x.ReportedStatus, &x.Quality, &x.CommandStatus, &x.DCCAddress, &x.DesiredState, &x.ReportedState); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -129,7 +130,7 @@ func (s *Store) ListTurnouts(ctx context.Context) ([]model.Turnout, error) {
 func (s *Store) GetTurnout(ctx context.Context, id string) (model.Turnout, error) {
 	var x model.Turnout
 	var pending int
-	err := s.DB.QueryRowContext(ctx, `SELECT id,name,kind,desired_position,reported_position,pending,dcc_address,desired_state,reported_state FROM turnouts WHERE id=?`, id).Scan(&x.ID, &x.Name, &x.Kind, &x.DesiredPosition, &x.ReportedPosition, &pending, &x.DCCAddress, &x.DesiredState, &x.ReportedState)
+	err := s.DB.QueryRowContext(ctx, `SELECT id,name,kind,desired_position,reported_position,pending,reported_status,quality,command_status,dcc_address,desired_state,reported_state FROM turnouts WHERE id=?`, id).Scan(&x.ID, &x.Name, &x.Kind, &x.DesiredPosition, &x.ReportedPosition, &pending, &x.ReportedStatus, &x.Quality, &x.CommandStatus, &x.DCCAddress, &x.DesiredState, &x.ReportedState)
 	if errors.Is(err, sql.ErrNoRows) {
 		return x, ErrNotFound
 	}
@@ -151,7 +152,7 @@ func (s *Store) SetTurnoutState(ctx context.Context, id, position string) error 
 	if legacy != "straight" && legacy != "diverging" {
 		legacy = "unknown"
 	}
-	res, err := s.DB.ExecContext(ctx, `UPDATE turnouts SET desired_position=?,reported_position=?,pending=0,desired_state=?,reported_state=? WHERE id=?`, position, position, legacy, legacy, id)
+	res, err := s.DB.ExecContext(ctx, `UPDATE turnouts SET desired_position=?,reported_position=?,pending=0,reported_status='known',quality='assumed',command_status='succeeded',desired_state=?,reported_state=? WHERE id=?`, position, position, legacy, legacy, id)
 	if err != nil {
 		return err
 	}
@@ -163,7 +164,11 @@ func (s *Store) SetTurnoutDesiredPosition(ctx context.Context, id, position stri
 	if legacy != "straight" && legacy != "diverging" {
 		legacy = "unknown"
 	}
-	res, err := s.DB.ExecContext(ctx, `UPDATE turnouts SET desired_position=?,pending=?,desired_state=? WHERE id=?`, position, pending, legacy, id)
+	status := model.TurnoutCommandIdle
+	if pending {
+		status = model.TurnoutCommandPending
+	}
+	res, err := s.DB.ExecContext(ctx, `UPDATE turnouts SET desired_position=?,pending=?,command_status=?,desired_state=? WHERE id=?`, position, pending, status, legacy, id)
 	if err != nil {
 		return err
 	}
@@ -175,7 +180,35 @@ func (s *Store) SetTurnoutReportedPosition(ctx context.Context, id, position str
 	if legacy != "straight" && legacy != "diverging" {
 		legacy = "unknown"
 	}
-	res, err := s.DB.ExecContext(ctx, `UPDATE turnouts SET reported_position=?,pending=?,reported_state=? WHERE id=?`, position, pending, legacy, id)
+	status := model.TurnoutCommandSucceeded
+	if pending {
+		status = model.TurnoutCommandPending
+	}
+	reportedStatus := station.AccessoryReportKnown
+	if position == "" {
+		reportedStatus = station.AccessoryReportUnknown
+	}
+	res, err := s.DB.ExecContext(ctx, `UPDATE turnouts SET reported_position=?,pending=?,reported_status=?,command_status=?,reported_state=? WHERE id=?`, position, pending, reportedStatus, status, legacy, id)
+	if err != nil {
+		return err
+	}
+	return requireAffected(res)
+}
+
+func (s *Store) SetTurnoutObservation(ctx context.Context, id, position string, reportedStatus station.AccessoryReportState, quality station.AccessoryReportQuality, pending bool, commandStatus model.TurnoutCommandStatus) error {
+	legacy := position
+	if legacy != "straight" && legacy != "diverging" {
+		legacy = "unknown"
+	}
+	res, err := s.DB.ExecContext(ctx, `UPDATE turnouts SET reported_position=?,reported_status=?,quality=?,pending=?,command_status=?,reported_state=? WHERE id=?`, position, reportedStatus, quality, boolInt(pending), commandStatus, legacy, id)
+	if err != nil {
+		return err
+	}
+	return requireAffected(res)
+}
+
+func (s *Store) SetTurnoutCommandResult(ctx context.Context, id string, pending bool, status model.TurnoutCommandStatus) error {
+	res, err := s.DB.ExecContext(ctx, `UPDATE turnouts SET pending=?,command_status=? WHERE id=?`, boolInt(pending), status, id)
 	if err != nil {
 		return err
 	}
@@ -255,7 +288,7 @@ func (s *Store) SeedDemo(ctx context.Context) error {
 		{`INSERT OR IGNORE INTO blocks(id,name,occupied) VALUES(?,?,0)`, []any{"block-b", "Pleine voie"}},
 		{`INSERT OR IGNORE INTO blocks(id,name,occupied) VALUES(?,?,0)`, []any{"block-c", "Gare voie 2"}},
 		{`INSERT OR IGNORE INTO feedback_mappings(provider,address,block_id) VALUES(?,?,?)`, []any{"simulator", 1, "block-a"}},
-		{`INSERT OR IGNORE INTO turnouts(id,name,dcc_address,desired_state,reported_state,kind,desired_position,reported_position,pending) VALUES(?,?,?,?,?,'simple','straight','straight',0)`, []any{"turnout-1", "Aiguille entrée", 1, "straight", "straight"}},
+		{`INSERT OR IGNORE INTO turnouts(id,name,dcc_address,desired_state,reported_state,kind,desired_position,reported_position,pending,reported_status,quality,command_status) VALUES(?,?,?,?,?,'simple','straight','straight',0,'known','assumed','succeeded')`, []any{"turnout-1", "Aiguille entrée", 1, "straight", "straight"}},
 		{`INSERT OR IGNORE INTO turnout_endpoints(turnout_id,endpoint_id,linear_address,inverted,ordinal) SELECT 'turnout-1','main',1,0,0 WHERE NOT EXISTS(SELECT 1 FROM turnout_endpoints WHERE turnout_id='turnout-1')`, nil},
 		{`INSERT OR IGNORE INTO turnout_positions(turnout_id,position_id,label,ordinal) SELECT 'turnout-1','straight','',0 WHERE EXISTS(SELECT 1 FROM turnouts t JOIN turnout_endpoints e ON e.turnout_id=t.id WHERE t.id='turnout-1' AND t.kind='simple' AND e.endpoint_id='main')`, nil},
 		{`INSERT OR IGNORE INTO turnout_positions(turnout_id,position_id,label,ordinal) SELECT 'turnout-1','diverging','',1 WHERE EXISTS(SELECT 1 FROM turnouts t JOIN turnout_endpoints e ON e.turnout_id=t.id WHERE t.id='turnout-1' AND t.kind='simple' AND e.endpoint_id='main')`, nil},

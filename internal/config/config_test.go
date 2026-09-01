@@ -31,6 +31,9 @@ func TestDefault(t *testing.T) {
 	if cfg.Control.LeaseTTL != 10*time.Minute || cfg.Control.StopGrace != 2*time.Second || cfg.Control.MonitorPeriod != 250*time.Millisecond {
 		t.Fatalf("control defaults=%v/%v/%v", cfg.Control.LeaseTTL, cfg.Control.StopGrace, cfg.Control.MonitorPeriod)
 	}
+	if cfg.Turnout.ConfirmationTimeout != 2*time.Second {
+		t.Fatalf("turnout confirmationTimeout=%v", cfg.Turnout.ConfirmationTimeout)
+	}
 }
 
 func TestLoadEmptyPathReturnsDefaults(t *testing.T) {
@@ -92,6 +95,16 @@ func TestLoadParsesStationAccessoryPulse(t *testing.T) {
 				t.Fatalf("station accessoryPulse=%v want %v", cfg.Station.AccessoryPulse, tc.want)
 			}
 		})
+	}
+}
+
+func TestLoadParsesTurnoutConfirmationTimeout(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `{"turnout":{"confirmationTimeout":"750ms"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Turnout.ConfirmationTimeout != 750*time.Millisecond {
+		t.Fatalf("turnout confirmationTimeout=%v", cfg.Turnout.ConfirmationTimeout)
 	}
 }
 
@@ -174,6 +187,18 @@ func TestLoadErrors(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "station.accessoryPulse") {
 				t.Fatalf("error=%q does not identify station.accessoryPulse", err)
+			}
+		})
+	}
+
+	for _, value := range []string{"bad", "0s", "-1ms"} {
+		t.Run("turnout confirmation timeout "+value, func(t *testing.T) {
+			_, err := Load(writeConfig(t, `{"turnout":{"confirmationTimeout":"`+value+`"}}`))
+			if err == nil {
+				t.Fatal("expected duration error")
+			}
+			if !strings.Contains(err.Error(), "turnout.confirmationTimeout") {
+				t.Fatalf("error=%q does not identify turnout.confirmationTimeout", err)
 			}
 		})
 	}

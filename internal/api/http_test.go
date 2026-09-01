@@ -302,7 +302,8 @@ func assertProblemCode(t *testing.T, baseURL, method, path, authorization string
 
 func newHTTPFixture(t *testing.T) (*httptest.Server, *client.Client, *client.Client) {
 	t.Helper()
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	db, err := store.Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -328,6 +329,7 @@ func newHTTPFixture(t *testing.T) (*httptest.Server, *client.Client, *client.Cli
 	}
 	bus := events.New()
 	railway := service.NewRailwayService(db, sim, bus)
+	railway.StartFeedback(ctx)
 	control := service.NewControlService(db, sim, bus, clk, 15*time.Second, time.Second, time.Hour)
 	routes := service.NewRouteService(db, railway, bus)
 	transferSvc := transfer.New(db, bus, clk)

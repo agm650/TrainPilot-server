@@ -172,15 +172,37 @@ type TurnoutPositionDefinition struct {
 	Endpoints map[string]AccessoryPosition `json:"endpoints"`
 }
 
+type TurnoutCommandStatus string
+
+const (
+	TurnoutCommandIdle      TurnoutCommandStatus = "idle"
+	TurnoutCommandPending   TurnoutCommandStatus = "pending"
+	TurnoutCommandSucceeded TurnoutCommandStatus = "succeeded"
+	TurnoutCommandFailed    TurnoutCommandStatus = "failed"
+	TurnoutCommandTimeout   TurnoutCommandStatus = "timeout"
+)
+
+func (s TurnoutCommandStatus) Valid() bool {
+	switch s {
+	case TurnoutCommandIdle, TurnoutCommandPending, TurnoutCommandSucceeded, TurnoutCommandFailed, TurnoutCommandTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
 type Turnout struct {
-	ID               string                      `json:"id"`
-	Name             string                      `json:"name"`
-	Kind             TurnoutKind                 `json:"kind"`
-	Endpoints        []AccessoryEndpoint         `json:"endpoints"`
-	Positions        []TurnoutPositionDefinition `json:"positions"`
-	DesiredPosition  string                      `json:"desiredPosition"`
-	ReportedPosition string                      `json:"reportedPosition"`
-	Pending          bool                        `json:"pending"`
+	ID               string                         `json:"id"`
+	Name             string                         `json:"name"`
+	Kind             TurnoutKind                    `json:"kind"`
+	Endpoints        []AccessoryEndpoint            `json:"endpoints"`
+	Positions        []TurnoutPositionDefinition    `json:"positions"`
+	DesiredPosition  string                         `json:"desiredPosition"`
+	ReportedPosition string                         `json:"reportedPosition"`
+	Pending          bool                           `json:"pending"`
+	ReportedStatus   station.AccessoryReportState   `json:"reportedStatus"`
+	Quality          station.AccessoryReportQuality `json:"quality,omitempty"`
+	CommandStatus    TurnoutCommandStatus           `json:"commandStatus"`
 
 	// Deprecated compatibility fields. They remain populated for simple
 	// turnouts while version 1 archives and existing clients migrate.
@@ -215,6 +237,26 @@ func NewSimpleTurnout(id, name string, linearAddress int, desired, reported stri
 func NormalizeTurnout(t Turnout) (Turnout, error) {
 	if len(t.Endpoints) == 0 && t.DCCAddress > 0 {
 		t = NewSimpleTurnout(t.ID, t.Name, t.DCCAddress, t.DesiredState, t.ReportedState)
+	}
+	if t.ReportedStatus == "" || (t.ReportedStatus == station.AccessoryReportUnknown && t.ReportedPosition != "") {
+		if t.ReportedPosition == "" {
+			t.ReportedStatus = station.AccessoryReportUnknown
+		} else {
+			t.ReportedStatus = station.AccessoryReportKnown
+		}
+	}
+	if t.Quality == "" && t.ReportedPosition != "" {
+		t.Quality = station.AccessoryReportAssumed
+	}
+	if t.CommandStatus == "" {
+		switch {
+		case t.Pending:
+			t.CommandStatus = TurnoutCommandPending
+		case t.DesiredPosition != "" && t.DesiredPosition == t.ReportedPosition:
+			t.CommandStatus = TurnoutCommandSucceeded
+		default:
+			t.CommandStatus = TurnoutCommandIdle
+		}
 	}
 	populateLegacyTurnoutFields(&t)
 	if err := ValidateTurnout(t); err != nil {
@@ -295,6 +337,15 @@ func ValidateTurnout(t Turnout) error {
 	}
 	if t.ReportedPosition != "" && !positionIDs[t.ReportedPosition] {
 		return invalid("turnout %q has unknown reported position %q", t.ID, t.ReportedPosition)
+	}
+	if t.ReportedStatus != "" && !t.ReportedStatus.Valid() {
+		return invalid("turnout %q has invalid reported status %q", t.ID, t.ReportedStatus)
+	}
+	if t.Quality != "" && !t.Quality.Valid() {
+		return invalid("turnout %q has invalid quality %q", t.ID, t.Quality)
+	}
+	if t.CommandStatus != "" && !t.CommandStatus.Valid() {
+		return invalid("turnout %q has invalid command status %q", t.ID, t.CommandStatus)
 	}
 	return nil
 }

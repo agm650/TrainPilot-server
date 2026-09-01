@@ -39,6 +39,9 @@ func TestMigrateLegacyTurnoutSchema(t *testing.T) {
 	if turnout.Name != "Legacy turnout" || turnout.Kind != model.TurnoutKindSimple || turnout.DesiredPosition != "straight" || turnout.ReportedPosition != "diverging" {
 		t.Fatalf("unexpected migrated turnout: %+v", turnout)
 	}
+	if turnout.ReportedStatus != "known" || turnout.Quality != "assumed" || turnout.CommandStatus != model.TurnoutCommandIdle {
+		t.Fatalf("unexpected migrated runtime state: %+v", turnout)
+	}
 	if len(turnout.Endpoints) != 1 || turnout.Endpoints[0].ID != "main" || turnout.Endpoints[0].LinearAddress != 12 {
 		t.Fatalf("unexpected migrated endpoints: %+v", turnout.Endpoints)
 	}
@@ -71,6 +74,10 @@ func TestCompoundTurnoutPersistenceRoundTrip(t *testing.T) {
 	}
 	defer store.Close()
 	want := persistedThreeWayTurnout()
+	want, err = model.NormalizeTurnout(want)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := store.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{want}}, false); err != nil {
 		t.Fatal(err)
 	}
@@ -99,6 +106,10 @@ func TestSeedDemoDoesNotModifyExistingCompoundTurnout(t *testing.T) {
 	defer store.Close()
 	want := persistedThreeWayTurnout()
 	want.ID = "turnout-1"
+	want, err = model.NormalizeTurnout(want)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := store.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{want}}, false); err != nil {
 		t.Fatal(err)
 	}

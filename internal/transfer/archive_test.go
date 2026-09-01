@@ -122,6 +122,10 @@ func TestCompoundLayoutArchiveRoundTripIsDeterministic(t *testing.T) {
 	}
 	defer source.Close()
 	want := archiveThreeWayTurnout()
+	want, err = model.NormalizeTurnout(want)
+	if err != nil {
+		t.Fatal(err)
+	}
 	layout := model.LayoutDefinition{
 		Blocks:   []model.Block{{ID: "block-a", Name: "Block A"}},
 		Turnouts: []model.Turnout{want},

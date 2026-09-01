@@ -567,12 +567,21 @@ devient jamais une position commandable.
 Le simulateur applique ces vecteurs séquentiellement et publie un
 `AccessoryStateEvent` de qualité `physical` par confirmation. Il permet aussi
 d'injecter un rapport `station`, `assumed` ou `physical`. Une combinaison non
-déclarée laisse `reportedPosition` vide et conserve `pending=true`.
+déclarée laisse `reportedPosition` vide et place `reportedStatus` à `invalid`.
+
+Le service sérialise les commandes par appareil et calcule un chemin dont
+chaque étape ne change qu'un endpoint. Un triple passe ainsi par `straight`
+entre `left` et `right`. Chaque étape doit être confirmée avant la suivante.
+Les changements externes mettent à jour `reportedPosition` sans renvoyer la
+commande demandée.
+
+Le délai `turnout.confirmationTimeout`, égal à `2s` par défaut, accepte les
+durées Go. À expiration, la cible reste dans `desiredPosition`, le dernier
+rapport est conservé et `commandStatus` devient `timeout`.
 
 Les anciennes bases et archives à une adresse sont converties automatiquement
 en aiguillages simples. Les champs historiques restent temporairement exposés
-pour ces appareils. Le rollback après réussite partielle et les séquences de
-transition sûres restent prévus dans un ticket ultérieur.
+pour ces appareils. Après un échec partiel, aucun rollback aveugle n'est tenté.
 
 Le modèle, l'adressage linéaire et les exemples sont décrits dans
 [`docs/TURNOUTS.md`](docs/TURNOUTS.md).
@@ -644,6 +653,17 @@ valeur par défaut est `100ms`. Le format est celui des durées Go et une valeur
 invalide, nulle ou négative empêche aussi le démarrage. La commande active la
 sortie, attend cette durée, puis la désactive. La désactivation est tentée avec
 un contexte de sécurité interne même si la requête cliente est annulée.
+
+Le délai de confirmation des appareils logiques se configure séparément :
+
+```json
+"turnout": {
+  "confirmationTimeout": "2s"
+}
+```
+
+Il s'applique à chaque étape d'une transition composée. Il utilise la syntaxe
+des durées Go et doit être strictement positif.
 
 Le pilote accepte les adresses linéaires TrainPilot `1..2040`, les convertit en
 `FAdr = adresse - 1`, interroge ensuite `LAN_X_GET_TURNOUT_INFO` et publie les

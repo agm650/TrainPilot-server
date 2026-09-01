@@ -76,6 +76,10 @@ func writeOperationProblem(w http.ResponseWriter, err error, code string) {
 		code = "permission_denied"
 	case errors.Is(err, service.ErrValidation):
 		code = "validation_failed"
+	case errors.Is(err, service.ErrTurnoutConfirmationTimeout):
+		code = "turnout_confirmation_timeout"
+	case errors.Is(err, service.ErrUnsafeTurnoutTransition):
+		code = "unsafe_turnout_transition"
 	case errors.Is(err, transfer.ErrInvalidArchive):
 		code = "invalid_archive"
 	}
@@ -175,7 +179,9 @@ func statusFor(err error) int {
 	case errors.Is(err, service.ErrEmergencyStopActive),
 		errors.Is(err, service.ErrTrackPowerOff),
 		errors.Is(err, service.ErrTrackPowerUnknown),
-		errors.Is(err, service.ErrSafetyPreempted):
+		errors.Is(err, service.ErrSafetyPreempted),
+		errors.Is(err, service.ErrTurnoutConfirmationTimeout),
+		errors.Is(err, service.ErrUnsafeTurnoutTransition):
 		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError

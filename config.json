@@ -28,6 +28,9 @@
     "stopGrace": "2s",
     "monitorPeriod": "250ms"
   },
+  "turnout": {
+    "confirmationTimeout": "2s"
+  },
   "testAPI": true,
   "seedDemo": true
 }

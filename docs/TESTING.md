@@ -150,6 +150,28 @@ archive de circuit version 1 et vérifient un round-trip déterministe en versio
 go test ./internal/model ./internal/store ./internal/transfer
 ```
 
+Le contrôleur métier est couvert par `internal/service/railway_accessory_test.go`.
+Il vérifie les confirmations immédiates, absentes et incohérentes, les chemins
+sûrs du triple, les quatre positions d'une TJD, les échecs et timeouts partiels,
+les confirmations obsolètes, les changements externes et la sérialisation sous
+concurrence.
+
+```bash
+go test ./internal/service -run RailwayService
+go test -race ./internal/service
+```
+
+Pour tester rapidement un timeout, construire le service avec un délai court
+ou charger une configuration jetable :
+
+```json
+{
+  "turnout": {
+    "confirmationTimeout": "50ms"
+  }
+}
+```
+
 Le modèle et les exemples sont décrits dans [`TURNOUTS.md`](TURNOUTS.md).
 
 ## Scénarios déterministes du simulateur

@@ -84,7 +84,7 @@ func serve(args []string) error {
 		return err
 	}
 	defer st.Close()
-	railway := service.NewRailwayService(db, st, bus)
+	railway := service.NewRailwayService(db, st, bus, cfg.Turnout.ConfirmationTimeout)
 	control := service.NewControlService(db, st, bus, clk, cfg.Control.LeaseTTL, cfg.Control.StopGrace, cfg.Control.MonitorPeriod)
 	routes := service.NewRouteService(db, railway, bus)
 	transferSvc := transfer.New(db, bus, clk)

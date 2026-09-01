@@ -99,7 +99,10 @@ func (s *Store) Migrate(ctx context.Context) error {
 			kind TEXT NOT NULL DEFAULT 'simple',
 			desired_position TEXT NOT NULL DEFAULT '',
 			reported_position TEXT NOT NULL DEFAULT '',
-			pending INTEGER NOT NULL DEFAULT 0
+			pending INTEGER NOT NULL DEFAULT 0,
+			reported_status TEXT NOT NULL DEFAULT 'unknown',
+			quality TEXT NOT NULL DEFAULT '',
+			command_status TEXT NOT NULL DEFAULT 'idle'
 		)`,
 		`CREATE TABLE IF NOT EXISTS turnout_endpoints (
 			turnout_id TEXT NOT NULL REFERENCES turnouts(id) ON DELETE CASCADE,
@@ -175,6 +178,9 @@ func (s *Store) migrateTurnoutSchema(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("inspect turnout schema: %w", err)
 	}
+	initializeReportedStatus := !columns["reported_status"]
+	initializeQuality := !columns["quality"]
+	initializeCommandStatus := !columns["command_status"]
 	additions := []struct {
 		name string
 		sql  string
@@ -183,6 +189,9 @@ func (s *Store) migrateTurnoutSchema(ctx context.Context) error {
 		{"desired_position", `ALTER TABLE turnouts ADD COLUMN desired_position TEXT NOT NULL DEFAULT ''`},
 		{"reported_position", `ALTER TABLE turnouts ADD COLUMN reported_position TEXT NOT NULL DEFAULT ''`},
 		{"pending", `ALTER TABLE turnouts ADD COLUMN pending INTEGER NOT NULL DEFAULT 0`},
+		{"reported_status", `ALTER TABLE turnouts ADD COLUMN reported_status TEXT NOT NULL DEFAULT 'unknown'`},
+		{"quality", `ALTER TABLE turnouts ADD COLUMN quality TEXT NOT NULL DEFAULT ''`},
+		{"command_status", `ALTER TABLE turnouts ADD COLUMN command_status TEXT NOT NULL DEFAULT 'idle'`},
 	}
 	for _, addition := range additions {
 		if columns[addition.name] {
@@ -225,13 +234,38 @@ func (s *Store) migrateTurnoutSchema(ctx context.Context) error {
 	}
 
 	return s.DB.WithTransaction(ctx, func(tx *sqlite.Tx) error {
+		if initializeReportedStatus {
+			if _, err := tx.ExecContext(ctx, `UPDATE turnouts SET reported_status=CASE WHEN reported_position<>'' THEN 'known' ELSE 'unknown' END`); err != nil {
+				return fmt.Errorf("initialize turnout runtime state: %w", err)
+			}
+		}
+		if initializeQuality {
+			if _, err := tx.ExecContext(ctx, `UPDATE turnouts SET quality=CASE WHEN reported_position<>'' THEN 'assumed' ELSE '' END`); err != nil {
+				return fmt.Errorf("initialize turnout quality: %w", err)
+			}
+		}
+		if initializeCommandStatus {
+			if _, err := tx.ExecContext(ctx, `UPDATE turnouts SET command_status=CASE WHEN pending<>0 THEN 'pending' WHEN desired_position<>'' AND desired_position=reported_position THEN 'succeeded' ELSE 'idle' END`); err != nil {
+				return fmt.Errorf("initialize turnout command status: %w", err)
+			}
+		}
 		for _, item := range legacy {
 			if !item.needsMigration {
 				continue
 			}
 			desired := legacyPosition(item.desired)
 			reported := legacyPosition(item.reported)
-			if _, err := tx.ExecContext(ctx, `UPDATE turnouts SET kind=CASE WHEN kind='' THEN 'simple' ELSE kind END,desired_position=CASE WHEN desired_position='' THEN ? ELSE desired_position END,reported_position=CASE WHEN reported_position='' THEN ? ELSE reported_position END WHERE id=?`, desired, reported, item.id); err != nil {
+			reportedStatus := "unknown"
+			quality := ""
+			if reported != "" {
+				reportedStatus = "known"
+				quality = "assumed"
+			}
+			commandStatus := "idle"
+			if desired != "" && desired == reported {
+				commandStatus = "succeeded"
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE turnouts SET kind=CASE WHEN kind='' THEN 'simple' ELSE kind END,desired_position=CASE WHEN desired_position='' THEN ? ELSE desired_position END,reported_position=CASE WHEN reported_position='' THEN ? ELSE reported_position END,reported_status=?,quality=?,command_status=? WHERE id=?`, desired, reported, reportedStatus, quality, commandStatus, item.id); err != nil {
 				return fmt.Errorf("migrate turnout %q state: %w", item.id, err)
 			}
 			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO turnout_endpoints(turnout_id,endpoint_id,linear_address,inverted,ordinal) VALUES(?,?,?,0,0)`, item.id, "main", item.address); err != nil {

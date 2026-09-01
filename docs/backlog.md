@@ -63,9 +63,9 @@ dans ce backlog.
 - [x] Adapter le simulateur aux endpoints binaires, retours qualifiés, appareils composés, faults ciblés et scénarios de référence (`AIG-003`).
 - [x] Implémenter les commandes et retours d'état binaires z21, avec impulsion configurable, corrélation et broadcasts (`AIG-004`).
 - [x] Aligner DCC-EX sur l'adresse linéaire canonique, les positions binaires et les retours honnêtes `assumed` (`AIG-005`).
-- [ ] Sérialiser les transitions multi-endpoints et gérer les erreurs partielles.
+- [x] Sérialiser les transitions multi-endpoints, confirmer chaque étape, agréger la qualité et gérer erreurs partielles et timeouts (`AIG-006`).
 - [ ] Valider sur z21 réelle l'adressage des accessoires, la durée d'impulsion et la différence entre état de fonction rapporté et position physique.
-- [ ] Gérer les délais, échecs et incohérences entre position demandée et position confirmée.
+- [x] Gérer les délais, échecs et incohérences entre position demandée et position confirmée (`AIG-006`).
 - [ ] Étendre REST, WebSocket, CLI et conformité au modèle composé.
 - [ ] Préparer les sorties nécessaires au pilotage futur des signaux.
 

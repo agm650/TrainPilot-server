@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: DCC Control Server API
-  version: 1.5.0
+  version: 1.6.0
   description: >-
     Contract for native DCC clients. User administration is deliberately absent
     from this public API and is available only over the local administration socket.
@@ -385,9 +385,12 @@ paths:
               type: object
               required: [state]
               properties:
-                state: { type: string, enum: [straight, diverging] }
+                state:
+                  type: string
+                  minLength: 1
+                  description: Stable ID of one position declared by the turnout definition.
       responses:
-        '204': { description: Turnout command accepted. }
+        '204': { description: Turnout position confirmed by all required endpoint reports. }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
@@ -738,7 +741,7 @@ components:
           description: Complete endpoint vector for this logical position.
     Turnout:
       type: object
-      required: [id, name, kind, endpoints, positions, desiredPosition, reportedPosition, pending]
+      required: [id, name, kind, endpoints, positions, desiredPosition, reportedPosition, pending, reportedStatus, commandStatus]
       properties:
         id: { type: string }
         name: { type: string }
@@ -761,6 +764,17 @@ components:
           type: string
           description: Resolved logical position. Empty when unknown or physically invalid.
         pending: { type: boolean }
+        reportedStatus:
+          type: string
+          enum: [known, unknown, invalid]
+          description: Whether the endpoint vector resolves to a declared logical position.
+        quality:
+          type: string
+          enum: [assumed, station, physical]
+          description: Lowest confidence among all endpoint observations.
+        commandStatus:
+          type: string
+          enum: [idle, pending, succeeded, failed, timeout]
         dccAddress:
           type: integer
           minimum: 1

@@ -45,6 +45,10 @@ type Config struct {
 		StopGraceText     string        `json:"stopGrace"`
 		MonitorPeriodText string        `json:"monitorPeriod"`
 	} `json:"control"`
+	Turnout struct {
+		ConfirmationTimeout     time.Duration `json:"-"`
+		ConfirmationTimeoutText string        `json:"confirmationTimeout"`
+	} `json:"turnout"`
 	TestAPI  bool `json:"testAPI"`
 	SeedDemo bool `json:"seedDemo"`
 }
@@ -63,6 +67,7 @@ func Default() Config {
 	c.Control.LeaseTTL = 10 * time.Minute
 	c.Control.StopGrace = 2 * time.Second
 	c.Control.MonitorPeriod = 250 * time.Millisecond
+	c.Turnout.ConfirmationTimeout = 2 * time.Second
 	return c
 }
 
@@ -103,6 +108,12 @@ func Load(path string) (Config, error) {
 	}
 	if err := parse(c.Control.MonitorPeriodText, &c.Control.MonitorPeriod); err != nil {
 		return c, err
+	}
+	if err := parse(c.Turnout.ConfirmationTimeoutText, &c.Turnout.ConfirmationTimeout); err != nil {
+		return c, fmt.Errorf("turnout.confirmationTimeout: %w", err)
+	}
+	if c.Turnout.ConfirmationTimeout <= 0 {
+		return c, errors.New("turnout.confirmationTimeout must be greater than zero")
 	}
 	if err := parse(c.Station.OfflineAfterText, &c.Station.OfflineAfter); err != nil {
 		return c, fmt.Errorf("station.offlineAfter: %w", err)

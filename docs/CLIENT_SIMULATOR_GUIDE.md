@@ -5,8 +5,8 @@ Dernière validation : 31 août 2026.
 Versions du contrat au moment de cette validation :
 
 - serveur : `0.2.0` ;
-- API HTTP : `1.5.0` ;
-- API événementielle : `1.7.0` ;
+- API HTTP : `1.6.0` ;
+- API événementielle : `1.8.0` ;
 - format des scénarios du simulateur : `1`.
 
 Ce guide explique comment utiliser TrainPilot-server comme banc virtuel pour
@@ -132,6 +132,9 @@ Exemple `client-simulator.json` :
     "driver": "simulator",
     "offlineAfter": "10s"
   },
+  "turnout": {
+    "confirmationTimeout": "2s"
+  },
   "security": {
     "accessTokenTTL": "15m",
     "refreshTokenTTL": "720h"
@@ -253,9 +256,9 @@ Exemple :
 ```json
 {
   "serverVersion": "0.2.0",
-  "apiVersion": "1.5.0",
+  "apiVersion": "1.6.0",
   "minimumClientApiVersion": "1.0.0",
-  "eventApiVersion": "1.7.0",
+  "eventApiVersion": "1.8.0",
   "minimumClientEventApiVersion": "1.3.0",
   "station": {
     "driver": "simulator",
@@ -555,7 +558,9 @@ la connexion afin d'imposer une resynchronisation complète.
 | `locomotive.speed.changed` | dernière commande confirmée par le serveur |
 | `locomotive.function.changed` | fonction confirmée |
 | `block.occupancy.changed` | occupation du canton |
-| `turnout.state.changed` | état métier actuel de l'aiguillage |
+| `turnout.commanded` | cible logique acceptée, afficher `pending` |
+| `turnout.state.changed` | desired/reported, qualité et résultat courant |
+| `turnout.command.failed` | cible non confirmée et raison publique |
 | `route.reserved/activated/released` | état de l'itinéraire |
 | `rolling-stock.imported` | recharger la bibliothèque concernée |
 | `layout.imported` | recharger le réseau concerné |
@@ -973,6 +978,12 @@ curl -i -X PUT http://127.0.0.1:8080/api/v1/turnouts/turnout-1 \
   -d '{"state":"diverging"}'
 ```
 
+La requête publique attend la confirmation de toutes les étapes. Avec
+`no_confirmation`, elle termine par `409 turnout_confirmation_timeout` après
+`turnout.confirmationTimeout`. Pour injecter une confirmation avant cette
+échéance, lancer la requête dans une tâche asynchrone du harnais, attendre
+`turnout.commanded`, puis appeler l'API de test.
+
 Injecter ensuite le retour :
 
 ```bash
@@ -983,11 +994,16 @@ curl -i -X PUT \
   -d '{"position":"position2","quality":"physical"}'
 ```
 
-L'état `Desired/Reported/Pending` détaillé du simulateur est visible dans
+L'état endpoint `Desired/Reported/Pending` détaillé du simulateur est visible dans
 `/test/v1/simulator/state`. Il utilise exclusivement `position1` et
 `position2`. Les noms `straight`, `left` ou `route_a` restent au niveau du
 turnout logique. Une injection externe conserve `Desired`, modifie `Reported`,
 publie un événement et annule une confirmation retardée obsolète.
+
+Le turnout métier, disponible dans `GET /api/v1/turnouts` et le snapshot
+WebSocket, expose aussi `reportedStatus`, `quality` et `commandStatus`. Un
+appareil composé est commandé par étapes sûres. Le client ne doit jamais
+déduire une réussite du seul `desiredPosition`.
 
 ```plantuml
 @startuml
@@ -997,13 +1013,19 @@ participant Harness
 participant Client
 participant "API publique" as API
 participant Simulator
+participant WebSocket
 
 Harness -> Simulator : behavior=no_confirmation
 Client -> API : PUT turnout state=diverging
 API -> Simulator : SetBasicAccessory(position2)
 Simulator -> Simulator : Desired=position2\nPending=true
+API -> WebSocket : turnout.commanded
+WebSocket --> Client : targetPosition=diverging
 Harness -> Simulator : report position2, physical
 Simulator -> Simulator : Reported=position2\nPending=false
+Simulator --> API : AccessoryStateEvent(position2, physical)
+API -> WebSocket : turnout.state.changed
+API --> Client : 204 confirmé
 Harness -> Simulator : GET /test/v1/simulator/state
 Simulator --> Harness : desired/reported/pending
 

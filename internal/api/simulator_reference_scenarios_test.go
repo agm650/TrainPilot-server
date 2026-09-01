@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/client"
 	"github.com/agm650/TrainPilot-server/internal/model"
@@ -276,13 +277,16 @@ func testReferenceFeedbackEventLoss(t *testing.T) {
 func testReferenceAccessoryConfirmationSuccess(t *testing.T) {
 	fixture := newSimulatorAPIFixture(t)
 	startReferenceSimulatorScenario(t, fixture, "accessory-confirmation-success")
-	if err := fixture.client.SetTurnout(context.Background(), "turnout-1", "diverging"); err != nil {
-		t.Fatal(err)
-	}
+	done := make(chan error, 1)
+	go func() { done <- fixture.client.SetTurnout(context.Background(), "turnout-1", "diverging") }()
+	waitForReferenceAccessoryCommand(t, fixture, 1, station.AccessoryPosition2)
 	if accessory := fixture.sim.Accessory(1); accessory.Desired != station.AccessoryPosition2 || accessory.Reported == station.AccessoryPosition2 || !accessory.Pending {
 		t.Fatalf("pending accessory=%+v", accessory)
 	}
 	advanceReferenceSimulatorScenario(t, fixture, "2s")
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
 	if accessory := fixture.sim.Accessory(1); accessory.Desired != station.AccessoryPosition2 || accessory.Reported != station.AccessoryPosition2 || accessory.Pending {
 		t.Fatalf("confirmed accessory=%+v", accessory)
 	}
@@ -291,8 +295,8 @@ func testReferenceAccessoryConfirmationSuccess(t *testing.T) {
 func testReferenceAccessoryConfirmationTimeout(t *testing.T) {
 	fixture := newSimulatorAPIFixture(t)
 	startReferenceSimulatorScenario(t, fixture, "accessory-confirmation-timeout-base")
-	if err := fixture.client.SetTurnout(context.Background(), "turnout-1", "diverging"); err != nil {
-		t.Fatal(err)
+	if err := fixture.client.SetTurnout(context.Background(), "turnout-1", "diverging"); err == nil {
+		t.Fatal("unconfirmed turnout command unexpectedly succeeded")
 	}
 	advanceReferenceSimulatorScenario(t, fixture, "30s")
 	if accessory := fixture.sim.Accessory(1); accessory.Desired != station.AccessoryPosition2 || accessory.Reported == station.AccessoryPosition2 || !accessory.Pending {
@@ -303,12 +307,29 @@ func testReferenceAccessoryConfirmationTimeout(t *testing.T) {
 func testReferenceAccessoryWrongConfirmation(t *testing.T) {
 	fixture := newSimulatorAPIFixture(t)
 	startReferenceSimulatorScenario(t, fixture, "accessory-wrong-confirmation")
-	if err := fixture.client.SetTurnout(context.Background(), "turnout-1", "diverging"); err != nil {
-		t.Fatal(err)
-	}
+	done := make(chan error, 1)
+	go func() { done <- fixture.client.SetTurnout(context.Background(), "turnout-1", "diverging") }()
+	waitForReferenceAccessoryCommand(t, fixture, 1, station.AccessoryPosition2)
 	advanceReferenceSimulatorScenario(t, fixture, "1s")
+	if err := <-done; err == nil {
+		t.Fatal("inconsistent report unexpectedly confirmed turnout command")
+	}
 	if accessory := fixture.sim.Accessory(1); accessory.Desired != station.AccessoryPosition2 || accessory.Reported != station.AccessoryPosition1 || !accessory.Pending {
 		t.Fatalf("inconsistent accessory=%+v", accessory)
+	}
+}
+
+func waitForReferenceAccessoryCommand(t *testing.T, fixture simulatorAPIFixture, address int, position station.AccessoryPosition) {
+	t.Helper()
+	deadline := time.Now().Add(100 * time.Millisecond)
+	for {
+		if fixture.sim.Accessory(address).Desired == position {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("accessory %d did not receive position %s", address, position)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

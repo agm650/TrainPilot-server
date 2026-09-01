@@ -62,7 +62,7 @@ func newSimulatorAPIFixture(t *testing.T) simulatorAPIFixture {
 		t.Fatal(err)
 	}
 	bus := events.New()
-	railway := service.NewRailwayService(db, sim, bus)
+	railway := service.NewRailwayService(db, sim, bus, 200*time.Millisecond)
 	railway.StartFeedback(ctx)
 	control := service.NewControlService(db, sim, bus, realClock, 15*time.Second, time.Second, time.Hour)
 	control.Start()
