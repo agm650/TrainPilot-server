@@ -607,6 +607,22 @@ capteurs reprennent sur le canal existant. Les commandes présentées pendant la
 panne sont refusées sans mise en file ni rejeu ; aucune vitesse, fonction ou
 position d'accessoire antérieure n'est restaurée automatiquement.
 
+Les accessoires utilisent la forme linéaire brute DCC-EX :
+
+```text
+position1 -> <a LINEAR_ADDRESS 0>
+position2 -> <a LINEAR_ADDRESS 1>
+```
+
+La plage TrainPilot reste `1..2040`. Le pilote ne crée jamais de définition
+persistante `<T>` dans la centrale : les IDs et les appareils composés restent
+propriété de TrainPilot. Après une écriture TCP réussie, il publie un état de
+qualité `assumed`. DCC-EX ne mémorise pas l'état des commandes brutes `<a>` ; ce
+retour ne confirme donc ni la réception par le décodeur ni le mouvement des
+lames. Aucun changement externe n'est déduit sans source de feedback fiable.
+Un décalage par groupe de quatre peut exister avec l'affichage d'un autre
+système ; la procédure de diagnostic est décrite dans `docs/TURNOUTS.md`.
+
 ### z21/Z21 sur UDP
 
 ```json

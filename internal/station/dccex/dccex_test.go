@@ -144,6 +144,12 @@ func (s *fakeTCPServer) Commands() []string {
 	return append([]string(nil), s.commands...)
 }
 
+func (s *fakeTCPServer) ResetCommands() {
+	s.mu.Lock()
+	s.commands = nil
+	s.mu.Unlock()
+}
+
 func (s *fakeTCPServer) ActiveConnections() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -489,17 +495,42 @@ func TestThrottleCommand(t *testing.T) {
 func TestBasicAccessoryCommand(t *testing.T) {
 	server := newFakeTCPServer(t)
 	driver := newConnectedDriver(t, server, station.DefaultOfflineAfter)
-	for _, command := range []station.AccessoryCommand{
-		{Address: 12, Position: station.AccessoryPosition1},
-		{Address: 12, Position: station.AccessoryPosition2},
-	} {
+	commands := []station.AccessoryCommand{
+		{Address: 1, Position: station.AccessoryPosition1},
+		{Address: 1, Position: station.AccessoryPosition2},
+		{Address: 44, Position: station.AccessoryPosition1},
+		{Address: 44, Position: station.AccessoryPosition2},
+	}
+	for _, command := range commands {
 		if err := driver.SetBasicAccessory(context.Background(), command); err != nil {
 			t.Fatal(err)
 		}
+		event := waitForAccessoryState(t, driver.AccessoryStateEvents(), time.Second)
+		if event.Address != command.Address || event.Position != command.Position || event.State != station.AccessoryReportKnown || event.Quality != station.AccessoryReportAssumed || event.ObservedAt.IsZero() {
+			t.Fatalf("accessory event=%+v command=%+v", event, command)
+		}
 	}
-	eventually(t, time.Second, "basic accessory commands", func() bool { return len(server.Commands()) == 2 })
-	if got := server.Commands(); !equalStringSlices(got, []string{"<a 12 0 0>", "<a 12 0 1>"}) {
+	eventually(t, time.Second, "basic accessory commands", func() bool { return len(server.Commands()) == 4 })
+	if got := server.Commands(); !equalStringSlices(got, []string{"<a 1 0>", "<a 1 1>", "<a 44 0>", "<a 44 1>"}) {
 		t.Fatalf("commands=%v", got)
+	}
+}
+
+func TestInvalidAccessoryCommandSendsNothing(t *testing.T) {
+	server := newFakeTCPServer(t)
+	driver := newConnectedDriver(t, server, station.DefaultOfflineAfter)
+	for _, command := range []station.AccessoryCommand{
+		{Address: 0, Position: station.AccessoryPosition1},
+		{Address: station.MaxBasicAccessoryAddress + 1, Position: station.AccessoryPosition1},
+		{Address: 1, Position: station.AccessoryPosition("invalid")},
+	} {
+		if err := driver.SetBasicAccessory(context.Background(), command); err == nil {
+			t.Fatalf("command %+v unexpectedly succeeded", command)
+		}
+	}
+	time.Sleep(20 * time.Millisecond)
+	if got := server.Commands(); len(got) != 0 {
+		t.Fatalf("invalid accessory commands sent frames=%v", got)
 	}
 }
 
@@ -514,6 +545,136 @@ func TestBasicAccessoryValidationAndOffline(t *testing.T) {
 	}
 	if err := driver.SetBasicAccessory(context.Background(), station.AccessoryCommand{Address: 1, Position: station.AccessoryPosition1}); !errors.Is(err, station.ErrOffline) {
 		t.Fatalf("offline accessory error=%v", err)
+	}
+}
+
+func TestAccessoryCommandIsNotReplayedAfterReconnect(t *testing.T) {
+	server := newFakeTCPServer(t)
+	driver := newConnectedDriver(t, server, 500*time.Millisecond)
+	events := driver.AccessoryStateEvents()
+	if err := driver.SetBasicAccessory(context.Background(), station.AccessoryCommand{Address: 10, Position: station.AccessoryPosition1}); err != nil {
+		t.Fatal(err)
+	}
+	if event := waitForAccessoryState(t, events, time.Second); event.Address != 10 {
+		t.Fatalf("initial accessory event=%+v", event)
+	}
+	eventually(t, time.Second, "initial accessory command", func() bool { return len(server.Commands()) == 1 })
+	server.ResetCommands()
+
+	server.Stop()
+	waitForConnectivity(t, driver, station.Degraded, 100*time.Millisecond)
+	err := driver.SetBasicAccessory(context.Background(), station.AccessoryCommand{Address: 11, Position: station.AccessoryPosition2})
+	if !errors.Is(err, station.ErrOffline) {
+		t.Fatalf("outage accessory error=%v want station.ErrOffline", err)
+	}
+	select {
+	case event := <-events:
+		t.Fatalf("offline accessory command published event=%+v", event)
+	case <-time.After(20 * time.Millisecond):
+	}
+	server.Start()
+	waitForConnectivity(t, driver, station.Online, 500*time.Millisecond)
+	eventually(t, time.Second, "reconnected accessory socket", func() bool { return server.ActiveConnections() == 1 })
+	time.Sleep(3 * testReconnectInterval)
+	if got := server.Commands(); len(got) != 0 {
+		t.Fatalf("outage accessory command was replayed: %v", got)
+	}
+	if err := driver.SetBasicAccessory(context.Background(), station.AccessoryCommand{Address: 12, Position: station.AccessoryPosition2}); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, time.Second, "new accessory command", func() bool { return len(server.Commands()) == 1 })
+	if got := server.Commands(); !equalStringSlices(got, []string{"<a 12 1>"}) {
+		t.Fatalf("commands after reconnect=%v", got)
+	}
+	if event := waitForAccessoryState(t, events, time.Second); event.Address != 12 || event.Position != station.AccessoryPosition2 {
+		t.Fatalf("reconnected accessory event=%+v", event)
+	}
+}
+
+func TestAccessoryWriteFailurePublishesNoAssumedState(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	forcedErr := errors.New("forced accessory write failure")
+	driver := NewTCP("unused", 500*time.Millisecond)
+	driver.reconnectInterval = testReconnectInterval
+	var attempts atomic.Int64
+	driver.dial = func(context.Context, string) (net.Conn, error) {
+		if attempts.Add(1) == 1 {
+			return &failingWriteConn{Conn: clientConn, err: forcedErr}, nil
+		}
+		return nil, errors.New("station unavailable")
+	}
+	if err := driver.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = driver.Close()
+		_ = serverConn.Close()
+	})
+
+	err := driver.SetBasicAccessory(context.Background(), station.AccessoryCommand{Address: 44, Position: station.AccessoryPosition2})
+	if !errors.Is(err, station.ErrOffline) || !strings.Contains(err.Error(), forcedErr.Error()) {
+		t.Fatalf("accessory write error=%v", err)
+	}
+	select {
+	case event := <-driver.AccessoryStateEvents():
+		t.Fatalf("failed accessory write published event=%+v", event)
+	case <-time.After(30 * time.Millisecond):
+	}
+	eventually(t, 500*time.Millisecond, "accessory reconnect after write error", func() bool { return attempts.Load() >= 2 })
+}
+
+func TestConcurrentAccessoryCommandsRemainComplete(t *testing.T) {
+	server := newFakeTCPServer(t)
+	driver := newConnectedDriver(t, server, station.DefaultOfflineAfter)
+	const commandCount = 100
+	var wg sync.WaitGroup
+	errorsCh := make(chan error, commandCount)
+	want := make(map[string]int, commandCount)
+	for i := range commandCount {
+		address := i%20 + 1
+		position := station.AccessoryPosition1
+		activate := 0
+		if i%2 == 1 {
+			position = station.AccessoryPosition2
+			activate = 1
+		}
+		want[fmt.Sprintf("<a %d %d>", address, activate)]++
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errorsCh <- driver.SetBasicAccessory(context.Background(), station.AccessoryCommand{Address: address, Position: position})
+		}()
+	}
+	wg.Wait()
+	close(errorsCh)
+	for err := range errorsCh {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	eventually(t, time.Second, "100 complete accessory commands", func() bool { return len(server.Commands()) == commandCount })
+	got := make(map[string]int, commandCount)
+	for _, command := range server.Commands() {
+		got[command]++
+	}
+	if len(got) != len(want) {
+		t.Fatalf("distinct commands=%d want %d: %v", len(got), len(want), got)
+	}
+	for command, count := range want {
+		if got[command] != count {
+			t.Fatalf("command %q count=%d want %d", command, got[command], count)
+		}
+	}
+}
+
+func waitForAccessoryState(t *testing.T, events <-chan station.AccessoryStateEvent, timeout time.Duration) station.AccessoryStateEvent {
+	t.Helper()
+	select {
+	case event := <-events:
+		return event
+	case <-time.After(timeout):
+		t.Fatal("timeout waiting for DCC-EX accessory state")
+		return station.AccessoryStateEvent{}
 	}
 }
 

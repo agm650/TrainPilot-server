@@ -33,6 +33,7 @@ type Driver struct {
 	dial              dialFunc
 	reconnectInterval time.Duration
 	feedback          chan station.FeedbackEvent
+	accessoryEvents   chan station.AccessoryStateEvent
 	statusEvents      chan station.Status
 	health            station.HealthTracker
 	runCtx            context.Context
@@ -43,6 +44,7 @@ type Driver struct {
 
 var _ station.HealthProvider = (*Driver)(nil)
 var _ station.StatusEventProvider = (*Driver)(nil)
+var _ station.AccessoryStateEventProvider = (*Driver)(nil)
 var _ station.CommandStation = (*Driver)(nil)
 
 func NewTCP(address string, offlineAfter time.Duration) *Driver {
@@ -55,6 +57,7 @@ func NewTCP(address string, offlineAfter time.Duration) *Driver {
 		},
 		reconnectInterval: defaultReconnectInterval,
 		feedback:          make(chan station.FeedbackEvent, 64),
+		accessoryEvents:   make(chan station.AccessoryStateEvent, 64),
 		statusEvents:      make(chan station.Status, 16),
 		health:            station.NewHealthTracker(offlineAfter),
 		runCtx:            runCtx,
@@ -180,10 +183,23 @@ func (d *Driver) SetBasicAccessory(ctx context.Context, command station.Accessor
 	if command.Position == station.AccessoryPosition2 {
 		activate = 1
 	}
-	return d.send(ctx, fmt.Sprintf("<a %d 0 %d>\n", command.Address, activate))
+	if err := d.send(ctx, fmt.Sprintf("<a %d %d>\n", command.Address, activate)); err != nil {
+		return err
+	}
+	d.publishAccessoryState(station.AccessoryStateEvent{
+		Address:    command.Address,
+		Position:   command.Position,
+		State:      station.AccessoryReportKnown,
+		Quality:    station.AccessoryReportAssumed,
+		ObservedAt: time.Now(),
+	})
+	return nil
 }
 func (d *Driver) Feedback() <-chan station.FeedbackEvent { return d.feedback }
 func (d *Driver) StatusEvents() <-chan station.Status    { return d.statusEvents }
+func (d *Driver) AccessoryStateEvents() <-chan station.AccessoryStateEvent {
+	return d.accessoryEvents
+}
 func (d *Driver) readLoop(c net.Conn, connectionID uint64) {
 	defer d.wg.Done()
 	scanner := bufio.NewScanner(c)
@@ -315,6 +331,12 @@ func (d *Driver) publishHealthStatus() {
 func (d *Driver) publish(e station.FeedbackEvent) {
 	select {
 	case d.feedback <- e:
+	default:
+	}
+}
+func (d *Driver) publishAccessoryState(event station.AccessoryStateEvent) {
+	select {
+	case d.accessoryEvents <- event:
 	default:
 	}
 }

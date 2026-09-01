@@ -432,3 +432,44 @@ les limites d'adresse, les réponses concurrentes, broadcasts, annulations et
 refus hors ligne sont couverts par un faux serveur UDP. Une validation sur
 centrale réelle reste requise avant de considérer l'adressage affiché par un
 constructeur ou la position mécanique comme confirmés.
+
+## 19. Protocole accessoire DCC-EX
+
+Le pilote utilise uniquement la commande brute à adresse linéaire :
+
+```text
+position1 -> <a LINEAR_ADDRESS 0>
+position2 -> <a LINEAR_ADDRESS 1>
+```
+
+Exemples :
+
+```text
+adresse 1, position1  -> <a 1 0>
+adresse 1, position2  -> <a 1 1>
+adresse 44, position1 -> <a 44 0>
+adresse 44, position2 -> <a 44 1>
+```
+
+DCC-EX accepte officiellement les adresses linéaires `1..2044`. TrainPilot
+applique sa plage portable commune `1..2040`. Les adresses `0` et `2041..2044`
+sont donc refusées avant toute écriture TCP.
+
+Le pilote n'utilise pas la forme `addr/subaddr` et ne force plus
+`subaddr=0`. Certains systèmes affichent toutefois l'adresse du décodeur et sa
+sortie dans un groupe de quatre. Par exemple, DCC-EX documente l'adresse
+linéaire 44 comme l'adresse 11, sous-adresse 3. En cas de décalage, appliquer la
+procédure de diagnostic de la section 2 et conserver une seule conversion.
+
+TrainPilot ne crée ni ne modifie automatiquement de définition persistante
+`<T>`. Cette décision évite les collisions d'IDs, un état EEPROM divergent et
+la duplication du modèle des triples ou TJD dans la centrale. Le driver reçoit
+seulement des commandes indépendantes pour leurs endpoints.
+
+La documentation DCC-EX précise que `<a>` envoie un paquet DCC sans conserver
+l'état courant de l'accessoire. Une écriture TCP réussie publie donc un
+`AccessoryStateEvent` de qualité `assumed`. Ce niveau permet au service de
+fonctionner sans capteur, mais ne prouve pas que le décodeur a reçu le paquet
+ou que les lames ont bougé. Aucun parser de changement externe n'est ajouté :
+la commande brute ne possède pas de réponse ou broadcast d'état standard
+documenté. Une future confirmation physique devra venir d'un capteur adapté.

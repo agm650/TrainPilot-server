@@ -30,6 +30,9 @@
 - le socket Unix d’administration permet la création, la liste et la désactivation ;
 - les paquets de puissance et de statut Z21 ont la forme attendue et les réponses d’état sont décodées ;
 - les commandes DCC-EX sont encodées correctement et un faux serveur TCP couvre la connexion initiale, la perte du socket, les transitions `online/degraded/offline`, la reconnexion avant ou après `offline`, plusieurs cycles et l'arrêt pendant une reconnexion ;
+- les accessoires DCC-EX utilisent exactement `<a linear 0|1>`, publient uniquement un état `assumed` après succès et ne publient rien après une erreur d'écriture ;
+- cent commandes accessoires DCC-EX concurrentes restent des trames complètes, tandis qu'une commande refusée pendant une panne n'est jamais rejouée après reconnexion ;
+- un test d'intégration `RailwayService -> DCC-EX TCP` vérifie qu'un turnout simple à l'adresse 44 produit `<a 44 1>` puis atteint sa position logique grâce au retour `assumed` ;
 - les commandes DCC-EX présentées sans socket sont refusées sans mise en file ni rejeu, tandis que les retours de capteurs reprennent sur le même canal après reconnexion ;
 - les snapshots du simulateur sont profondément copiés, son horloge est injectable, son reset conserve la connexion et ses lectures restent sûres face aux commandes concurrentes ;
 - les accessoires simulés distinguent état demandé et confirmé, couvrent les confirmations immédiates, différées, absentes ou incohérentes et ignorent toute confirmation différée devenue obsolète ;
@@ -240,13 +243,23 @@ que sur un banc explicitement choisi :
 
 1. démarrer DCC-EX puis `dccd` avec le pilote `dccex` et un
    `station.offlineAfter` court mais adapté au banc ;
-2. vérifier que l'état annoncé est `online` et qu'un retour de capteur est reçu ;
-3. couper le transport TCP après la connexion initiale et vérifier le passage à
+2. configurer un décodeur d'accessoires et relever son adresse ;
+3. commander `position1`, puis `position2`, et vérifier les trames
+   `<a LINEAR 0>` et `<a LINEAR 1>` ;
+4. répéter de part et d'autre d'une frontière de groupe de quatre et noter la
+   convention d'affichage du matériel ;
+5. effectuer plusieurs changements rapides et vérifier l'absence de trame
+   corrompue ;
+6. vérifier que l'état serveur est `assumed` et non `physical` ;
+7. comparer si possible avec un autre client et noter tout retour externe
+   réellement observable, sans le supposer ;
+8. vérifier que l'état annoncé est `online` et qu'un retour de capteur est reçu ;
+9. couper le transport TCP après la connexion initiale et vérifier le passage à
    `degraded`, puis à `offline` si la coupure dépasse le délai ;
-4. présenter une commande pendant la coupure et vérifier son refus ;
-5. rétablir DCC-EX et vérifier le retour à `online` ainsi que la reprise des
+10. présenter une commande accessoire pendant la coupure et vérifier son refus ;
+11. rétablir DCC-EX et vérifier le retour à `online` ainsi que la reprise des
    retours de capteurs ;
-6. vérifier que la commande refusée n'est pas rejouée et qu'une nouvelle
+12. vérifier que la commande refusée n'est pas rejouée et qu'une nouvelle
    commande explicite est nécessaire.
 
 Aucune ancienne vitesse, fonction ou position d'accessoire ne doit être

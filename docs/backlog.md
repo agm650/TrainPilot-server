@@ -62,7 +62,7 @@ dans ce backlog.
 - [x] Typer l'interface station pour les sorties d'accessoires binaires et leurs retours qualifiés (`AIG-002`).
 - [x] Adapter le simulateur aux endpoints binaires, retours qualifiés, appareils composés, faults ciblés et scénarios de référence (`AIG-003`).
 - [x] Implémenter les commandes et retours d'état binaires z21, avec impulsion configurable, corrélation et broadcasts (`AIG-004`).
-- [ ] Aligner DCC-EX sur l'adresse canonique et la sémantique binaire.
+- [x] Aligner DCC-EX sur l'adresse linéaire canonique, les positions binaires et les retours honnêtes `assumed` (`AIG-005`).
 - [ ] Sérialiser les transitions multi-endpoints et gérer les erreurs partielles.
 - [ ] Valider sur z21 réelle l'adressage des accessoires, la durée d'impulsion et la différence entre état de fonction rapporté et position physique.
 - [ ] Gérer les délais, échecs et incohérences entre position demandée et position confirmée.
