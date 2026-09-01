@@ -187,7 +187,7 @@ func (r *RailwayService) Blocks(ctx context.Context) ([]model.Block, error) {
 func (r *RailwayService) Turnouts(ctx context.Context) ([]model.Turnout, error) {
 	return r.store.ListTurnouts(ctx)
 }
-func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, state string) error {
+func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, position string) error {
 	if !Allowed(user.Role, PermissionDispatch) {
 		return ErrPermissionDenied
 	}
@@ -200,23 +200,27 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, st
 	if err != nil {
 		return err
 	}
-	_, exists := t.Position(state)
+	_, exists := t.Position(position)
 	if !exists {
-		return invalid("turnout position is not declared")
+		valid := make([]string, 0, len(t.Positions))
+		for _, candidate := range t.Positions {
+			valid = append(valid, candidate.ID)
+		}
+		return fmt.Errorf("%w: %q is not declared; valid positions: %s", ErrInvalidTurnoutPosition, position, strings.Join(valid, ", "))
 	}
 	r.seedAccessoryState(t)
 	generation := r.beginTurnoutCommand(id)
-	if err := r.store.SetTurnoutDesiredPosition(ctx, id, state, true); err != nil {
+	if err := r.store.SetTurnoutDesiredPosition(ctx, id, position, true); err != nil {
 		return err
 	}
 	r.events.Publish("turnout.commanded", map[string]any{
 		"turnoutId":      id,
-		"targetPosition": state,
+		"targetPosition": position,
 	})
 
-	path, err := safeTurnoutPath(t, t.ReportedPosition, state)
+	path, err := safeTurnoutPath(t, t.ReportedPosition, position)
 	if err != nil {
-		return r.failTurnoutCommand(ctx, t, state, "unsafe_transition", err)
+		return r.failTurnoutCommand(ctx, t, position, "unsafe_transition", errors.Join(ErrTurnoutTransitionFailed, err))
 	}
 	if len(path) == 0 {
 		if err := r.store.SetTurnoutCommandResult(ctx, id, false, model.TurnoutCommandSucceeded); err != nil {
@@ -240,14 +244,14 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, st
 			}
 			required, ok := next.Endpoints[endpoint.ID]
 			if !ok {
-				return r.failTurnoutCommand(ctx, t, state, "invalid_definition", invalid("turnout position does not define all endpoints"))
+				return r.failTurnoutCommand(ctx, t, position, "invalid_definition", fmt.Errorf("%w: invalid turnout definition", ErrTurnoutTransitionFailed))
 			}
 			command := station.AccessoryCommand{
 				Address:  endpoint.LinearAddress,
 				Position: model.PhysicalAccessoryPosition(endpoint, required),
 			}
 			if err := r.station.SetBasicAccessory(ctx, command); err != nil {
-				return r.failTurnoutCommand(ctx, t, state, "driver_error", err)
+				return r.failTurnoutCommand(ctx, t, position, "driver_error", errors.Join(ErrTurnoutTransitionFailed, err))
 			}
 		}
 		if err := r.waitForTurnoutPosition(ctx, t, generation, confirmation, next.ID, changed); err != nil {
@@ -257,7 +261,7 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, st
 				reason = "confirmation_interrupted"
 				status = model.TurnoutCommandFailed
 			}
-			return r.failTurnoutCommandWithStatus(ctx, t, state, reason, status, err)
+			return r.failTurnoutCommandWithStatus(ctx, t, position, reason, status, err)
 		}
 		currentPosition = next.ID
 	}
@@ -553,7 +557,7 @@ func (r *RailwayService) publishTurnoutState(ctx context.Context, turnoutID stri
 		"commandStatus":    turnout.CommandStatus,
 	}
 	if turnout.Quality.Valid() {
-		payload["quality"] = turnout.Quality
+		payload["reportQuality"] = turnout.Quality
 	}
 	r.events.Publish("turnout.state.changed", payload)
 }

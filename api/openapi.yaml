@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: DCC Control Server API
-  version: 1.6.0
+  version: 1.7.0
   description: >-
     Contract for native DCC clients. User administration is deliberately absent
     from this public API and is available only over the local administration socket.
@@ -383,16 +383,41 @@ paths:
           application/json:
             schema:
               type: object
-              required: [state]
+              additionalProperties: false
               properties:
-                state:
+                position:
                   type: string
                   minLength: 1
                   description: Stable ID of one position declared by the turnout definition.
+                state:
+                  type: string
+                  minLength: 1
+                  deprecated: true
+                  description: Deprecated compatibility field accepted only for simple turnouts. Use position.
+              oneOf:
+                - required: [position]
+                - required: [state]
       responses:
         '204': { description: Turnout position confirmed by all required endpoint reports. }
+        '400':
+          description: Missing, conflicting or invalid logical position (`invalid_turnout_position`).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '404':
+          description: Turnout not found (`turnout_not_found`).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: >-
+            Turnout busy, transition or confirmation failure, or unsupported
+            station (`turnout_busy`, `turnout_transition_failed`,
+            `turnout_confirmation_timeout`, `station_unsupported`).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/routes:
     get:
@@ -768,7 +793,7 @@ components:
           type: string
           enum: [known, unknown, invalid]
           description: Whether the endpoint vector resolves to a declared logical position.
-        quality:
+        reportQuality:
           type: string
           enum: [assumed, station, physical]
           description: Lowest confidence among all endpoint observations.
@@ -788,6 +813,29 @@ components:
           type: string
           enum: [straight, diverging, unknown]
           deprecated: true
+      example:
+        id: T3
+        name: Aiguille triple entrée gare
+        kind: three_way
+        endpoints:
+          - { id: A, linearAddress: 20 }
+          - { id: B, linearAddress: 21 }
+        positions:
+          - id: left
+            label: Gauche
+            endpoints: { A: position2, B: position1 }
+          - id: straight
+            label: Direct
+            endpoints: { A: position1, B: position1 }
+          - id: right
+            label: Droite
+            endpoints: { A: position1, B: position2 }
+        desiredPosition: right
+        reportedPosition: straight
+        pending: true
+        reportedStatus: known
+        reportQuality: station
+        commandStatus: pending
     Route:
       type: object
       required: [id, name, state]

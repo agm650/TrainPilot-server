@@ -227,8 +227,8 @@ func (c *Client) Turnouts(ctx context.Context) ([]model.Turnout, error) {
 	return out.Items, err
 }
 
-func (c *Client) SetTurnout(ctx context.Context, id, state string) error {
-	_, err := c.Do(ctx, http.MethodPut, "/api/v1/turnouts/"+url.PathEscape(id), map[string]any{"state": state}, nil)
+func (c *Client) SetTurnout(ctx context.Context, id, position string) error {
+	_, err := c.Do(ctx, http.MethodPut, "/api/v1/turnouts/"+url.PathEscape(id), map[string]any{"position": position}, nil)
 	return err
 }
 

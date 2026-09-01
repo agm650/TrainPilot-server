@@ -465,7 +465,10 @@ implicitement une locomotive : `acquire` reste obligatoire.
 
 ## Import et export
 
-Les exports sont des archives ZIP version 2 contenant un `manifest.json` et un document JSON. Les archives version 1 restent importables. Les imports utilisent le mode `merge` par défaut ; `--replace` remplace la bibliothèque correspondante après validation.
+Les exports sont des archives ZIP version 3 contenant un `manifest.json` et un
+document JSON. Les archives versions 1 et 2 restent importables. Les imports
+utilisent le mode `merge` par défaut. `--replace` remplace la bibliothèque
+correspondante après validation.
 
 ```bash
 # Export accessible à tout utilisateur authentifié
@@ -579,9 +582,34 @@ Le délai `turnout.confirmationTimeout`, égal à `2s` par défaut, accepte les
 durées Go. À expiration, la cible reste dans `desiredPosition`, le dernier
 rapport est conservé et `commandStatus` devient `timeout`.
 
+L'API publique commande une position logique propre à l'appareil :
+
+```http
+PUT /api/v1/turnouts/T3
+Content-Type: application/json
+
+{"position":"right"}
+```
+
+La réponse `204` signifie que toutes les étapes ont été confirmées. Le client
+lit les choix possibles dans `positions`. Il suit ensuite
+`desiredPosition`, `reportedPosition`, `pending`, `reportedStatus`,
+`reportQuality` et `commandStatus`. Le champ historique `state` reste accepté
+uniquement pour un aiguillage `simple`. Il est déprécié.
+
+La CLI applique le même contrat :
+
+```bash
+dccctl turnouts
+dccctl turnout T3 --positions
+dccctl turnout T3 right
+```
+
 Les anciennes bases et archives à une adresse sont converties automatiquement
-en aiguillages simples. Les champs historiques restent temporairement exposés
-pour ces appareils. Après un échec partiel, aucun rollback aveugle n'est tenté.
+en aiguillages simples. Les exports de layout v3 contiennent la configuration
+physique, mais aucun état runtime. Les champs historiques restent
+temporairement exposés pour les appareils simples. Après un échec partiel,
+aucun rollback aveugle n'est tenté.
 
 Le modèle, l'adressage linéaire et les exemples sont décrits dans
 [`docs/TURNOUTS.md`](docs/TURNOUTS.md).

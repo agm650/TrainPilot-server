@@ -52,6 +52,8 @@ func writeOperationProblem(w http.ResponseWriter, err error, code string) {
 	case errors.Is(err, station.ErrOffline):
 		code = "station_offline"
 		category = "station_unavailable"
+	case errors.Is(err, station.ErrUnsupported):
+		code = "station_unsupported"
 	case errors.Is(err, service.ErrEmergencyStopActive):
 		code = "emergency_stop_active"
 		category = "safety"
@@ -78,6 +80,12 @@ func writeOperationProblem(w http.ResponseWriter, err error, code string) {
 		code = "validation_failed"
 	case errors.Is(err, service.ErrTurnoutConfirmationTimeout):
 		code = "turnout_confirmation_timeout"
+	case errors.Is(err, service.ErrInvalidTurnoutPosition):
+		code = "invalid_turnout_position"
+	case errors.Is(err, service.ErrTurnoutBusy):
+		code = "turnout_busy"
+	case errors.Is(err, service.ErrTurnoutTransitionFailed):
+		code = "turnout_transition_failed"
 	case errors.Is(err, service.ErrUnsafeTurnoutTransition):
 		code = "unsafe_turnout_transition"
 	case errors.Is(err, transfer.ErrInvalidArchive):
@@ -90,6 +98,41 @@ func writeOperationProblem(w http.ResponseWriter, err error, code string) {
 		detail = "internal server error"
 	}
 	writeProblemJSON(w, status, problem{Type: "about:blank", Title: http.StatusText(status), Status: status, Detail: detail, Code: code, Category: category})
+}
+
+func writeTurnoutProblem(w http.ResponseWriter, err error) {
+	code := "turnout_transition_failed"
+	detail := err.Error()
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		code = "turnout_not_found"
+		detail = "turnout not found"
+	case errors.Is(err, service.ErrInvalidTurnoutPosition):
+		code = "invalid_turnout_position"
+	case errors.Is(err, service.ErrTurnoutBusy):
+		code = "turnout_busy"
+		detail = "turnout is busy"
+	case errors.Is(err, service.ErrTurnoutConfirmationTimeout):
+		code = "turnout_confirmation_timeout"
+		detail = "turnout confirmation timed out"
+	case errors.Is(err, station.ErrOffline):
+		code = "station_offline"
+		detail = "command station is offline"
+	case errors.Is(err, station.ErrUnsupported):
+		code = "station_unsupported"
+		detail = "command station does not support accessories"
+	case errors.Is(err, service.ErrTurnoutTransitionFailed):
+		code = "turnout_transition_failed"
+		detail = "turnout transition failed"
+	case errors.Is(err, service.ErrPermissionDenied):
+		code = "permission_denied"
+	}
+	status := statusFor(err)
+	if status >= 500 && status != http.StatusServiceUnavailable {
+		code = "internal_error"
+		detail = "internal server error"
+	}
+	writeProblemJSON(w, status, problem{Type: "about:blank", Title: http.StatusText(status), Status: status, Detail: detail, Code: code, Category: categoryForStatus(status)})
 }
 
 func writeProblemJSON(w http.ResponseWriter, status int, value problem) {
@@ -166,7 +209,7 @@ func statusFor(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, service.ErrPermissionDenied):
 		return http.StatusForbidden
-	case errors.Is(err, service.ErrValidation), errors.Is(err, transfer.ErrInvalidArchive):
+	case errors.Is(err, service.ErrValidation), errors.Is(err, service.ErrInvalidTurnoutPosition), errors.Is(err, transfer.ErrInvalidArchive):
 		return http.StatusBadRequest
 	case errors.Is(err, station.ErrOffline):
 		return http.StatusServiceUnavailable
@@ -180,6 +223,8 @@ func statusFor(err error) int {
 		errors.Is(err, service.ErrTrackPowerOff),
 		errors.Is(err, service.ErrTrackPowerUnknown),
 		errors.Is(err, service.ErrSafetyPreempted),
+		errors.Is(err, service.ErrTurnoutBusy),
+		errors.Is(err, service.ErrTurnoutTransitionFailed),
 		errors.Is(err, service.ErrTurnoutConfirmationTimeout),
 		errors.Is(err, service.ErrUnsafeTurnoutTransition):
 		return http.StatusConflict

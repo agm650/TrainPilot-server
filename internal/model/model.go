@@ -201,7 +201,7 @@ type Turnout struct {
 	ReportedPosition string                         `json:"reportedPosition"`
 	Pending          bool                           `json:"pending"`
 	ReportedStatus   station.AccessoryReportState   `json:"reportedStatus"`
-	Quality          station.AccessoryReportQuality `json:"quality,omitempty"`
+	Quality          station.AccessoryReportQuality `json:"reportQuality,omitempty"`
 	CommandStatus    TurnoutCommandStatus           `json:"commandStatus"`
 
 	// Deprecated compatibility fields. They remain populated for simple

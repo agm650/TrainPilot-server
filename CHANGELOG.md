@@ -20,7 +20,7 @@ All notable changes to this project will be documented in this file.
 - Contrat station typé pour les accessoires DCC binaires, validation de la plage linéaire portable et provider générique de retours qualifiés.
 - Commandes d'accessoires z21 `LAN_X_SET_TURNOUT`, impulsion configurable et désactivation sûre, lecture corrélée `LAN_X_GET_TURNOUT_INFO` et broadcasts d'état sans position inventée.
 - Accessoires DCC-EX alignés sur `<a linear 0|1>`, avec validation de la plage portable, retours `assumed`, tests TCP concurrents et absence de rejeu après reconnexion.
-- Modèle d'aiguillage simple ou composé avec endpoints binaires, positions logiques explicites, inversion, résolution physique, migration SQLite et archives version 2 compatibles avec la version 1.
+- Modèle d'aiguillage simple ou composé avec endpoints binaires, positions logiques explicites, inversion, résolution physique, migration SQLite et archives compatibles avec les versions précédentes.
 - Authentification persistée avec access tokens et refresh tokens révocables.
 - Administration des utilisateurs par socket Unix local uniquement.
 - CRUD des locomotives avec validation des adresses DCC et contrôle par rôle.
@@ -53,11 +53,13 @@ All notable changes to this project will be documented in this file.
 - Publication générique des changements d'état injectés par le simulateur via `station.StatusEventProvider`.
 - Guide exhaustif du banc simulateur pour le développement de clients, avec exemples HTTP/WebSocket, scénarios et diagrammes PlantUML, inclus dans les archives de livraison.
 - Contrôleur métier d'aiguillages avec transitions multi-endpoints sûres, confirmation qualifiée, timeout configurable, sérialisation par appareil, gestion des erreurs partielles et changements externes.
+- Commande REST par `position`, état composé dans les snapshots, codes d'erreur stables et commandes `dccctl turnouts` / `dccctl turnout`.
 
 ### Changed
 
 - Les drivers reçoivent désormais `position1` ou `position2` via `SetBasicAccessory`, sans chaînes géométriques `straight/diverging`.
-- Le contrat OpenAPI passe à `1.6.0` et AsyncAPI à `1.8.0`. Les aiguillages exposent leur statut de rapport, leur qualité et leur statut de commande ; les événements `turnout.commanded` et `turnout.command.failed` complètent `turnout.state.changed`.
+- Le contrat OpenAPI passe à `1.7.0` et AsyncAPI à `1.9.0`. Les aiguillages exposent `reportQuality`, utilisent `position` pour les commandes et conservent les événements `turnout.commanded`, `turnout.state.changed` et `turnout.command.failed`.
+- Les archives de layout passent à la version 3 et séparent la configuration des aiguillages de leur état runtime.
 - SQLite utilise le pilote pur Go `modernc.org/sqlite`.
 - Une commande de traction ou de fonction valide renouvelle désormais le lease de conduite.
 - Le snapshot WebSocket inclut les capacités et l’état courant de la centrale.

@@ -73,6 +73,40 @@ func TestPublicEndpointInventoryMatchesServerAndOpenAPI(t *testing.T) {
 	}
 }
 
+func TestCompoundTurnoutContractsAreDocumented(t *testing.T) {
+	openAPI, err := os.ReadFile("../../api/openapi.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	asyncAPI, err := os.ReadFile("../../api/asyncapi.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{
+		"version: 1.7.0",
+		"position:",
+		"deprecated: true",
+		"reportQuality:",
+		"turnout_confirmation_timeout",
+		"station_unsupported",
+	} {
+		if !bytes.Contains(openAPI, []byte(fragment)) {
+			t.Errorf("OpenAPI is missing %q", fragment)
+		}
+	}
+	for _, fragment := range []string{
+		"version: 1.9.0",
+		"name: turnout.commanded",
+		"name: turnout.state.changed",
+		"name: turnout.command.failed",
+		"reportQuality:",
+	} {
+		if !bytes.Contains(asyncAPI, []byte(fragment)) {
+			t.Errorf("AsyncAPI is missing %q", fragment)
+		}
+	}
+}
+
 func TestConformanceRunnerAgainstSimulator(t *testing.T) {
 	for _, active := range []bool{false, true} {
 		t.Run(map[bool]string{false: "passive", true: "active"}[active], func(t *testing.T) {

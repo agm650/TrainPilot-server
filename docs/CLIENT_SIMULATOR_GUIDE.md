@@ -5,8 +5,8 @@ Dernière validation : 31 août 2026.
 Versions du contrat au moment de cette validation :
 
 - serveur : `0.2.0` ;
-- API HTTP : `1.6.0` ;
-- API événementielle : `1.8.0` ;
+- API HTTP : `1.7.0` ;
+- API événementielle : `1.9.0` ;
 - format des scénarios du simulateur : `1`.
 
 Ce guide explique comment utiliser TrainPilot-server comme banc virtuel pour
@@ -256,9 +256,9 @@ Exemple :
 ```json
 {
   "serverVersion": "0.2.0",
-  "apiVersion": "1.6.0",
+  "apiVersion": "1.7.0",
   "minimumClientApiVersion": "1.0.0",
-  "eventApiVersion": "1.8.0",
+  "eventApiVersion": "1.9.0",
   "minimumClientEventApiVersion": "1.3.0",
   "station": {
     "driver": "simulator",
@@ -975,7 +975,7 @@ Commander l'aiguillage par l'API publique :
 curl -i -X PUT http://127.0.0.1:8080/api/v1/turnouts/turnout-1 \
   -H 'Authorization: Bearer <token dispatcher>' \
   -H 'Content-Type: application/json' \
-  -d '{"state":"diverging"}'
+  -d '{"position":"diverging"}'
 ```
 
 La requête publique attend la confirmation de toutes les étapes. Avec
@@ -1001,7 +1001,7 @@ turnout logique. Une injection externe conserve `Desired`, modifie `Reported`,
 publie un événement et annule une confirmation retardée obsolète.
 
 Le turnout métier, disponible dans `GET /api/v1/turnouts` et le snapshot
-WebSocket, expose aussi `reportedStatus`, `quality` et `commandStatus`. Un
+WebSocket, expose aussi `reportedStatus`, `reportQuality` et `commandStatus`. Un
 appareil composé est commandé par étapes sûres. Le client ne doit jamais
 déduire une réussite du seul `desiredPosition`.
 
@@ -1016,7 +1016,7 @@ participant Simulator
 participant WebSocket
 
 Harness -> Simulator : behavior=no_confirmation
-Client -> API : PUT turnout state=diverging
+Client -> API : PUT turnout position=diverging
 API -> Simulator : SetBasicAccessory(position2)
 Simulator -> Simulator : Desired=position2\nPending=true
 API -> WebSocket : turnout.commanded

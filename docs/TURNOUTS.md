@@ -157,7 +157,7 @@ centrale confirme son état de fonction, pas la position mécanique des lames.
   "reportedPosition": "straight",
   "pending": false,
   "reportedStatus": "known",
-  "quality": "physical",
+  "reportQuality": "physical",
   "commandStatus": "succeeded"
 }
 ```
@@ -183,7 +183,7 @@ Une chaîne vide signifie que la combinaison est inconnue ou invalide.
 
 `pending=true` signifie qu'une transition attend encore sa confirmation.
 
-`reportedStatus` distingue `known`, `unknown` et `invalid`. `quality` agrège
+`reportedStatus` distingue `known`, `unknown` et `invalid`. `reportQuality` agrège
 la confiance des endpoints. `commandStatus` vaut `idle`, `pending`,
 `succeeded`, `failed` ou `timeout`.
 
@@ -341,10 +341,10 @@ Une ancienne valeur `unknown` devient une position rapportée vide.
 
 ## 14. Archives
 
-Les exports utilisent le format d'archive version 2.
+Les exports utilisent le format d'archive version 3.
 Ils sont déterministes pour un état et un timestamp identiques.
 
-Les archives version 1 restent importables.
+Les archives versions 1 et 2 restent importables.
 Leur modèle à une adresse est converti en aiguillage simple.
 
 ## 15. Machine de contrôle et sécurité
@@ -448,9 +448,83 @@ aucune commande automatiquement. `reportedPosition != desiredPosition` est un
   résultat de commande ;
 - `turnout.command.failed` expose la cible et une raison publique stable.
 
-Le contrat exact est dans `api/asyncapi.yaml` version `1.8.0`.
+Le contrat exact est dans `api/asyncapi.yaml` version `1.9.0`.
 
-## 16. Confirmation physique
+## 16. Contrat REST et CLI
+
+`GET /api/v1/turnouts` retourne les définitions et l'état runtime. La liste
+`positions` fournit les identifiants et libellés utilisables par un client.
+Les vecteurs `endpoints` restent visibles. Un client de conduite peut les
+ignorer.
+
+La commande publique utilise une position logique :
+
+```http
+PUT /api/v1/turnouts/T3
+Content-Type: application/json
+
+{"position":"right"}
+```
+
+Le handler attend la confirmation de chaque étape. Il retourne `204` après la
+confirmation finale. Les erreurs publiques sont stables :
+
+| Code | HTTP | Signification |
+| --- | ---: | --- |
+| `turnout_not_found` | 404 | appareil inconnu |
+| `invalid_turnout_position` | 400 | position absente de `positions` |
+| `turnout_busy` | 409 | appareil temporairement indisponible |
+| `turnout_transition_failed` | 409 | échec d'une étape |
+| `turnout_confirmation_timeout` | 409 | confirmation non reçue |
+| `station_offline` | 503 | centrale hors ligne |
+| `station_unsupported` | 409 | pilote sans accessoires |
+
+Le body historique `{"state":"diverging"}` reste accepté uniquement pour un
+appareil `simple`. Il est déprécié. Envoyer `state` et `position` ensemble est
+refusé.
+
+```bash
+dccctl turnouts
+dccctl turnout T3 --positions
+dccctl turnout T3 right
+```
+
+La CLI valide localement la position et affiche la liste autorisée en cas
+d'erreur.
+
+## 17. Couches logicielles
+
+```mermaid
+flowchart LR
+  Client[Client REST / WebSocket / dccctl] --> API[API layer]
+  API --> Controller[RailwayService]
+  Controller --> Model[Turnout logique]
+  Model --> A[Endpoint A]
+  Model --> B[Endpoint B]
+  A --> Driver[Station driver]
+  B --> Driver
+  Driver --> Reports[AccessoryStateEvent]
+  Reports --> Controller
+  Controller --> Snapshot[SQLite + événements WebSocket]
+```
+
+- la couche `station` transporte `position1` et `position2` ;
+- la couche `model` valide les appareils et résout les vecteurs ;
+- la couche `service` séquence et confirme les transitions ;
+- la couche API expose les positions logiques et les états runtime.
+
+## 18. Archives de layout
+
+Le format courant est la version 3. Un export conserve `kind`, `endpoints`,
+`positions` et les références d'itinéraire. Il ne conserve pas `pending`, la
+dernière observation, la qualité ni le résultat de commande. Une importation
+repart donc avec un état runtime neutre.
+
+Les versions 1 et 2 restent importables. Un ancien objet avec `dccAddress`,
+`desiredState` et `reportedState` devient un appareil `simple` avec l'endpoint
+`main`.
+
+## 19. Confirmation physique
 
 `reportedPosition` indique ce que TrainPilot peut résoudre depuis les retours
 disponibles.
@@ -467,7 +541,7 @@ Le contrôleur agrège ces niveaux sans les promouvoir. Un itinéraire qui exige
 une preuve mécanique devra imposer une politique `physical` dans un futur
 ticket.
 
-## 17. Simulation et appareils composés
+## 20. Simulation et appareils composés
 
 Le simulateur travaille uniquement au niveau des endpoints physiques. Son état
 utilise `position1` et `position2`, jamais les noms logiques du turnout.

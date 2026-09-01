@@ -76,10 +76,39 @@ func TestDecodeJSONAndStatusMapping(t *testing.T) {
 		{service.ErrLeaseNotActive, http.StatusConflict},
 		{service.ErrLeaseOwnedByOtherUser, http.StatusConflict},
 		{service.ErrLeaseTakeoverConflict, http.StatusConflict},
+		{service.ErrInvalidTurnoutPosition, http.StatusBadRequest},
+		{service.ErrTurnoutBusy, http.StatusConflict},
+		{service.ErrTurnoutTransitionFailed, http.StatusConflict},
 	}
 	for _, tc := range cases {
 		if got := statusFor(tc.err); got != tc.want {
 			t.Errorf("statusFor(%q)=%d want %d", tc.err, got, tc.want)
+		}
+	}
+}
+
+func TestTurnoutProblemsUseStableCodes(t *testing.T) {
+	for _, tc := range []struct {
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{store.ErrNotFound, http.StatusNotFound, "turnout_not_found"},
+		{service.ErrInvalidTurnoutPosition, http.StatusBadRequest, "invalid_turnout_position"},
+		{service.ErrTurnoutBusy, http.StatusConflict, "turnout_busy"},
+		{service.ErrTurnoutTransitionFailed, http.StatusConflict, "turnout_transition_failed"},
+		{service.ErrTurnoutConfirmationTimeout, http.StatusConflict, "turnout_confirmation_timeout"},
+		{station.ErrOffline, http.StatusServiceUnavailable, "station_offline"},
+		{station.ErrUnsupported, http.StatusConflict, "station_unsupported"},
+	} {
+		recorder := httptest.NewRecorder()
+		writeTurnoutProblem(recorder, tc.err)
+		var got problem
+		if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if recorder.Code != tc.wantStatus || got.Code != tc.wantCode {
+			t.Errorf("error=%v response=%d %+v", tc.err, recorder.Code, got)
 		}
 	}
 }
@@ -235,7 +264,8 @@ func TestHTTPHandlersCoverSuccessAndErrorPaths(t *testing.T) {
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/turnouts/turnout-1", "Bearer "+viewer.AccessToken, []byte(`{"state":"straight"}`), http.StatusForbidden)
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/turnouts/turnout-1", "Bearer "+dispatcher.AccessToken, []byte(`{"state":"invalid"}`), http.StatusBadRequest)
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/turnouts/missing", "Bearer "+dispatcher.AccessToken, []byte(`{"state":"straight"}`), http.StatusNotFound)
-	assertStatus(t, server.URL, http.MethodPut, "/api/v1/turnouts/turnout-1", "Bearer "+dispatcher.AccessToken, []byte(`{"state":"diverging"}`), http.StatusNoContent)
+	assertStatus(t, server.URL, http.MethodPut, "/api/v1/turnouts/turnout-1", "Bearer "+dispatcher.AccessToken, []byte(`{"state":"straight"}`), http.StatusNoContent)
+	assertStatus(t, server.URL, http.MethodPut, "/api/v1/turnouts/turnout-1", "Bearer "+dispatcher.AccessToken, []byte(`{"position":"diverging"}`), http.StatusNoContent)
 
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/routes/route-a-b/reserve", "Bearer "+dispatcher.AccessToken, nil, http.StatusNoContent)
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/routes/route-a-b/activate", "Bearer "+dispatcher.AccessToken, nil, http.StatusNoContent)
@@ -301,6 +331,19 @@ func assertProblemCode(t *testing.T, baseURL, method, path, authorization string
 }
 
 func newHTTPFixture(t *testing.T) (*httptest.Server, *client.Client, *client.Client) {
+	fixture := newDetailedHTTPFixture(t)
+	return fixture.server, fixture.dispatcher, fixture.viewer
+}
+
+type detailedHTTPFixture struct {
+	server     *httptest.Server
+	dispatcher *client.Client
+	viewer     *client.Client
+	db         *store.Store
+	simulator  *simulator.Simulator
+}
+
+func newDetailedHTTPFixture(t *testing.T) detailedHTTPFixture {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -328,7 +371,7 @@ func newHTTPFixture(t *testing.T) (*httptest.Server, *client.Client, *client.Cli
 		t.Fatal(err)
 	}
 	bus := events.New()
-	railway := service.NewRailwayService(db, sim, bus)
+	railway := service.NewRailwayService(db, sim, bus, 75*time.Millisecond)
 	railway.StartFeedback(ctx)
 	control := service.NewControlService(db, sim, bus, clk, 15*time.Second, time.Second, time.Hour)
 	routes := service.NewRouteService(db, railway, bus)
@@ -345,7 +388,65 @@ func newHTTPFixture(t *testing.T) (*httptest.Server, *client.Client, *client.Cli
 	if _, err := viewer.Login(ctx, "viewer", "correct-horse-1", "viewer-client"); err != nil {
 		t.Fatal(err)
 	}
-	return server, dispatcher, viewer
+	return detailedHTTPFixture{server: server, dispatcher: dispatcher, viewer: viewer, db: db, simulator: sim}
+}
+
+func TestTurnoutHTTPContractSupportsCompoundPositionsAndStableErrors(t *testing.T) {
+	fixture := newDetailedHTTPFixture(t)
+	ctx := context.Background()
+	triple := model.Turnout{
+		ID: "T3", Name: "Entrée gare", Kind: model.TurnoutKindThreeWay,
+		Endpoints: []model.AccessoryEndpoint{{ID: "A", LinearAddress: 20}, {ID: "B", LinearAddress: 21}},
+		Positions: []model.TurnoutPositionDefinition{
+			{ID: "left", Label: "Gauche", Endpoints: map[string]model.AccessoryPosition{"A": model.AccessoryPosition2, "B": model.AccessoryPosition1}},
+			{ID: "straight", Label: "Direct", Endpoints: map[string]model.AccessoryPosition{"A": model.AccessoryPosition1, "B": model.AccessoryPosition1}},
+			{ID: "right", Label: "Droite", Endpoints: map[string]model.AccessoryPosition{"A": model.AccessoryPosition1, "B": model.AccessoryPosition2}},
+		},
+		DesiredPosition: "straight", ReportedPosition: "straight", ReportedStatus: station.AccessoryReportKnown,
+		Quality: station.AccessoryReportStation, CommandStatus: model.TurnoutCommandSucceeded,
+	}
+	if err := fixture.db.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{triple}}, false); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := fixture.dispatcher.Turnouts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got model.Turnout
+	for _, turnout := range items {
+		if turnout.ID == triple.ID {
+			got = turnout
+		}
+	}
+	if got.ID == "" || len(got.Positions) != 3 || got.Quality != station.AccessoryReportStation || got.ReportedPosition != "straight" {
+		t.Fatalf("compound turnout response=%+v", got)
+	}
+
+	if err := fixture.dispatcher.SetTurnout(ctx, triple.ID, "right"); err != nil {
+		t.Fatal(err)
+	}
+	assertProblemCode(t, fixture.server.URL, http.MethodPut, "/api/v1/turnouts/"+triple.ID, "Bearer "+fixture.dispatcher.AccessToken, []byte(`{"position":"invalid"}`), http.StatusBadRequest, "invalid_turnout_position")
+	assertProblemCode(t, fixture.server.URL, http.MethodPut, "/api/v1/turnouts/missing", "Bearer "+fixture.dispatcher.AccessToken, []byte(`{"position":"straight"}`), http.StatusNotFound, "turnout_not_found")
+	assertProblemCode(t, fixture.server.URL, http.MethodPut, "/api/v1/turnouts/"+triple.ID, "Bearer "+fixture.dispatcher.AccessToken, []byte(`{"position":"left","state":"straight"}`), http.StatusBadRequest, "invalid_turnout_position")
+	assertProblemCode(t, fixture.server.URL, http.MethodPut, "/api/v1/turnouts/"+triple.ID, "Bearer "+fixture.dispatcher.AccessToken, []byte(`{"state":"left"}`), http.StatusBadRequest, "invalid_turnout_position")
+
+	if err := fixture.simulator.SetAccessoryBehavior(21, simulator.AccessoryBehavior{Mode: simulator.AccessoryBehaviorNoConfirmation}); err != nil {
+		t.Fatal(err)
+	}
+	assertProblemCode(t, fixture.server.URL, http.MethodPut, "/api/v1/turnouts/"+triple.ID, "Bearer "+fixture.dispatcher.AccessToken, []byte(`{"position":"straight"}`), http.StatusConflict, "turnout_confirmation_timeout")
+	if err := fixture.simulator.SetAccessoryBehavior(21, simulator.AccessoryBehavior{Mode: simulator.AccessoryBehaviorImmediate}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.simulator.SetOperationFault(simulator.OpAccessory, simulator.OperationFault{Address: 20, Remaining: 1, Error: errors.New("partial endpoint failure")}); err != nil {
+		t.Fatal(err)
+	}
+	assertProblemCode(t, fixture.server.URL, http.MethodPut, "/api/v1/turnouts/"+triple.ID, "Bearer "+fixture.dispatcher.AccessToken, []byte(`{"position":"left"}`), http.StatusConflict, "turnout_transition_failed")
+	fixture.simulator.ClearFaults()
+	if err := fixture.simulator.SetConnectivity(station.Offline); err != nil {
+		t.Fatal(err)
+	}
+	assertProblemCode(t, fixture.server.URL, http.MethodPut, "/api/v1/turnouts/"+triple.ID, "Bearer "+fixture.dispatcher.AccessToken, []byte(`{"position":"straight"}`), http.StatusServiceUnavailable, "station_offline")
 }
 
 func assertStatus(t *testing.T, baseURL, method, path, authorization string, body []byte, want int) {

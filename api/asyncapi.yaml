@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: DCC Control Server Events
-  version: 1.8.0
+  version: 1.9.0
   description: >-
     WebSocket event contract for native clients, including complete sequenced
     snapshots and explicit resynchronization requests. After a snapshot, clients
@@ -225,7 +225,7 @@ components:
         reportedPosition: { type: string, description: Empty when unknown or physically invalid. }
         pending: { type: boolean }
         reportedStatus: { type: string, enum: [known, unknown, invalid] }
-        quality:
+        reportQuality:
           type: string
           enum: [assumed, station, physical]
           description: Lowest confidence among all endpoint observations.
@@ -324,7 +324,7 @@ components:
           lastSequence:
             type: integer
             minimum: 0
-            description: Last sequence successfully applied by the client. It is diagnostic in version 1.6.0.
+            description: Last sequence successfully applied by the client. It is diagnostic in the current version.
     LocomotiveCreated:
       name: locomotive.created
       payload:
@@ -512,8 +512,21 @@ components:
                     description: Empty when the physical endpoint vector is unknown or invalid.
                   reportedStatus: { type: string, enum: [known, unknown, invalid] }
                   pending: { type: boolean }
-                  quality: { type: string, enum: [assumed, station, physical] }
+                  reportQuality: { type: string, enum: [assumed, station, physical] }
                   commandStatus: { type: string, enum: [idle, pending, succeeded, failed, timeout] }
+      examples:
+        - payload:
+            type: turnout.state.changed
+            sequence: 153
+            occurredAt: '2026-09-01T12:00:00Z'
+            payload:
+              turnoutId: T3
+              desiredPosition: right
+              reportedPosition: straight
+              reportedStatus: known
+              pending: true
+              reportQuality: station
+              commandStatus: pending
     TurnoutCommanded:
       name: turnout.commanded
       payload:
@@ -528,6 +541,12 @@ components:
                 properties:
                   turnoutId: { type: string }
                   targetPosition: { type: string }
+      examples:
+        - payload:
+            type: turnout.commanded
+            sequence: 152
+            occurredAt: '2026-09-01T11:59:59Z'
+            payload: { turnoutId: T3, targetPosition: right }
     TurnoutCommandFailed:
       name: turnout.command.failed
       payload:
@@ -545,6 +564,15 @@ components:
                   reason:
                     type: string
                     enum: [confirmation_timeout, confirmation_interrupted, driver_error, unsafe_transition, invalid_definition]
+      examples:
+        - payload:
+            type: turnout.command.failed
+            sequence: 154
+            occurredAt: '2026-09-01T12:00:02Z'
+            payload:
+              turnoutId: T3
+              targetPosition: right
+              reason: confirmation_timeout
     RouteReserved:
       name: route.reserved
       payload:

@@ -54,12 +54,15 @@ func newWebsocketFixtureWithAccessTTL(t *testing.T, accessTTL time.Duration) web
 
 func newWebsocketFixtureWithStation(t *testing.T, accessTTL time.Duration, wrap func(*simulator.Simulator) station.CommandStation) websocketFixture {
 	t.Helper()
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	db, err := store.Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(func() {
+		cancel()
+		_ = db.Close()
+	})
 	if err := db.SeedDemo(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -90,6 +93,7 @@ func newWebsocketFixtureWithStation(t *testing.T, accessTTL time.Duration, wrap 
 	}
 	bus := events.New()
 	railway := service.NewRailwayService(db, commandStation, bus)
+	railway.StartFeedback(ctx)
 	controlClock := clock.NewFake(time.Now().UTC())
 	control := service.NewControlService(db, commandStation, bus, controlClock, 15*time.Second, time.Second, time.Hour)
 	routes := service.NewRouteService(db, railway, bus)
@@ -106,6 +110,92 @@ func newWebsocketFixtureWithStation(t *testing.T, accessTTL time.Duration, wrap 
 	httpServer := httptest.NewServer(server.Handler())
 	t.Cleanup(httpServer.Close)
 	return websocketFixture{api: server, server: httpServer, control: control, railway: railway, bus: bus, user: user, session: session, lease: lease, accessToken: pair.AccessToken, locomotives: locomotives, clock: controlClock}
+}
+
+func TestTurnoutCommandWebSocketFlowAndReconnectSnapshot(t *testing.T) {
+	fixture := newWebsocketFixture(t)
+	ctx := context.Background()
+	turnout, err := fixture.api.store.GetTurnout(ctx, "turnout-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := dialTestWebSocket(t, fixture.server.URL, fixture.accessToken)
+	defer client.close()
+	readTestSnapshot(t, client)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- fixture.railway.SetTurnout(ctx, model.User{Role: model.RoleDispatcher}, turnout.ID, "diverging")
+	}()
+	var commanded struct {
+		Type    string `json:"type"`
+		Payload struct {
+			TurnoutID      string `json:"turnoutId"`
+			TargetPosition string `json:"targetPosition"`
+		} `json:"payload"`
+	}
+	client.readJSON(t, &commanded)
+	if commanded.Type != "turnout.commanded" || commanded.Payload.TurnoutID != turnout.ID || commanded.Payload.TargetPosition != "diverging" {
+		t.Fatalf("commanded event=%+v", commanded)
+	}
+	var pending, completed struct {
+		Type    string `json:"type"`
+		Payload struct {
+			TurnoutID        string                         `json:"turnoutId"`
+			DesiredPosition  string                         `json:"desiredPosition"`
+			ReportedPosition string                         `json:"reportedPosition"`
+			Pending          bool                           `json:"pending"`
+			ReportQuality    station.AccessoryReportQuality `json:"reportQuality"`
+		} `json:"payload"`
+	}
+	client.readJSON(t, &pending)
+	client.readJSON(t, &completed)
+	if pending.Type != "turnout.state.changed" || !pending.Payload.Pending || pending.Payload.DesiredPosition != "diverging" || pending.Payload.ReportQuality == "" {
+		t.Fatalf("pending event=%+v", pending)
+	}
+	if completed.Type != "turnout.state.changed" || completed.Payload.Pending || completed.Payload.ReportedPosition != "diverging" || completed.Payload.ReportQuality == "" {
+		t.Fatalf("completed event=%+v", completed)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+
+	sim := fixture.api.simulator
+	if sim == nil {
+		t.Fatal("fixture does not expose simulator")
+	}
+	if err := sim.SetAccessoryBehavior(turnout.Endpoints[0].LinearAddress, simulator.AccessoryBehavior{Mode: simulator.AccessoryBehaviorNoConfirmation}); err != nil {
+		t.Fatal(err)
+	}
+	commandCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		_ = fixture.railway.SetTurnout(commandCtx, model.User{Role: model.RoleDispatcher}, turnout.ID, "straight")
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		current, err := fixture.api.store.GetTurnout(ctx, turnout.ID)
+		if err == nil && current.Pending {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("turnout did not enter pending state")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	reconnected := dialTestWebSocket(t, fixture.server.URL, fixture.accessToken)
+	defer reconnected.close()
+	snapshot := readTestSnapshot(t, reconnected)
+	for _, current := range snapshot.Payload.Turnouts {
+		if current.ID == turnout.ID {
+			if !current.Pending || current.DesiredPosition != "straight" || len(current.Positions) != 2 || current.Quality == "" {
+				t.Fatalf("pending reconnect snapshot turnout=%+v", current)
+			}
+			cancel()
+			return
+		}
+	}
+	t.Fatal("turnout missing from reconnect snapshot")
 }
 
 type snapshotBlockingStation struct {

@@ -57,6 +57,8 @@ func newRootCommand() (*cobra.Command, error) {
 		newReleaseCommand(app),
 		newPowerCommand(app),
 		newEmergencyStopCommand(app),
+		newTurnoutsCommand(app),
+		newTurnoutCommand(app),
 		newExportRollingStockCommand(app),
 		newImportRollingStockCommand(app),
 		newExportLayoutCommand(app),

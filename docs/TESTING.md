@@ -144,7 +144,8 @@ l'inversion des endpoints.
 Les tests de `internal/store` créent aussi une ancienne table `turnouts`, puis
 exécutent deux fois la migration. Les tests de `internal/transfer` importent une
 archive de circuit version 1 et vérifient un round-trip déterministe en version
-2.
+3. Le round-trip couvre un simple, un triple et une TJD. Il vérifie aussi que
+les états runtime ne sont pas restaurés.
 
 ```bash
 go test ./internal/model ./internal/store ./internal/transfer
@@ -159,6 +160,17 @@ concurrence.
 ```bash
 go test ./internal/service -run RailwayService
 go test -race ./internal/service
+```
+
+Les tests HTTP valident `{"position":"..."}`, la compatibilité `state` limitée
+au simple et les codes publics. Ils couvrent une position invalide, un timeout,
+une centrale offline et un échec partiel. Les tests WebSocket couvrent la suite
+`turnout.commanded -> pending -> confirmed` et un snapshot de reconnexion
+pendant une commande.
+
+```bash
+go test ./internal/api -run Turnout
+go test ./cmd/dccctl -run Turnout
 ```
 
 Pour tester rapidement un timeout, construire le service avec un délai court

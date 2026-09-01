@@ -1,6 +1,10 @@
 package api
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/agm650/TrainPilot-server/internal/model"
+)
 
 func (s *Server) listBlocks(w http.ResponseWriter, r *http.Request) {
 	items, err := s.railway.Blocks(r.Context())
@@ -20,17 +24,40 @@ func (s *Server) listTurnouts(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) setTurnout(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		State string `json:"state"`
+		Position string `json:"position"`
+		State    string `json:"state"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if err := s.railway.SetTurnout(r.Context(), userFrom(r), r.PathValue("id"), req.State); err != nil {
-		writeOperationProblem(w, err, "turnout_failed")
+	if req.Position != "" && req.State != "" {
+		writeProblem(w, http.StatusBadRequest, "invalid_turnout_position", "position and deprecated state cannot be used together")
+		return
+	}
+	position := req.Position
+	if position == "" && req.State != "" {
+		turnout, err := s.store.GetTurnout(r.Context(), r.PathValue("id"))
+		if err != nil {
+			writeTurnoutProblem(w, err)
+			return
+		}
+		if turnout.Kind != model.TurnoutKindSimple {
+			writeProblem(w, http.StatusBadRequest, "invalid_turnout_position", "deprecated state is accepted only for simple turnouts; use position")
+			return
+		}
+		position = req.State
+	}
+	if position == "" {
+		writeProblem(w, http.StatusBadRequest, "invalid_turnout_position", "position is required")
+		return
+	}
+	if err := s.railway.SetTurnout(r.Context(), userFrom(r), r.PathValue("id"), position); err != nil {
+		writeTurnoutProblem(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
 func (s *Server) listRoutes(w http.ResponseWriter, r *http.Request) {
 	items, err := s.routes.List(r.Context())
 	if err != nil {

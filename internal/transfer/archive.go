@@ -20,7 +20,7 @@ import (
 
 const (
 	FormatID       = "org.dcc-control.package"
-	FormatVersion  = 2
+	FormatVersion  = 3
 	OldestVersion  = 1
 	MaxArchiveSize = 25 << 20
 	MaxEntrySize   = 10 << 20
@@ -40,6 +40,38 @@ type RollingStockDocument struct {
 }
 type LayoutDocument struct {
 	Layout model.LayoutDefinition `json:"layout"`
+}
+
+// MarshalJSON deliberately exports turnout configuration separately from its
+// operational state. A layout archive must not restore a pending command or a
+// last observed position when imported on another server.
+func (d LayoutDocument) MarshalJSON() ([]byte, error) {
+	type turnoutDefinition struct {
+		ID        string                            `json:"id"`
+		Name      string                            `json:"name"`
+		Kind      model.TurnoutKind                 `json:"kind"`
+		Endpoints []model.AccessoryEndpoint         `json:"endpoints"`
+		Positions []model.TurnoutPositionDefinition `json:"positions"`
+	}
+	type layoutDefinition struct {
+		Blocks           []model.Block           `json:"blocks"`
+		Turnouts         []turnoutDefinition     `json:"turnouts"`
+		Routes           []model.RouteDefinition `json:"routes"`
+		FeedbackMappings []model.FeedbackMapping `json:"feedbackMappings"`
+	}
+	turnouts := make([]turnoutDefinition, 0, len(d.Layout.Turnouts))
+	for _, turnout := range d.Layout.Turnouts {
+		turnouts = append(turnouts, turnoutDefinition{
+			ID: turnout.ID, Name: turnout.Name, Kind: turnout.Kind,
+			Endpoints: turnout.Endpoints, Positions: turnout.Positions,
+		})
+	}
+	return json.Marshal(struct {
+		Layout layoutDefinition `json:"layout"`
+	}{Layout: layoutDefinition{
+		Blocks: d.Layout.Blocks, Turnouts: turnouts, Routes: d.Layout.Routes,
+		FeedbackMappings: d.Layout.FeedbackMappings,
+	}})
 }
 
 type Service struct {

@@ -14,6 +14,7 @@ func TestRootCommandContainsExistingCLICommands(t *testing.T) {
 	want := []string{
 		"locomotives", "locomotive-show", "locomotive-add", "locomotive-update", "locomotive-delete",
 		"acquire", "throttle", "function", "release", "power", "emergency-stop",
+		"turnouts", "turnout",
 		"export-rolling-stock", "import-rolling-stock", "export-layout", "import-layout",
 	}
 	for _, name := range want {

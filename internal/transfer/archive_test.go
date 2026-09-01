@@ -163,8 +163,11 @@ func TestCompoundLayoutArchiveRoundTripIsDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("round trip mismatch:\n got: %#v\nwant: %#v", got, want)
+	if !sameTurnoutConfiguration(got, want) {
+		t.Fatalf("configuration round trip mismatch:\n got: %#v\nwant: %#v", got, want)
+	}
+	if got.Pending || got.DesiredPosition != "" || got.ReportedPosition != "" || got.CommandStatus != model.TurnoutCommandIdle {
+		t.Fatalf("runtime state was restored from layout archive: %#v", got)
 	}
 	exported, err := target.ExportLayout(ctx)
 	if err != nil {
@@ -173,6 +176,64 @@ func TestCompoundLayoutArchiveRoundTripIsDeterministic(t *testing.T) {
 	if len(exported.Routes) != 1 || exported.Routes[0].TurnoutStates[want.ID] != "left" {
 		t.Fatalf("compound route was not preserved: %#v", exported.Routes)
 	}
+}
+
+func TestLayoutArchiveRoundTripsSimpleTripleAndDoubleSlipConfiguration(t *testing.T) {
+	ctx := context.Background()
+	source, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	turnouts := []model.Turnout{
+		model.NewSimpleTurnout("simple", "Simple", 12, "straight", "diverging"),
+		archiveThreeWayTurnout(),
+		{
+			ID: "double-slip", Name: "Double slip", Kind: model.TurnoutKindDoubleSlip,
+			Endpoints: []model.AccessoryEndpoint{{ID: "A", LinearAddress: 30}, {ID: "B", LinearAddress: 31, Inverted: true}},
+			Positions: []model.TurnoutPositionDefinition{
+				{ID: "route_a", Label: "Route A", Endpoints: map[string]model.AccessoryPosition{"A": model.AccessoryPosition1, "B": model.AccessoryPosition1}},
+				{ID: "route_b", Label: "Route B", Endpoints: map[string]model.AccessoryPosition{"A": model.AccessoryPosition1, "B": model.AccessoryPosition2}},
+				{ID: "route_c", Label: "Route C", Endpoints: map[string]model.AccessoryPosition{"A": model.AccessoryPosition2, "B": model.AccessoryPosition1}},
+				{ID: "route_d", Label: "Route D", Endpoints: map[string]model.AccessoryPosition{"A": model.AccessoryPosition2, "B": model.AccessoryPosition2}},
+			},
+		},
+	}
+	for i := range turnouts {
+		turnouts[i], err = model.NormalizeTurnout(turnouts[i])
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := source.ImportLayout(ctx, model.LayoutDefinition{Turnouts: turnouts}, false); err != nil {
+		t.Fatal(err)
+	}
+	data, err := New(source, events.New(), clock.NewFake(time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC))).ExportLayout(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	if err := New(target, events.New(), clock.Real{}).ImportLayout(ctx, model.User{ID: "admin", Role: model.RoleAdministrator}, data, true); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range turnouts {
+		got, err := target.GetTurnout(ctx, want.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !sameTurnoutConfiguration(got, want) {
+			t.Errorf("turnout %s configuration mismatch:\n got: %#v\nwant: %#v", want.ID, got, want)
+		}
+	}
+}
+
+func sameTurnoutConfiguration(a, b model.Turnout) bool {
+	return a.ID == b.ID && a.Name == b.Name && a.Kind == b.Kind &&
+		reflect.DeepEqual(a.Endpoints, b.Endpoints) && reflect.DeepEqual(a.Positions, b.Positions)
 }
 func TestDriverCannotImport(t *testing.T) {
 	ctx := context.Background()
