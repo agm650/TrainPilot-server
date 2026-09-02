@@ -463,7 +463,7 @@ func TestRailwayServiceSerializesSameTurnoutCommands(t *testing.T) {
 	turnout := tripleTurnout()
 	turnout.DesiredPosition = "straight"
 	turnout.ReportedPosition = "straight"
-	db, _, service := newAccessoryRailwayService(t, ctx, turnout)
+	db, _, service := newAccessoryRailwayServiceWithTimeout(t, ctx, turnout, 5*time.Second)
 	defer db.Close()
 	dispatcher := model.User{Role: model.RoleDispatcher}
 	positions := []string{"left", "straight", "right"}
