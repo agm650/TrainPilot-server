@@ -28,7 +28,18 @@ func TestUserAdministrationOverUnixSocket(t *testing.T) {
 	}
 	defer db.Close()
 	users := service.NewUserServiceWithPasswordParams(db, clock.Real{}, auth.PasswordParams{Iterations: 100_000, SaltLength: 16, KeyLength: 32})
-	socket := filepath.Join(t.TempDir(), "admin.sock")
+	// t.TempDir() includes the full test name. On macOS, that can exceed the
+	// sockaddr_un.sun_path limit and make net.Listen fail with EINVAL.
+	socketDir, err := os.MkdirTemp("", "dcc-admin-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(socketDir); err != nil {
+			t.Errorf("remove socket directory: %v", err)
+		}
+	})
+	socket := filepath.Join(socketDir, "admin.sock")
 	srv := admin.NewServer(socket, 0o600, users)
 	if err := srv.Start(); err != nil {
 		t.Fatal(err)
