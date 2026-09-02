@@ -150,7 +150,27 @@ func (s *Store) ExportLayout(ctx context.Context) (model.LayoutDefinition, error
 }
 
 func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition, replace bool) error {
+	normalizedTurnouts := make([]model.Turnout, len(layout.Turnouts))
+	for index, turnout := range layout.Turnouts {
+		normalized, err := model.NormalizeTurnout(turnout)
+		if err != nil {
+			return err
+		}
+		normalizedTurnouts[index] = normalized
+	}
+	if err := validateTurnoutAddressOwnership(normalizedTurnouts); err != nil {
+		return err
+	}
+
 	return s.DB.WithTransaction(ctx, func(tx *sqlite.Tx) error {
+		if err := rejectPendingTurnoutConfiguration(ctx, tx, normalizedTurnouts, replace); err != nil {
+			return err
+		}
+		if !replace {
+			if err := rejectExistingTurnoutAddressConflicts(ctx, tx, normalizedTurnouts); err != nil {
+				return err
+			}
+		}
 		if replace {
 			for _, q := range []string{`DELETE FROM route_conflicts`, `DELETE FROM route_turnouts`, `DELETE FROM route_blocks`, `DELETE FROM routes`, `DELETE FROM feedback_mappings`, `DELETE FROM turnouts`, `DELETE FROM blocks`} {
 				if _, err := tx.ExecContext(ctx, q); err != nil {
@@ -163,12 +183,8 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 				return err
 			}
 		}
-		for _, t := range layout.Turnouts {
-			normalized, err := model.NormalizeTurnout(t)
-			if err != nil {
-				return err
-			}
-			if err := upsertTurnout(ctx, tx, normalized); err != nil {
+		for _, turnout := range normalizedTurnouts {
+			if err := upsertTurnout(ctx, tx, turnout); err != nil {
 				return err
 			}
 		}
@@ -208,6 +224,80 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 		}
 		return nil
 	})
+}
+
+func validateTurnoutAddressOwnership(turnouts []model.Turnout) error {
+	owners := make(map[int]string)
+	for _, turnout := range turnouts {
+		for _, endpoint := range turnout.Endpoints {
+			if owner, exists := owners[endpoint.LinearAddress]; exists && owner != turnout.ID {
+				return fmt.Errorf("%w: linear address %d is assigned to turnouts %q and %q", ErrAccessoryAddressConflict, endpoint.LinearAddress, owner, turnout.ID)
+			}
+			owners[endpoint.LinearAddress] = turnout.ID
+		}
+	}
+	return nil
+}
+
+func rejectPendingTurnoutConfiguration(ctx context.Context, tx *sqlite.Tx, turnouts []model.Turnout, replace bool) error {
+	updated := make(map[string]bool, len(turnouts))
+	for _, turnout := range turnouts {
+		updated[turnout.ID] = true
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM turnouts WHERE pending<>0 ORDER BY id`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		if replace || updated[id] {
+			return fmt.Errorf("%w: turnout %q", ErrTurnoutConfigurationPending, id)
+		}
+	}
+	return rows.Err()
+}
+
+func rejectExistingTurnoutAddressConflicts(ctx context.Context, tx *sqlite.Tx, turnouts []model.Turnout) error {
+	replaced := make(map[string]bool, len(turnouts))
+	for _, turnout := range turnouts {
+		replaced[turnout.ID] = true
+	}
+	owners := make(map[int]string)
+	rows, err := tx.QueryContext(ctx, `SELECT turnout_id,linear_address FROM turnout_endpoints ORDER BY linear_address,turnout_id`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var owner string
+		var address int
+		if err := rows.Scan(&owner, &address); err != nil {
+			return err
+		}
+		if replaced[owner] {
+			continue
+		}
+		if previous, exists := owners[address]; exists && previous != owner {
+			return fmt.Errorf("%w: linear address %d is assigned to turnouts %q and %q", ErrAccessoryAddressConflict, address, previous, owner)
+		}
+		owners[address] = owner
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, turnout := range turnouts {
+		for _, endpoint := range turnout.Endpoints {
+			if owner, exists := owners[endpoint.LinearAddress]; exists && owner != turnout.ID {
+				return fmt.Errorf("%w: linear address %d is assigned to turnouts %q and %q", ErrAccessoryAddressConflict, endpoint.LinearAddress, owner, turnout.ID)
+			}
+			owners[endpoint.LinearAddress] = turnout.ID
+		}
+	}
+	return nil
 }
 
 func upsertTurnout(ctx context.Context, tx *sqlite.Tx, turnout model.Turnout) error {

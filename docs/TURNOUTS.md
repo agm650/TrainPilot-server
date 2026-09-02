@@ -1,6 +1,6 @@
 # Aiguillages et accessoires DCC
 
-Dernière mise à jour : 1er septembre 2026.
+Dernière mise à jour : 2 septembre 2026.
 
 Ce document décrit le modèle canonique des aiguillages de TrainPilot.
 Il couvre les appareils simples et composés.
@@ -566,7 +566,7 @@ physique possible, même s'il est interdit par la définition logique.
 Un fault `accessory` peut cibler une adresse. Il permet de faire réussir A puis
 échouer B sans hasard et sans rejeu.
 
-## 18. Hors modèle
+## 21. Hors modèle
 
 Les ponts tournants, plaques tournantes et traversers ne sont pas des
 `Turnout`.
@@ -575,7 +575,7 @@ Ils ont des positions indexées nombreuses, une durée de mouvement, un
 verrouillage et parfois une occupation propre.
 Ils nécessitent une famille métier distincte.
 
-## 19. Protocole accessoire z21
+## 22. Protocole accessoire z21
 
 Le pilote convertit l'adresse linéaire canonique avec :
 
@@ -617,7 +617,7 @@ refus hors ligne sont couverts par un faux serveur UDP. Une validation sur
 centrale réelle reste requise avant de considérer l'adressage affiché par un
 constructeur ou la position mécanique comme confirmés.
 
-## 20. Protocole accessoire DCC-EX
+## 23. Protocole accessoire DCC-EX
 
 Le pilote utilise uniquement la commande brute à adresse linéaire :
 
@@ -658,7 +658,7 @@ ou que les lames ont bougé. Aucun parser de changement externe n'est ajouté :
 la commande brute ne possède pas de réponse ou broadcast d'état standard
 documenté. Une future confirmation physique devra venir d'un capteur adapté.
 
-## 21. Matrice de capacités et conformité commune
+## 24. Matrice de capacités et conformité commune
 
 Le client utilise toujours le modèle logique `Turnout` et la capability
 `accessoryControl`. Il ne doit pas déduire une confirmation physique à partir
@@ -697,7 +697,7 @@ supplémentaires passent par les faux transports z21 et DCC-EX : une commande
 HTTP de triple doit produire sur le WebSocket la position terminale et la
 qualité `station` ou `assumed` propre au driver.
 
-## 22. Validation matérielle
+## 25. Validation matérielle
 
 Les faux transports prouvent le contrat logiciel, mais pas le câblage, le
 mouvement mécanique, la convention d'adresse affichée ni l'échauffement. La
@@ -719,3 +719,90 @@ En l'absence de fiche datée remplie, le support accessoire matériel reste
 « implémenté et vérifié par fakes », pas « validé sur le matériel ». Un retour
 z21 de qualité `station` ne doit jamais être présenté comme une détection
 physique des lames.
+
+## 26. Cas particuliers et limites
+
+Cette section fige les limites du modèle avant ses prochaines extensions.
+Les vecteurs déclarés restent la seule source de vérité. Le `kind`, le nom du
+matériel et le pilote ne créent aucune position implicite.
+
+### Motorisations simples et inversion
+
+Un aiguillage simple à double bobine, moteur lent ou servodécodeur utilise le
+même modèle : un endpoint et deux positions. La technologie de motorisation
+n'appartient pas au vecteur logique. `inverted=true` adapte un câblage inversé
+sans renommer `straight`, `diverging` ou les libellés du client.
+
+Les décodeurs à impulsion sont une politique de driver. La z21 active la sortie
+avec `Q=1`, attend `station.accessoryPulse`, puis la désactive. Le modèle logique
+ne contient ni durée, ni commande `off`. Un décodeur bistable peut adopter une
+autre politique de driver plus tard sans modifier `Turnout`.
+
+### Appareils composés
+
+Un triple possède généralement deux endpoints, donc quatre vecteurs
+électriques. Seuls trois vecteurs sont déclarés. Le quatrième reste
+incommandable et se résout en `reportedStatus=invalid` s'il est observé. Un
+passage `left -> right` traverse une position déclarée à une seule variation
+d'endpoint. Chaque étape attend sa confirmation. Un échec partiel conserve le
+vecteur réellement observé et n'entraîne aucun rollback aveugle.
+
+Une TJD peut être couplée ou indépendante. Elle peut exposer quatre vecteurs,
+un sous-ensemble, et des noms propres au réseau. `double_slip` n'impose ni deux
+positions, ni les identifiants `route_a` à `route_d`, ni une géométrie de
+fabricant. Une TJS suit la même règle : les combinaisons absentes et les
+positions non déclarées sont interdites.
+
+Deux aiguillages couplés ou un crossover peuvent être représentés par un
+`custom` multi-endpoints. Ce choix décrit leur commande commune. Une future
+topologie pourra préférer deux objets reliés, sans modifier le contrat des
+endpoints.
+
+### Origine et qualité des confirmations
+
+| Source | Rapport disponible | Qualité | Garantie |
+| --- | --- | --- | --- |
+| Simulator | confirmation ou injection | `physical` par défaut, qualité injectable | état déterministe choisi par le test |
+| z21 `TURNOUT_INFO` | position de fonction | `station` | état vu par la centrale, pas mouvement des lames |
+| DCC-EX `<a>` | écriture TCP réussie | `assumed` | commande envoyée, sans accusé physique |
+| futur capteur de fin de course | position mécanique | `physical` | dépendra du capteur et de son mapping |
+
+Une écriture TCP, un écho de centrale et un capteur mécanique ne sont donc pas
+équivalents. Les clients doivent afficher `reportQuality` et ne jamais déduire
+une preuve physique du driver utilisé.
+
+### État inconnu, redémarrage et transition
+
+`reportedPosition=""` avec `reportedStatus=unknown` représente une absence
+d'information. Avec `reportedStatus=invalid`, il représente un vecteur complet
+qui ne correspond à aucune position. `pending=true` reste séparé de ces deux
+cas. Aucun de ces états ne sélectionne une position valide par défaut.
+
+Après redémarrage, un turnout peut donc rester inconnu. TrainPilot n'envoie
+aucune commande pour fabriquer un état. La z21 peut être interrogée. DCC-EX
+reste `assumed` après une écriture réussie, ou `unknown` avant toute observation.
+Une action explicite de l'utilisateur est nécessaire pour changer la voie.
+
+### Verrous de configuration et adresses partagées
+
+Une définition ne peut pas être remplacée ou supprimée pendant que son
+`pending` est actif. Un import `merge` qui modifie cet appareil, ou un import
+`replace` qui pourrait le supprimer, retourne HTTP `409` avec
+`turnout_configuration_pending`. Un import sans rapport avec cet appareil reste
+autorisé. Le contrôle et la mutation sont exécutés dans la même transaction
+SQLite.
+
+Une adresse linéaire appartient à un seul turnout logique. Un import qui
+attribue la même adresse à deux appareils retourne HTTP `409` avec
+`accessory_address_conflict`, sans modification partielle. Le partage implicite
+est interdit afin d'éviter deux autorités concurrentes. Un couplage voulu doit
+être modélisé par plusieurs endpoints d'un même `custom`.
+
+### Équipements exclus
+
+Un pont tournant ou une plaque tournante n'est pas un turnout. Il possède de
+nombreuses positions indexées, une durée de rotation, une voie mobile, des
+verrous et parfois sa propre occupation. Un traverser possède les mêmes besoins
+avec un déplacement linéaire. Ces équipements auront un modèle métier dédié ;
+ils ne doivent pas être simulés par une liste artificielle de positions de
+turnout.

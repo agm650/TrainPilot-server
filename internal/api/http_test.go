@@ -64,6 +64,8 @@ func TestDecodeJSONAndStatusMapping(t *testing.T) {
 	}{
 		{store.ErrNotFound, http.StatusNotFound},
 		{store.ErrConflict, http.StatusConflict},
+		{store.ErrTurnoutConfigurationPending, http.StatusConflict},
+		{store.ErrAccessoryAddressConflict, http.StatusConflict},
 		{service.ErrPermissionDenied, http.StatusForbidden},
 		{fmt.Errorf("%w: value is required", service.ErrValidation), http.StatusBadRequest},
 		{station.ErrUnsupported, http.StatusConflict},
@@ -131,6 +133,8 @@ func TestOperationProblemsUseStableCodes(t *testing.T) {
 		{"takeover conflict", service.ErrLeaseTakeoverConflict, http.StatusConflict, "lease_takeover_conflict", "conflict"},
 		{"permission", service.ErrPermissionDenied, http.StatusForbidden, "permission_denied", "authorization"},
 		{"validation", service.ErrValidation, http.StatusBadRequest, "validation_failed", "validation"},
+		{"pending turnout configuration", store.ErrTurnoutConfigurationPending, http.StatusConflict, "turnout_configuration_pending", "conflict"},
+		{"accessory address conflict", store.ErrAccessoryAddressConflict, http.StatusConflict, "accessory_address_conflict", "conflict"},
 		{"internal", errors.New("database password secret"), http.StatusInternalServerError, "internal_error", "internal"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

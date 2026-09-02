@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - Les jetons révoqués sont distingués des jetons réellement expirés sans exposer de détail interne.
 - Les événements WebSocket anciens ou dupliqués sont filtrés sans perdre ceux publiés pendant un snapshot.
 - Les clients WebSocket trop lents sont déconnectés sur débordement de leur file ou expiration d'écriture.
+- Les imports de layout refusent désormais atomiquement la modification ou la suppression d'un aiguillage `pending`, ainsi que le partage d'une adresse d'accessoire entre plusieurs aiguillages.
 
 ### Added
 
@@ -56,6 +57,7 @@ All notable changes to this project will be documented in this file.
 - Commande REST par `position`, état composé dans les snapshots, codes d'erreur stables et commandes `dccctl turnouts` / `dccctl turnout`.
 - Suite de conformité accessoire commune à Simulator, z21 et DCC-EX, fixtures simples/composées, matrice de capacités et contrôle externe opt-in `--check-turnouts`.
 - Campagne matérielle AIG-009 reproductible avec script interactif protégé, mode dry-run, tests de reconnexion sans rejeu et modèles de fiches z21/DCC-EX.
+- Revue AIG-010 des motorisations, appareils composés, confirmations, états inconnus au redémarrage et équipements explicitement hors modèle, avec tests de représentabilité.
 
 ### Changed
 

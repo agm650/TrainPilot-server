@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -122,6 +123,94 @@ func TestSeedDemoDoesNotModifyExistingCompoundTurnout(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("SeedDemo modified compound turnout:\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestImportLayoutRejectsAccessoryAddressSharedByDifferentTurnouts(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("same import", func(t *testing.T) {
+		store, err := Open(":memory:")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer store.Close()
+		first := model.NewSimpleTurnout("first", "First", 12, "", "")
+		second := model.NewSimpleTurnout("second", "Second", 12, "", "")
+		err = store.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{first, second}}, false)
+		if !errors.Is(err, ErrAccessoryAddressConflict) || !errors.Is(err, ErrConflict) {
+			t.Fatalf("ImportLayout error=%v", err)
+		}
+		turnouts, listErr := store.ListTurnouts(ctx)
+		if listErr != nil {
+			t.Fatal(listErr)
+		}
+		if len(turnouts) != 0 {
+			t.Fatalf("conflicting import modified database: %+v", turnouts)
+		}
+	})
+
+	t.Run("existing turnout", func(t *testing.T) {
+		store, err := Open(":memory:")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer store.Close()
+		first := model.NewSimpleTurnout("first", "First", 12, "", "")
+		if err := store.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{first}}, false); err != nil {
+			t.Fatal(err)
+		}
+		second := model.NewSimpleTurnout("second", "Second", 12, "", "")
+		err = store.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{second}}, false)
+		if !errors.Is(err, ErrAccessoryAddressConflict) {
+			t.Fatalf("ImportLayout error=%v", err)
+		}
+		turnouts, listErr := store.ListTurnouts(ctx)
+		if listErr != nil {
+			t.Fatal(listErr)
+		}
+		if len(turnouts) != 1 || turnouts[0].ID != first.ID {
+			t.Fatalf("conflicting merge modified database: %+v", turnouts)
+		}
+	})
+}
+
+func TestImportLayoutRejectsPendingTurnoutModificationOrDeletion(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	turnout := model.NewSimpleTurnout("pending", "Pending", 12, "straight", "straight")
+	if err := store.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{turnout}}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetTurnoutDesiredPosition(ctx, turnout.ID, "diverging", true); err != nil {
+		t.Fatal(err)
+	}
+
+	modified := turnout
+	modified.Name = "Modified while moving"
+	if err := store.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{modified}}, false); !errors.Is(err, ErrTurnoutConfigurationPending) || !errors.Is(err, ErrConflict) {
+		t.Fatalf("pending merge error=%v", err)
+	}
+	if err := store.ImportLayout(ctx, model.LayoutDefinition{}, true); !errors.Is(err, ErrTurnoutConfigurationPending) {
+		t.Fatalf("pending replacement error=%v", err)
+	}
+
+	stored, err := store.GetTurnout(ctx, turnout.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Name != turnout.Name || !stored.Pending || stored.DesiredPosition != "diverging" {
+		t.Fatalf("pending turnout changed by rejected import: %+v", stored)
+	}
+
+	unrelated := model.NewSimpleTurnout("unrelated", "Unrelated", 13, "", "")
+	if err := store.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{unrelated}}, false); err != nil {
+		t.Fatalf("unrelated merge while another turnout is pending: %v", err)
 	}
 }
 

@@ -84,6 +84,10 @@ func writeOperationProblem(w http.ResponseWriter, err error, code string) {
 		code = "invalid_turnout_position"
 	case errors.Is(err, service.ErrTurnoutBusy):
 		code = "turnout_busy"
+	case errors.Is(err, store.ErrTurnoutConfigurationPending):
+		code = "turnout_configuration_pending"
+	case errors.Is(err, store.ErrAccessoryAddressConflict):
+		code = "accessory_address_conflict"
 	case errors.Is(err, service.ErrTurnoutTransitionFailed):
 		code = "turnout_transition_failed"
 	case errors.Is(err, service.ErrUnsafeTurnoutTransition):

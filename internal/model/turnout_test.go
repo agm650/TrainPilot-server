@@ -3,6 +3,8 @@ package model
 import (
 	"errors"
 	"testing"
+
+	"github.com/agm650/TrainPilot-server/internal/station"
 )
 
 func TestValidateTurnoutDefinitions(t *testing.T) {
@@ -88,6 +90,90 @@ func TestTurnoutEndpointInversion(t *testing.T) {
 	}
 	if got := PhysicalAccessoryPosition(turnout.Endpoints[0], AccessoryPosition1); got != AccessoryPosition2 {
 		t.Fatalf("PhysicalAccessoryPosition() = %q", got)
+	}
+}
+
+func TestTurnoutModelRepresentsActuatorTechnologiesWithoutSpecialCases(t *testing.T) {
+	for _, technology := range []string{"double-coil", "slow-motor", "servo-decoder"} {
+		t.Run(technology, func(t *testing.T) {
+			turnout := simpleTurnoutFixture()
+			turnout.Name = technology
+			if err := ValidateTurnout(turnout); err != nil {
+				t.Fatal(err)
+			}
+			if len(turnout.Endpoints) != 1 || len(turnout.Positions) != 2 {
+				t.Fatalf("unexpected physical model: %+v", turnout)
+			}
+		})
+	}
+}
+
+func TestTurnoutKindsDoNotImposeGeometryOrPositionNames(t *testing.T) {
+	doubleSlip := Turnout{
+		ID: "coupled-double-slip", Name: "Coupled double slip", Kind: TurnoutKindDoubleSlip,
+		Endpoints: []AccessoryEndpoint{{ID: "east", LinearAddress: 60}, {ID: "west", LinearAddress: 61}},
+		Positions: []TurnoutPositionDefinition{
+			{ID: "north_to_west", Endpoints: positions("east", AccessoryPosition2, "west", AccessoryPosition1)},
+			{ID: "south_to_east", Endpoints: positions("east", AccessoryPosition1, "west", AccessoryPosition2)},
+			{ID: "crossing", Endpoints: positions("east", AccessoryPosition2, "west", AccessoryPosition2)},
+		},
+	}
+	if err := ValidateTurnout(doubleSlip); err != nil {
+		t.Fatalf("double slip with coupled, non-standard mapping: %v", err)
+	}
+	if got, ok := ResolveTurnoutPosition(doubleSlip, positions("east", AccessoryPosition2, "west", AccessoryPosition1)); !ok || got != "north_to_west" {
+		t.Fatalf("resolved %q,%v", got, ok)
+	}
+
+	crossover := Turnout{
+		ID: "crossover", Name: "Coupled crossover", Kind: TurnoutKindCustom,
+		Endpoints: []AccessoryEndpoint{{ID: "A", LinearAddress: 62}, {ID: "B", LinearAddress: 63}},
+		Positions: []TurnoutPositionDefinition{
+			{ID: "parallel", Endpoints: positions("A", AccessoryPosition1, "B", AccessoryPosition1)},
+			{ID: "crossing", Endpoints: positions("A", AccessoryPosition2, "B", AccessoryPosition2)},
+		},
+	}
+	if err := ValidateTurnout(crossover); err != nil {
+		t.Fatalf("custom crossover: %v", err)
+	}
+}
+
+func TestTurnoutRuntimeRepresentsUnknownInvalidAndPendingWithoutInventingPosition(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		status  station.AccessoryReportState
+		pending bool
+	}{
+		{name: "unknown after restart", status: station.AccessoryReportUnknown},
+		{name: "invalid physical vector", status: station.AccessoryReportInvalid},
+		{name: "pending without report", status: station.AccessoryReportUnknown, pending: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			turnout := simpleTurnoutFixture()
+			turnout.ReportedPosition = ""
+			turnout.ReportedStatus = test.status
+			turnout.Quality = ""
+			turnout.Pending = test.pending
+			if test.pending {
+				turnout.CommandStatus = TurnoutCommandPending
+			} else {
+				turnout.CommandStatus = TurnoutCommandIdle
+			}
+			normalized, err := NormalizeTurnout(turnout)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if normalized.ReportedPosition != "" || normalized.ReportedStatus != test.status || normalized.Pending != test.pending {
+				t.Fatalf("runtime state was defaulted to a valid position: %+v", normalized)
+			}
+		})
+	}
+}
+
+func TestSingleSlipUndefinedCombinationRemainsUnresolvable(t *testing.T) {
+	turnout := singleSlipTurnoutFixture()
+	if got, ok := ResolveTurnoutPosition(turnout, positions("A", AccessoryPosition2, "B", AccessoryPosition2)); ok || got != "" {
+		t.Fatalf("undefined single-slip vector resolved as %q,%v", got, ok)
 	}
 }
 

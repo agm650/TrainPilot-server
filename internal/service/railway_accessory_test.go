@@ -68,6 +68,75 @@ func TestRailwayServiceComposesEveryDoubleSlipPosition(t *testing.T) {
 	}
 }
 
+func TestRailwayServiceRejectsUndefinedSingleSlipCombinationWithoutCommand(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	turnout := turnoutfixture.SingleSlip()
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{turnout}}, false); err != nil {
+		t.Fatal(err)
+	}
+	sim := simulator.New()
+	if err := sim.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	recorder := &recordingAccessoryStation{Simulator: sim}
+	railway := NewRailwayService(db, recorder, events.New())
+	railway.StartFeedback(ctx)
+
+	err = railway.SetTurnout(ctx, model.User{Role: model.RoleDispatcher}, turnout.ID, "forbidden_vector")
+	if !errors.Is(err, ErrInvalidTurnoutPosition) {
+		t.Fatalf("SetTurnout error=%v", err)
+	}
+	if commands := recorder.Commands(); len(commands) != 0 {
+		t.Fatalf("undefined position emitted commands: %+v", commands)
+	}
+}
+
+func TestRailwayServiceDoesNotCommandUnknownTurnoutAtStartup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	turnout := model.NewSimpleTurnout("unknown", "Unknown after restart", 12, "", "")
+	databasePath := filepath.Join(t.TempDir(), "restart.db")
+	db, err := store.Open(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{turnout}}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = store.Open(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	sim := simulator.New()
+	if err := sim.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	recorder := &recordingAccessoryStation{Simulator: sim}
+	railway := NewRailwayService(db, recorder, events.New())
+	railway.StartFeedback(ctx)
+
+	turnouts, err := railway.Turnouts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turnouts) != 1 || turnouts[0].ReportedPosition != "" || turnouts[0].ReportedStatus != station.AccessoryReportUnknown {
+		t.Fatalf("startup state=%+v", turnouts)
+	}
+	if commands := recorder.Commands(); len(commands) != 0 {
+		t.Fatalf("startup emitted a potentially dangerous command: %+v", commands)
+	}
+}
+
 func TestRailwayServiceReproducesPartialAccessoryFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

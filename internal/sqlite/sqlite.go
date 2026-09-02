@@ -167,3 +167,16 @@ func (tx *Tx) ExecContext(ctx context.Context, query string, args ...any) (sql.R
 
 	return tx.conn.ExecContext(ctx, query, args...)
 }
+
+func (tx *Tx) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if tx == nil || tx.conn == nil {
+		return nil, errors.New("invalid transaction")
+	}
+	if tx.finished {
+		return nil, errors.New("transaction already finished")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return tx.conn.QueryContext(ctx, query, args...)
+}

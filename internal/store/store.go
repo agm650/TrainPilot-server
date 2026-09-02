@@ -328,3 +328,5 @@ func timeText(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 
 var ErrNotFound = errors.New("not found")
 var ErrConflict = errors.New("conflict")
+var ErrTurnoutConfigurationPending = fmt.Errorf("%w: turnout configuration is pending", ErrConflict)
+var ErrAccessoryAddressConflict = fmt.Errorf("%w: accessory address is already assigned", ErrConflict)
