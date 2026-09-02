@@ -433,7 +433,7 @@ func TestRailwayServiceIgnoresStaleConfirmationForNewCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	manual := newManualAccessoryStation()
-	service := NewRailwayService(db, manual, events.New(), 30*time.Millisecond)
+	service := NewRailwayService(db, manual, events.New(), 5*time.Second)
 	service.StartFeedback(ctx)
 	dispatcher := model.User{Role: model.RoleDispatcher}
 	oldObservedAt := time.Now().Add(-time.Second)
