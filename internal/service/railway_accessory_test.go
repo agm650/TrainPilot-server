@@ -3,12 +3,15 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
+	"github.com/agm650/TrainPilot-server/internal/model/turnoutfixture"
 	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/agm650/TrainPilot-server/internal/station/simulator"
 	"github.com/agm650/TrainPilot-server/internal/store"
@@ -17,7 +20,8 @@ import (
 func TestRailwayServiceComposesTripleAndReportsInvalidPhysicalVector(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	db, sim, service := newAccessoryRailwayService(t, ctx, tripleTurnout())
+	fixture := tripleTurnout()
+	db, sim, service := newAccessoryRailwayService(t, ctx, fixture)
 	defer db.Close()
 
 	dispatcher := model.User{Role: model.RoleDispatcher}
@@ -25,17 +29,17 @@ func TestRailwayServiceComposesTripleAndReportsInvalidPhysicalVector(t *testing.
 		t.Fatal(err)
 	}
 	waitForTurnoutPosition(t, ctx, db, "triple", "left", false)
-	if got := sim.Accessory(1); got.Reported != station.AccessoryPosition2 {
+	if got := sim.Accessory(fixture.Endpoints[0].LinearAddress); got.Reported != station.AccessoryPosition2 {
 		t.Fatalf("endpoint A=%+v", got)
 	}
-	if got := sim.Accessory(2); got.Reported != station.AccessoryPosition1 {
+	if got := sim.Accessory(fixture.Endpoints[1].LinearAddress); got.Reported != station.AccessoryPosition1 {
 		t.Fatalf("endpoint B=%+v", got)
 	}
 
-	if err := sim.ReportAccessoryPosition(1, station.AccessoryPosition2, station.AccessoryReportPhysical); err != nil {
+	if err := sim.ReportAccessoryPosition(fixture.Endpoints[0].LinearAddress, station.AccessoryPosition2, station.AccessoryReportPhysical); err != nil {
 		t.Fatal(err)
 	}
-	if err := sim.ReportAccessoryPosition(2, station.AccessoryPosition2, station.AccessoryReportPhysical); err != nil {
+	if err := sim.ReportAccessoryPosition(fixture.Endpoints[1].LinearAddress, station.AccessoryPosition2, station.AccessoryReportPhysical); err != nil {
 		t.Fatal(err)
 	}
 	waitForTurnoutPosition(t, ctx, db, "triple", "", false)
@@ -51,28 +55,32 @@ func TestRailwayServiceComposesTripleAndReportsInvalidPhysicalVector(t *testing.
 func TestRailwayServiceComposesEveryDoubleSlipPosition(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	db, _, service := newAccessoryRailwayService(t, ctx, doubleSlipTurnout())
+	fixture := doubleSlipTurnout()
+	db, _, service := newAccessoryRailwayService(t, ctx, fixture)
 	defer db.Close()
 	dispatcher := model.User{Role: model.RoleDispatcher}
 
 	for _, position := range []string{"route_a", "route_b", "route_c", "route_d"} {
-		if err := service.SetTurnout(ctx, dispatcher, "tjd", position); err != nil {
+		if err := service.SetTurnout(ctx, dispatcher, fixture.ID, position); err != nil {
 			t.Fatalf("set %s: %v", position, err)
 		}
-		waitForTurnoutPosition(t, ctx, db, "tjd", position, false)
+		waitForTurnoutPosition(t, ctx, db, fixture.ID, position, false)
 	}
 }
 
 func TestRailwayServiceReproducesPartialAccessoryFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	db, sim, service := newAccessoryRailwayService(t, ctx, tripleTurnout())
+	fixture := tripleTurnout()
+	fixture.DesiredPosition = "left"
+	fixture.ReportedPosition = "left"
+	db, sim, service := newAccessoryRailwayService(t, ctx, fixture)
 	defer db.Close()
 	eventCh, unsubscribe := service.events.Subscribe(16)
 	defer unsubscribe()
 	errInjected := errors.New("endpoint B failed")
 	if err := sim.SetOperationFault(simulator.OpAccessory, simulator.OperationFault{
-		Address:   2,
+		Address:   fixture.Endpoints[1].LinearAddress,
 		Error:     errInjected,
 		Remaining: 1,
 	}); err != nil {
@@ -83,11 +91,11 @@ func TestRailwayServiceReproducesPartialAccessoryFailure(t *testing.T) {
 	if !errors.Is(err, errInjected) {
 		t.Fatalf("SetTurnout error=%v", err)
 	}
-	if got := sim.Accessory(1); got.Desired != station.AccessoryPosition1 {
+	if got := sim.Accessory(fixture.Endpoints[0].LinearAddress); got.Desired != station.AccessoryPosition1 {
 		t.Fatalf("endpoint A was not commanded: %+v", got)
 	}
-	if got := sim.Accessory(2); got != (simulator.AccessoryState{}) {
-		t.Fatalf("failed endpoint B changed: %+v", got)
+	if got := sim.Accessory(fixture.Endpoints[1].LinearAddress); got.Desired == station.AccessoryPosition2 || got.Reported != station.AccessoryPosition1 || got.Pending {
+		t.Fatalf("failed endpoint B left its initial position: %+v", got)
 	}
 	turnout, err := db.GetTurnout(ctx, "triple")
 	if err != nil {
@@ -110,6 +118,37 @@ func TestRailwayServiceReproducesPartialAccessoryFailure(t *testing.T) {
 	}
 	if !foundFailed {
 		t.Fatal("turnout.command.failed event not published with public payload")
+	}
+}
+
+func TestRailwayServiceFailsBeforeFirstCompoundEndpoint(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	fixture := tripleTurnout()
+	fixture.DesiredPosition = "left"
+	fixture.ReportedPosition = "left"
+	db, sim, railway := newAccessoryRailwayService(t, ctx, fixture)
+	defer db.Close()
+	errInjected := errors.New("endpoint A failed")
+	if err := sim.SetOperationFault(simulator.OpAccessory, simulator.OperationFault{
+		Address: fixture.Endpoints[0].LinearAddress, Error: errInjected, Remaining: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := railway.SetTurnout(ctx, model.User{Role: model.RoleDispatcher}, fixture.ID, "right")
+	if !errors.Is(err, errInjected) {
+		t.Fatalf("SetTurnout error=%v", err)
+	}
+	if got := sim.Accessory(fixture.Endpoints[0].LinearAddress); got.Reported != station.AccessoryPosition2 || got.Desired == station.AccessoryPosition1 {
+		t.Fatalf("failed first endpoint changed=%+v", got)
+	}
+	stored, err := db.GetTurnout(ctx, fixture.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ReportedPosition != "left" || stored.Pending || stored.CommandStatus != model.TurnoutCommandFailed {
+		t.Fatalf("state after first endpoint failure=%+v", stored)
 	}
 }
 
@@ -162,6 +201,90 @@ func TestRailwayServiceSimpleInconsistentReportDoesNotConfirmTarget(t *testing.T
 	}
 }
 
+func TestRailwayServiceCompoundWrongConfirmationNeverSucceeds(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	fixture := tripleTurnout()
+	db, sim, railway := newAccessoryRailwayServiceWithTimeout(t, ctx, fixture, 20*time.Millisecond)
+	defer db.Close()
+	if err := sim.SetAccessoryBehavior(fixture.Endpoints[1].LinearAddress, simulator.AccessoryBehavior{
+		Mode: simulator.AccessoryBehaviorInconsistent, ReportedPosition: station.AccessoryPosition1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := railway.SetTurnout(ctx, model.User{Role: model.RoleDispatcher}, fixture.ID, "right")
+	if !errors.Is(err, ErrTurnoutConfirmationTimeout) {
+		t.Fatalf("SetTurnout error=%v", err)
+	}
+	stored, err := db.GetTurnout(ctx, fixture.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ReportedPosition != "straight" || stored.Pending || stored.CommandStatus != model.TurnoutCommandTimeout {
+		t.Fatalf("state after wrong compound confirmation=%+v", stored)
+	}
+}
+
+func TestRailwayServiceCommandInterruptedByContextNeverSucceeds(t *testing.T) {
+	serviceCtx, stopService := context.WithCancel(context.Background())
+	defer stopService()
+	turnout := model.NewSimpleTurnout("simple", "Simple", 12, "straight", "straight")
+	db, sim, railway := newAccessoryRailwayServiceWithTimeoutAtPath(t, serviceCtx, turnout, time.Second, filepath.Join(t.TempDir(), "cancellation.db"))
+	defer db.Close()
+	if err := sim.SetAccessoryBehavior(12, simulator.AccessoryBehavior{Mode: simulator.AccessoryBehaviorNoConfirmation}); err != nil {
+		t.Fatal(err)
+	}
+
+	commandCtx, cancelCommand := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- railway.SetTurnout(commandCtx, model.User{Role: model.RoleDispatcher}, turnout.ID, "diverging")
+	}()
+	waitForSimulatorAccessoryPending(t, sim, 12)
+	cancelCommand()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("SetTurnout error=%v, want context.Canceled", err)
+	}
+	stored, err := db.GetTurnout(serviceCtx, turnout.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Pending || stored.CommandStatus != model.TurnoutCommandFailed || stored.ReportedPosition != "straight" {
+		t.Fatalf("state after cancellation=%+v", stored)
+	}
+}
+
+func TestRailwayServiceStationGoingOfflineDuringConfirmationNeverSucceeds(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	turnout := model.NewSimpleTurnout("simple", "Simple", 12, "straight", "straight")
+	db, sim, railway := newAccessoryRailwayServiceWithTimeout(t, ctx, turnout, 20*time.Millisecond)
+	defer db.Close()
+	if err := sim.SetAccessoryBehavior(12, simulator.AccessoryBehavior{Mode: simulator.AccessoryBehaviorNoConfirmation}); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- railway.SetTurnout(ctx, model.User{Role: model.RoleDispatcher}, turnout.ID, "diverging")
+	}()
+	waitForSimulatorAccessoryPending(t, sim, 12)
+	if err := sim.SetConnectivity(station.Offline); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; !errors.Is(err, ErrTurnoutConfirmationTimeout) {
+		t.Fatalf("SetTurnout error=%v, want confirmation timeout", err)
+	}
+	stored, err := db.GetTurnout(ctx, turnout.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Pending || stored.CommandStatus != model.TurnoutCommandTimeout || stored.ReportedPosition != "straight" {
+		t.Fatalf("state after station outage=%+v", stored)
+	}
+}
+
 func TestRailwayServiceTripleUsesOnlySafeIntermediateVectors(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -188,7 +311,7 @@ func TestRailwayServiceTripleUsesOnlySafeIntermediateVectors(t *testing.T) {
 		t.Fatal(err)
 	}
 	commands := recorder.Commands()
-	if len(commands) != 2 || commands[0].Address != 1 || commands[0].Position != station.AccessoryPosition1 || commands[1].Address != 2 || commands[1].Position != station.AccessoryPosition2 {
+	if len(commands) != 2 || commands[0].Address != turnout.Endpoints[0].LinearAddress || commands[0].Position != station.AccessoryPosition1 || commands[1].Address != turnout.Endpoints[1].LinearAddress || commands[1].Position != station.AccessoryPosition2 {
 		t.Fatalf("unsafe or non-deterministic command sequence=%+v", commands)
 	}
 	vectors := []map[string]model.AccessoryPosition{
@@ -211,7 +334,7 @@ func TestRailwayServicePartialTimeoutPreservesIntermediateReport(t *testing.T) {
 	turnout.ReportedPosition = "left"
 	db, sim, service := newAccessoryRailwayServiceWithTimeout(t, ctx, turnout, 20*time.Millisecond)
 	defer db.Close()
-	if err := sim.SetAccessoryBehavior(2, simulator.AccessoryBehavior{Mode: simulator.AccessoryBehaviorNoConfirmation}); err != nil {
+	if err := sim.SetAccessoryBehavior(turnout.Endpoints[1].LinearAddress, simulator.AccessoryBehavior{Mode: simulator.AccessoryBehaviorNoConfirmation}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -336,6 +459,93 @@ func TestRailwayServiceAllowsDifferentTurnoutsInParallel(t *testing.T) {
 	}
 }
 
+func TestRailwayServiceHandlesTwentyTurnoutsAndExternalReportsConcurrently(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	definitions := make([]model.Turnout, 20)
+	for index := range definitions {
+		definitions[index] = model.NewSimpleTurnout(
+			fmt.Sprintf("turnout-%02d", index),
+			fmt.Sprintf("Turnout %02d", index),
+			100+index,
+			"",
+			"",
+		)
+	}
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.ImportLayout(ctx, model.LayoutDefinition{Turnouts: definitions}, false); err != nil {
+		t.Fatal(err)
+	}
+	sim := simulator.New()
+	if err := sim.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	railway := NewRailwayService(db, sim, events.New(), time.Second)
+	railway.StartFeedback(ctx)
+	dispatcher := model.User{Role: model.RoleDispatcher}
+
+	errCh := make(chan error, 100)
+	var commands sync.WaitGroup
+	for index := 0; index < 100; index++ {
+		definition := definitions[index%len(definitions)]
+		position := "straight"
+		if index%2 == 0 {
+			position = "diverging"
+		}
+		commands.Add(1)
+		go func() {
+			defer commands.Done()
+			errCh <- railway.SetTurnout(ctx, dispatcher, definition.ID, position)
+		}()
+	}
+	commands.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("concurrent command: %v", err)
+		}
+	}
+
+	desiredBeforeReports := make(map[string]string, len(definitions))
+	for _, definition := range definitions {
+		stored, err := db.GetTurnout(ctx, definition.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored.Pending || stored.ReportedPosition != stored.DesiredPosition || stored.CommandStatus != model.TurnoutCommandSucceeded {
+			t.Fatalf("state after concurrent commands=%+v", stored)
+		}
+		desiredBeforeReports[definition.ID] = stored.DesiredPosition
+	}
+
+	var reports sync.WaitGroup
+	for _, definition := range definitions {
+		definition := definition
+		reports.Add(1)
+		go func() {
+			defer reports.Done()
+			if err := sim.ReportAccessoryPosition(definition.Endpoints[0].LinearAddress, station.AccessoryPosition1, station.AccessoryReportPhysical); err != nil {
+				t.Errorf("external report: %v", err)
+			}
+		}()
+	}
+	reports.Wait()
+	for _, definition := range definitions {
+		waitForTurnoutPosition(t, ctx, db, definition.ID, "straight", false)
+		stored, err := db.GetTurnout(ctx, definition.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored.DesiredPosition != desiredBeforeReports[definition.ID] || stored.Quality != station.AccessoryReportPhysical {
+			t.Fatalf("external report changed desired state or quality=%+v", stored)
+		}
+	}
+}
+
 func TestRailwayServiceExternalChangeUpdatesReportedOnly(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -361,16 +571,24 @@ func TestRailwayServiceAggregatesLowestAccessoryQuality(t *testing.T) {
 	turnout := tripleTurnout()
 	db, sim, _ := newAccessoryRailwayService(t, ctx, turnout)
 	defer db.Close()
-	if err := sim.ReportAccessoryPosition(1, station.AccessoryPosition1, station.AccessoryReportStation); err != nil {
+	if err := sim.ReportAccessoryPosition(turnout.Endpoints[0].LinearAddress, station.AccessoryPosition1, station.AccessoryReportStation); err != nil {
 		t.Fatal(err)
 	}
-	if err := sim.ReportAccessoryPosition(2, station.AccessoryPosition1, station.AccessoryReportAssumed); err != nil {
+	if err := sim.ReportAccessoryPosition(turnout.Endpoints[1].LinearAddress, station.AccessoryPosition1, station.AccessoryReportAssumed); err != nil {
 		t.Fatal(err)
 	}
-	waitForTurnoutPosition(t, ctx, db, turnout.ID, "straight", false)
-	stored, err := db.GetTurnout(ctx, turnout.ID)
-	if err != nil {
-		t.Fatal(err)
+	deadline := time.Now().Add(time.Second)
+	var stored model.Turnout
+	var err error
+	for {
+		stored, err = db.GetTurnout(ctx, turnout.ID)
+		if err == nil && stored.ReportedPosition == "straight" && !stored.Pending && stored.Quality == station.AccessoryReportAssumed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("aggregate quality was not observed: turnout=%+v err=%v", stored, err)
+		}
+		time.Sleep(time.Millisecond)
 	}
 	if stored.Quality != station.AccessoryReportAssumed {
 		t.Fatalf("aggregate quality=%q want assumed", stored.Quality)
@@ -382,8 +600,12 @@ func newAccessoryRailwayService(t *testing.T, ctx context.Context, turnout model
 }
 
 func newAccessoryRailwayServiceWithTimeout(t *testing.T, ctx context.Context, turnout model.Turnout, timeout time.Duration) (*store.Store, *simulator.Simulator, *RailwayService) {
+	return newAccessoryRailwayServiceWithTimeoutAtPath(t, ctx, turnout, timeout, ":memory:")
+}
+
+func newAccessoryRailwayServiceWithTimeoutAtPath(t *testing.T, ctx context.Context, turnout model.Turnout, timeout time.Duration, path string) (*store.Store, *simulator.Simulator, *RailwayService) {
 	t.Helper()
-	db, err := store.Open(":memory:")
+	db, err := store.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,6 +620,30 @@ func newAccessoryRailwayServiceWithTimeout(t *testing.T, ctx context.Context, tu
 	}
 	service := NewRailwayService(db, sim, events.New(), timeout)
 	service.StartFeedback(ctx)
+	if position, ok := turnout.Position(turnout.ReportedPosition); ok {
+		for _, endpoint := range turnout.Endpoints {
+			if err := sim.ReportAccessoryPosition(
+				endpoint.LinearAddress,
+				model.PhysicalAccessoryPosition(endpoint, position.Endpoints[endpoint.ID]),
+				station.AccessoryReportPhysical,
+			); err != nil {
+				db.Close()
+				t.Fatal(err)
+			}
+		}
+		deadline := time.Now().Add(time.Second)
+		for {
+			stored, err := db.GetTurnout(ctx, turnout.ID)
+			if err == nil && stored.ReportedPosition == turnout.ReportedPosition && stored.Quality == station.AccessoryReportPhysical {
+				break
+			}
+			if time.Now().After(deadline) {
+				db.Close()
+				t.Fatalf("initial accessory reports not consumed: turnout=%+v err=%v", stored, err)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
 	return db, sim, service
 }
 
@@ -474,37 +720,21 @@ func waitForTurnoutPosition(t *testing.T, ctx context.Context, db *store.Store, 
 	}
 }
 
-func tripleTurnout() model.Turnout {
-	return model.Turnout{
-		ID:   "triple",
-		Name: "Triple",
-		Kind: model.TurnoutKindThreeWay,
-		Endpoints: []model.AccessoryEndpoint{
-			{ID: "A", LinearAddress: 1},
-			{ID: "B", LinearAddress: 2},
-		},
-		Positions: []model.TurnoutPositionDefinition{
-			{ID: "left", Endpoints: map[string]model.AccessoryPosition{"A": model.AccessoryPosition2, "B": model.AccessoryPosition1}},
-			{ID: "straight", Endpoints: map[string]model.AccessoryPosition{"A": model.AccessoryPosition1, "B": model.AccessoryPosition1}},
-			{ID: "right", Endpoints: map[string]model.AccessoryPosition{"A": model.AccessoryPosition1, "B": model.AccessoryPosition2}},
-		},
+func waitForSimulatorAccessoryPending(t *testing.T, sim *simulator.Simulator, address int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for !sim.Accessory(address).Pending {
+		if time.Now().After(deadline) {
+			t.Fatalf("accessory %d did not become pending: %+v", address, sim.Accessory(address))
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
+func tripleTurnout() model.Turnout {
+	return turnoutfixture.ThreeWay()
+}
+
 func doubleSlipTurnout() model.Turnout {
-	return model.Turnout{
-		ID:   "tjd",
-		Name: "TJD",
-		Kind: model.TurnoutKindDoubleSlip,
-		Endpoints: []model.AccessoryEndpoint{
-			{ID: "A", LinearAddress: 3},
-			{ID: "B", LinearAddress: 4},
-		},
-		Positions: []model.TurnoutPositionDefinition{
-			{ID: "route_a", Endpoints: map[string]model.AccessoryPosition{"A": model.AccessoryPosition1, "B": model.AccessoryPosition1}},
-			{ID: "route_b", Endpoints: map[string]model.AccessoryPosition{"A": model.AccessoryPosition1, "B": model.AccessoryPosition2}},
-			{ID: "route_c", Endpoints: map[string]model.AccessoryPosition{"A": model.AccessoryPosition2, "B": model.AccessoryPosition1}},
-			{ID: "route_d", Endpoints: map[string]model.AccessoryPosition{"A": model.AccessoryPosition2, "B": model.AccessoryPosition2}},
-		},
-	}
+	return turnoutfixture.DoubleSlip()
 }

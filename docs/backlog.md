@@ -65,6 +65,7 @@ dans ce backlog.
 - [x] Aligner DCC-EX sur l'adresse linéaire canonique, les positions binaires et les retours honnêtes `assumed` (`AIG-005`).
 - [x] Sérialiser les transitions multi-endpoints, confirmer chaque étape, agréger la qualité et gérer erreurs partielles et timeouts (`AIG-006`).
 - [x] Stabiliser REST, WebSocket, `dccctl` et les archives v3 pour les appareils composés (`AIG-007`).
+- [x] Exécuter une conformité accessoire commune sur Simulator, z21 et DCC-EX, avec fixtures composées, pannes, concurrence et option `--check-turnouts` (`AIG-008`).
 - [ ] Valider sur z21 réelle l'adressage des accessoires, la durée d'impulsion et la différence entre état de fonction rapporté et position physique.
 - [x] Gérer les délais, échecs et incohérences entre position demandée et position confirmée (`AIG-006`).
 - [ ] Préparer les sorties nécessaires au pilotage futur des signaux.
@@ -88,9 +89,9 @@ dans ce backlog.
 
 ## P2 — Parité DCC-EX
 
-- [ ] Définir et maintenir une matrice de capacités z21/DCC-EX.
-- [ ] Exécuter pour DCC-EX les mêmes tests contractuels que pour les capacités communes de z21.
-- [ ] Documenter les différences de pilotes sans les propager dans l'API publique.
+- [x] Définir et maintenir une matrice de capacités Simulator/z21/DCC-EX (`AIG-008`).
+- [x] Exécuter pour DCC-EX les mêmes tests contractuels que pour les capacités communes de z21 (`AIG-008`).
+- [x] Documenter les différences de pilotes sans les propager dans l'API publique (`AIG-008`).
 
 ## P2 — Import, export et sauvegarde
 

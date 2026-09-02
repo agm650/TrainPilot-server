@@ -657,3 +657,42 @@ fonctionner sans capteur, mais ne prouve pas que le décodeur a reçu le paquet
 ou que les lames ont bougé. Aucun parser de changement externe n'est ajouté :
 la commande brute ne possède pas de réponse ou broadcast d'état standard
 documenté. Une future confirmation physique devra venir d'un capteur adapté.
+
+## 21. Matrice de capacités et conformité commune
+
+Le client utilise toujours le modèle logique `Turnout` et la capability
+`accessoryControl`. Il ne doit pas déduire une confirmation physique à partir
+du nom du driver. La qualité du retour porte cette information.
+
+| Capacité | Simulator | z21 UDP | DCC-EX TCP |
+| --- | --- | --- | --- |
+| commande binaire `position1` / `position2` | oui | oui | oui |
+| plage portable `1..2040` | oui | oui | oui |
+| retour `physical` | oui, par défaut ou injection | non | non |
+| retour `station` | injectable | oui, interrogation ou broadcast | non |
+| retour `assumed` | injectable | non | oui, après écriture réussie |
+| changement externe observable | oui | oui, broadcast z21 | non avec `<a>` |
+| refus hors ligne | oui | oui | oui dès que le socket manque |
+| reprise de disponibilité | connectivité injectable | première réponse valide | reconnexion TCP automatique |
+| rejeu d'une commande refusée | jamais | jamais | jamais |
+
+`internal/station/contracttest.BasicAccessoryContract` vérifie le sous-ensemble
+commun sur les trois drivers : positions binaires, bornes, valeur invalide,
+état hors ligne, retour en ligne sans rejeu et cent commandes concurrentes sur
+vingt adresses. Les faux serveurs UDP/TCP rendent cette suite indépendante du
+matériel.
+
+Les mêmes fixtures `simple`, `three_way`, `double_slip` et `single_slip`
+traversent ensuite le contrôleur métier avec chaque driver. Les tests couvrent
+les quatre positions de la TJD, toutes leurs transitions, les trois positions
+du triple, sa quatrième combinaison physique interdite, les erreurs partielles,
+les confirmations absentes ou incorrectes, l'annulation et la perte de
+centrale. Les changements externes sont testés avec Simulator et z21. DCC-EX
+n'en annonce pas, conformément au protocole `<a>`.
+
+Le WebSocket reste indépendant du driver : `turnout.commanded`,
+`turnout.state.changed` et `turnout.command.failed` proviennent du service. Les
+tests HTTP/WebSocket génériques emploient le Simulator. Deux tests bout en bout
+supplémentaires passent par les faux transports z21 et DCC-EX : une commande
+HTTP de triple doit produire sur le WebSocket la position terminale et la
+qualité `station` ou `assumed` propre au driver.

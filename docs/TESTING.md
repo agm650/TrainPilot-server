@@ -32,6 +32,11 @@
 - les commandes DCC-EX sont encodées correctement et un faux serveur TCP couvre la connexion initiale, la perte du socket, les transitions `online/degraded/offline`, la reconnexion avant ou après `offline`, plusieurs cycles et l'arrêt pendant une reconnexion ;
 - les accessoires DCC-EX utilisent exactement `<a linear 0|1>`, publient uniquement un état `assumed` après succès et ne publient rien après une erreur d'écriture ;
 - cent commandes accessoires DCC-EX concurrentes restent des trames complètes, tandis qu'une commande refusée pendant une panne n'est jamais rejouée après reconnexion ;
+- le contrat accessoire commun exécute les mêmes cas `position1`/`position2`, validation, refus hors ligne, absence de rejeu et concurrence sur Simulator, z21 et DCC-EX ;
+- les fixtures logiques partagées simple, triple, TJD et TJS traversent réellement `RailwayService` et chacun des trois drivers ; toutes les transitions TJD et l'état interdit du triple sont couverts ;
+- deux tests bout en bout commandent un triple par HTTP via les faux drivers z21/DCC-EX et vérifient les événements WebSocket terminaux avec les qualités `station`/`assumed` attendues ;
+- les pannes avant envoi, après un premier endpoint, sans confirmation, avec confirmation incorrecte, pendant une annulation ou une perte de centrale ne peuvent produire un faux succès ;
+- vingt aiguillages supportent cent commandes concurrentes puis des changements externes parallèles sans incohérence sous le détecteur de races ;
 - un test d'intégration `RailwayService -> DCC-EX TCP` vérifie qu'un turnout simple à l'adresse 44 produit `<a 44 1>` puis atteint sa position logique grâce au retour `assumed` ;
 - les commandes DCC-EX présentées sans socket sont refusées sans mise en file ni rejeu, tandis que les retours de capteurs reprennent sur le même canal après reconnexion ;
 - les snapshots du simulateur sont profondément copiés, son horloge est injectable, son reset conserve la connexion et ses lectures restent sûres face aux commandes concurrentes ;
@@ -106,6 +111,26 @@ go run ./cmd/dcc-api-conformance \
 
 Ces options restent inactives par défaut et ne doivent pas être utilisées sur
 un réseau ferroviaire réel sans activation volontaire.
+
+La conformité des aiguillages est une mutation distincte, activée uniquement
+avec `--check-turnouts`. Elle exige `--admin` et `--admin-pass`, contrôle la
+validité des définitions retournées, commande une position déclarée, relit son
+état confirmé, vérifie le rejet `invalid_turnout_position` et, si un triple est
+présent, parcourt ses trois positions. Exemple sur une instance Simulator
+jetable :
+
+```bash
+go run ./cmd/dcc-api-conformance \
+  --server http://127.0.0.1:8080 \
+  --user1 alice --pass1 correct-horse-1 \
+  --user2 bob --pass2 correct-horse-2 \
+  --admin admin --admin-pass correct-horse-admin \
+  --check-turnouts
+```
+
+Sans cette option, aucune commande d'aiguillage n'est ajoutée au scénario de
+conformité standard. Ne pas l'utiliser sur un réseau réel sans choisir et
+sécuriser explicitement les appareils concernés.
 
 L'expiration naturelle des sessions est volontairement absente du lancement
 standard. Elle nécessite une instance de test avec des TTL courtes :
@@ -248,7 +273,11 @@ de races.
 
 Les tests du contrat accessoire vérifient aussi `position1`/`position2`, la
 plage linéaire `1..2040`, les erreurs typées, le refus hors ligne et le provider
-d'observations. Le simulateur utilise une file non bloquante de 64 événements.
+d'observations. La même fonction de contrat est appelée par Simulator, z21 et
+DCC-EX. Elle couvre aussi vingt adresses et cent commandes concurrentes, ainsi
+que la reconnexion sans rejeu. Le simulateur utilise une file non bloquante de
+64 événements ; le snapshot reste la source de resynchronisation après une
+saturation volontaire.
 
 Les tests z21 couvrent sans matériel :
 
@@ -265,7 +294,6 @@ Les tests z21 couvrent sans matériel :
 
 ## Couverture restant à ajouter
 
-- parité contractuelle complète entre DCC-EX et z21 pour leurs capacités communes ;
 - couverture protocolaire DCC-EX au-delà des commandes et retours actuellement pris en charge ;
 - rétrosignalisation déjà présente au démarrage réel du serveur ;
 - campagnes sur matériel réel.

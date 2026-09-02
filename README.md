@@ -297,6 +297,12 @@ Les commandes de voie ne sont exécutées qu'avec
 en plus `--allow-configuration-mutations`, `--admin` et `--admin-pass` ; elles
 doivent être réservées à une instance jetable utilisant le simulateur.
 
+Les aiguillages disposent d'un contrôle opt-in séparé. `--check-turnouts`
+valide les positions logiques, commande un appareil, vérifie son état confirmé
+et le rejet d'une position inconnue. Cette option exige `--admin` et
+`--admin-pass` et doit viser uniquement une instance de test explicitement
+choisie.
+
 Sur une telle instance, les deux familles opt-in peuvent être combinées :
 
 ```bash
@@ -306,7 +312,8 @@ go run ./cmd/dcc-api-conformance \
   --user2 bob --pass2 correct-horse-2 \
   --admin admin --admin-pass correct-horse-admin \
   --allow-active-commands \
-  --allow-configuration-mutations
+  --allow-configuration-mutations \
+  --check-turnouts
 ```
 
 Ces options restent désactivées par défaut et ne doivent jamais viser une

@@ -122,12 +122,19 @@ func TestConformanceRunnerAgainstSimulator(t *testing.T) {
 				adminPass:           "correct-horse-admin",
 				allowActiveCommands: active,
 				allowConfigChanges:  active,
+				checkTurnouts:       active,
 			}, &output)
 			if failed != 0 {
 				t.Fatalf("conformance failures=%d\n%s", failed, output.String())
 			}
 			if !strings.Contains(output.String(), "SKIP session expiration checks") {
 				t.Fatalf("standard run did not report the expiration skip\n%s", output.String())
+			}
+			if active && !strings.Contains(output.String(), "PASS  turnout state confirms the commanded position") {
+				t.Fatalf("opt-in turnout check was not executed\n%s", output.String())
+			}
+			if !active && !strings.Contains(output.String(), "SKIP  turnout checks") {
+				t.Fatalf("passive run did not report the turnout skip\n%s", output.String())
 			}
 		})
 	}
@@ -257,6 +264,7 @@ func newConformanceServerWithTokenTTLs(t *testing.T, accessTTL, refreshTTL time.
 	}
 	bus := events.New()
 	railway := service.NewRailwayService(db, sim, bus)
+	railway.StartFeedback(ctx)
 	control := service.NewControlService(db, sim, bus, clk, 15*time.Second, time.Second, time.Hour)
 	routes := service.NewRouteService(db, railway, bus)
 	api := httpapi.New(authSvc, control, railway, routes, transfer.New(db, bus, clk), db, bus, sim, sim, true)

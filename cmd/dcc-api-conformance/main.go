@@ -35,6 +35,7 @@ type configuration struct {
 	adminPass                string
 	allowActiveCommands      bool
 	allowConfigChanges       bool
+	checkTurnouts            bool
 	checkSessionExpiration   bool
 	sessionExpirationMaxWait time.Duration
 }
@@ -49,6 +50,7 @@ func main() {
 	adminPass := flag.String("admin-pass", "", "administrator password")
 	allowActive := flag.Bool("allow-active-commands", false, "explicitly allow power, lease, throttle and function commands")
 	allowConfig := flag.Bool("allow-configuration-mutations", false, "explicitly allow temporary CRUD and archive import checks")
+	checkTurnouts := flag.Bool("check-turnouts", false, "explicitly command configured turnouts and validate logical confirmations")
 	checkSessionExpiration := flag.Bool("check-session-expiration", false, "check natural access-token and refresh-token expiration using dedicated sessions")
 	sessionExpirationMaxWait := flag.Duration("session-expiration-max-wait", defaultSessionExpirationMaxWait, "maximum wait for each session-expiration boundary")
 	listEndpoints := flag.Bool("list-endpoints", false, "list the public endpoint inventory and its conformance class")
@@ -68,6 +70,7 @@ func main() {
 		adminPass:                *adminPass,
 		allowActiveCommands:      *allowActive,
 		allowConfigChanges:       *allowConfig,
+		checkTurnouts:            *checkTurnouts,
 		checkSessionExpiration:   *checkSessionExpiration,
 		sessionExpirationMaxWait: *sessionExpirationMaxWait,
 	}, os.Stdout)
@@ -145,6 +148,15 @@ func run(ctx context.Context, cfg configuration, output io.Writer) int {
 		}
 	} else {
 		fmt.Fprintln(output, "SKIP  active driving checks (use --allow-active-commands only with an explicitly selected test station)")
+	}
+	if cfg.checkTurnouts {
+		if adminClient == nil {
+			add("turnout checks have an administrator", errors.New("--admin and --admin-pass are required with --check-turnouts"))
+		} else {
+			runTurnoutChecks(ctx, adminClient, add)
+		}
+	} else {
+		fmt.Fprintln(output, "SKIP  turnout checks (use --check-turnouts only with an explicitly selected test station)")
 	}
 
 	status, remoteUserErr := c1.Do(ctx, http.MethodPost, "/api/v1/users", map[string]string{"username": "forbidden"}, nil)
@@ -362,6 +374,83 @@ func runDispatchChecks(ctx context.Context, admin *client.Client, add func(strin
 	add("dispatcher can reserve a route", admin.ReserveRoute(ctx, routes[0].ID))
 	add("dispatcher can activate a reserved route", admin.ActivateRoute(ctx, routes[0].ID))
 	add("dispatcher can release a route", admin.ReleaseRoute(ctx, routes[0].ID))
+}
+
+func runTurnoutChecks(ctx context.Context, dispatcher *client.Client, add func(string, error)) {
+	turnouts, err := dispatcher.Turnouts(ctx)
+	if err != nil {
+		add("turnout fixtures can be listed", err)
+		return
+	}
+	if len(turnouts) == 0 {
+		add("turnout fixtures can be listed", errors.New("no turnout available"))
+		return
+	}
+	add("turnout fixtures expose logical positions", validateTurnoutFixtures(turnouts))
+
+	selected := turnouts[0]
+	target := selected.Positions[0].ID
+	for _, position := range selected.Positions {
+		if position.ID != selected.ReportedPosition {
+			target = position.ID
+			break
+		}
+	}
+	commandErr := dispatcher.SetTurnout(ctx, selected.ID, target)
+	add("declared turnout position can be commanded", commandErr)
+	if commandErr == nil {
+		updated, listErr := dispatcher.Turnouts(ctx)
+		if listErr == nil {
+			listErr = requireTurnoutState(updated, selected.ID, target)
+		}
+		add("turnout state confirms the commanded position", listErr)
+	}
+	add("undeclared turnout position is rejected", expectHTTPError(
+		dispatcher.SetTurnout(ctx, selected.ID, "__conformance_invalid_position__"),
+		http.StatusBadRequest,
+		"validation",
+		"invalid_turnout_position",
+	))
+
+	for _, turnout := range turnouts {
+		if turnout.Kind != model.TurnoutKindThreeWay {
+			continue
+		}
+		var tripleErr error
+		for _, position := range turnout.Positions {
+			if err := dispatcher.SetTurnout(ctx, turnout.ID, position.ID); err != nil {
+				tripleErr = fmt.Errorf("position %s: %w", position.ID, err)
+				break
+			}
+		}
+		add("three-way turnout accepts every declared position", tripleErr)
+		break
+	}
+}
+
+func validateTurnoutFixtures(turnouts []model.Turnout) error {
+	for _, turnout := range turnouts {
+		if len(turnout.Positions) == 0 {
+			return fmt.Errorf("turnout %s has no declared logical position", turnout.ID)
+		}
+		if err := model.ValidateTurnout(turnout); err != nil {
+			return fmt.Errorf("turnout %s: %w", turnout.ID, err)
+		}
+	}
+	return nil
+}
+
+func requireTurnoutState(turnouts []model.Turnout, turnoutID, position string) error {
+	for _, turnout := range turnouts {
+		if turnout.ID != turnoutID {
+			continue
+		}
+		if turnout.ReportedPosition != position || turnout.Pending || turnout.CommandStatus != model.TurnoutCommandSucceeded {
+			return fmt.Errorf("turnout %s state is reported=%q pending=%v commandStatus=%q", turnoutID, turnout.ReportedPosition, turnout.Pending, turnout.CommandStatus)
+		}
+		return nil
+	}
+	return fmt.Errorf("turnout %s disappeared after command", turnoutID)
 }
 
 func runConfigurationChecks(ctx context.Context, admin *client.Client, rollingStockArchive, layoutArchive []byte, add func(string, error)) {

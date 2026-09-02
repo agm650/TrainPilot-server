@@ -54,6 +54,7 @@ All notable changes to this project will be documented in this file.
 - Guide exhaustif du banc simulateur pour le développement de clients, avec exemples HTTP/WebSocket, scénarios et diagrammes PlantUML, inclus dans les archives de livraison.
 - Contrôleur métier d'aiguillages avec transitions multi-endpoints sûres, confirmation qualifiée, timeout configurable, sérialisation par appareil, gestion des erreurs partielles et changements externes.
 - Commande REST par `position`, état composé dans les snapshots, codes d'erreur stables et commandes `dccctl turnouts` / `dccctl turnout`.
+- Suite de conformité accessoire commune à Simulator, z21 et DCC-EX, fixtures simples/composées, matrice de capacités et contrôle externe opt-in `--check-turnouts`.
 
 ### Changed
 

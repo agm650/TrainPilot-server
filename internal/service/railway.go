@@ -531,7 +531,11 @@ func (r *RailwayService) failTurnoutCommand(ctx context.Context, turnout model.T
 }
 
 func (r *RailwayService) failTurnoutCommandWithStatus(ctx context.Context, turnout model.Turnout, target, reason string, status model.TurnoutCommandStatus, cause error) error {
-	if err := r.store.SetTurnoutCommandResult(ctx, turnout.ID, false, status); err != nil {
+	// Persist the terminal state even when the caller canceled while waiting for
+	// a physical confirmation. Otherwise a canceled command could remain
+	// indefinitely pending in snapshots and events.
+	cleanupCtx := context.WithoutCancel(ctx)
+	if err := r.store.SetTurnoutCommandResult(cleanupCtx, turnout.ID, false, status); err != nil {
 		return errors.Join(cause, err)
 	}
 	r.events.Publish("turnout.command.failed", map[string]any{
@@ -539,7 +543,7 @@ func (r *RailwayService) failTurnoutCommandWithStatus(ctx context.Context, turno
 		"targetPosition": target,
 		"reason":         reason,
 	})
-	r.publishTurnoutState(ctx, turnout.ID)
+	r.publishTurnoutState(cleanupCtx, turnout.ID)
 	return cause
 }
 
