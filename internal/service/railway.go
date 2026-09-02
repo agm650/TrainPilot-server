@@ -486,10 +486,6 @@ func (r *RailwayService) waitForTurnoutPosition(ctx context.Context, turnout mod
 	timer := time.NewTimer(r.confirmationTimeout)
 	defer timer.Stop()
 	for {
-		current, err := r.store.GetTurnout(ctx, turnout.ID)
-		if err != nil {
-			return err
-		}
 		r.accessoryMu.Lock()
 		runtime := r.turnoutRuntime[turnout.ID]
 		if runtime == nil || runtime.generation != generation {
@@ -505,6 +501,11 @@ func (r *RailwayService) waitForTurnoutPosition(ctx context.Context, turnout mod
 		}
 		updates := runtime.updates
 		r.accessoryMu.Unlock()
+
+		current, err := r.store.GetTurnout(ctx, turnout.ID)
+		if err != nil {
+			return err
+		}
 		if current.ReportedStatus == station.AccessoryReportKnown && current.ReportedPosition == target && confirmed {
 			return nil
 		}
