@@ -195,12 +195,12 @@ func (s *Store) SetTurnoutReportedPosition(ctx context.Context, id, position str
 	return requireAffected(res)
 }
 
-func (s *Store) SetTurnoutObservation(ctx context.Context, id, position string, reportedStatus station.AccessoryReportState, quality station.AccessoryReportQuality, pending bool, commandStatus model.TurnoutCommandStatus) error {
+func (s *Store) SetTurnoutObservation(ctx context.Context, id, position string, reportedStatus station.AccessoryReportState, quality station.AccessoryReportQuality) error {
 	legacy := position
 	if legacy != "straight" && legacy != "diverging" {
 		legacy = "unknown"
 	}
-	res, err := s.DB.ExecContext(ctx, `UPDATE turnouts SET reported_position=?,reported_status=?,quality=?,pending=?,command_status=?,reported_state=? WHERE id=?`, position, reportedStatus, quality, boolInt(pending), commandStatus, legacy, id)
+	res, err := s.DB.ExecContext(ctx, `UPDATE turnouts SET reported_position=?,reported_status=?,quality=?,reported_state=? WHERE id=?`, position, reportedStatus, quality, legacy, id)
 	if err != nil {
 		return err
 	}

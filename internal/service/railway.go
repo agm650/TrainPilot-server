@@ -358,15 +358,7 @@ func (r *RailwayService) handleAccessoryStateEvent(ctx context.Context, event st
 }
 
 func (r *RailwayService) persistTurnoutObservation(ctx context.Context, turnoutID, position string, reportState station.AccessoryReportState, quality station.AccessoryReportQuality) error {
-	current, err := r.store.GetTurnout(ctx, turnoutID)
-	if err != nil {
-		return err
-	}
-	status := current.CommandStatus
-	if current.Pending {
-		status = model.TurnoutCommandPending
-	}
-	if err := r.store.SetTurnoutObservation(ctx, turnoutID, position, reportState, quality, current.Pending, status); err != nil {
+	if err := r.store.SetTurnoutObservation(ctx, turnoutID, position, reportState, quality); err != nil {
 		return err
 	}
 	r.publishTurnoutState(ctx, turnoutID)

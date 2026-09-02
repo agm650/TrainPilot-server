@@ -8,6 +8,7 @@ import (
 
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/sqlite"
+	"github.com/agm650/TrainPilot-server/internal/station"
 )
 
 func TestMigrateLegacyTurnoutSchema(t *testing.T) {
@@ -95,6 +96,39 @@ func TestCompoundTurnoutPersistenceRoundTrip(t *testing.T) {
 	}
 	if len(exported.Turnouts) != 1 || !reflect.DeepEqual(exported.Turnouts[0], want) {
 		t.Fatalf("unexpected export: %#v", exported.Turnouts)
+	}
+}
+
+func TestTurnoutObservationDoesNotOverwriteTerminalCommandState(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	turnout := model.NewSimpleTurnout("turnout", "Turnout", 12, "straight", "straight")
+	if err := store.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{turnout}}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetTurnoutDesiredPosition(ctx, turnout.ID, "diverging", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetTurnoutCommandResult(ctx, turnout.ID, false, model.TurnoutCommandTimeout); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetTurnoutObservation(ctx, turnout.ID, "diverging", station.AccessoryReportKnown, station.AccessoryReportPhysical); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := store.GetTurnout(ctx, turnout.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Pending || stored.CommandStatus != model.TurnoutCommandTimeout {
+		t.Fatalf("observation overwrote terminal command state: %+v", stored)
+	}
+	if stored.ReportedPosition != "diverging" || stored.ReportedStatus != station.AccessoryReportKnown || stored.Quality != station.AccessoryReportPhysical {
+		t.Fatalf("observation was not stored: %+v", stored)
 	}
 }
 

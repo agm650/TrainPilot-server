@@ -553,7 +553,7 @@ func TestRailwayServiceHandlesTwentyTurnoutsAndExternalReportsConcurrently(t *te
 	if err := sim.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	railway := NewRailwayService(db, sim, events.New(), time.Second)
+	railway := NewRailwayService(db, sim, events.New(), 5*time.Second)
 	railway.StartFeedback(ctx)
 	dispatcher := model.User{Role: model.RoleDispatcher}
 

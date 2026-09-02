@@ -30,6 +30,7 @@ All notable changes to this project will be documented in this file.
 - Slow WebSocket clients are disconnected when their queue overflows or a write deadline expires.
 - Layout imports now atomically reject changes to or deletion of a `pending` turnout, as well as sharing one accessory address across multiple turnouts.
 - The Unix-socket administration integration test now uses a short temporary path compatible with the macOS socket path limit.
+- Late accessory feedback can no longer restore a stale `pending` command state after a turnout command has failed or timed out.
 
 ### Added
 
