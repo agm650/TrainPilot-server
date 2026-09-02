@@ -147,6 +147,37 @@ func (s *Store) GetTurnout(ctx context.Context, id string) (model.Turnout, error
 	}
 	return normalized, nil
 }
+
+func (s *Store) ListTurnoutsByAccessoryAddress(ctx context.Context, address int) ([]model.Turnout, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT turnout_id FROM turnout_endpoints WHERE linear_address=? ORDER BY turnout_id`, address)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	turnouts := make([]model.Turnout, 0, len(ids))
+	for _, id := range ids {
+		turnout, err := s.GetTurnout(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		turnouts = append(turnouts, turnout)
+	}
+	return turnouts, nil
+}
 func (s *Store) SetTurnoutState(ctx context.Context, id, position string) error {
 	legacy := position
 	if legacy != "straight" && legacy != "diverging" {

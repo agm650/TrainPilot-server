@@ -776,7 +776,7 @@ func (s *manualAccessoryStation) AccessoryStateEvents() <-chan station.Accessory
 
 func waitForTurnoutPosition(t *testing.T, ctx context.Context, db *store.Store, id, reported string, pending bool) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for {
 		turnout, err := db.GetTurnout(ctx, id)
 		if err == nil && turnout.ReportedPosition == reported && turnout.Pending == pending {

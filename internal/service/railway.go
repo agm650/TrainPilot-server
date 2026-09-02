@@ -317,7 +317,7 @@ func (r *RailwayService) StartFeedback(ctx context.Context) {
 }
 
 func (r *RailwayService) handleAccessoryStateEvent(ctx context.Context, event station.AccessoryStateEvent) {
-	turnouts, err := r.store.ListTurnouts(ctx)
+	turnouts, err := r.store.ListTurnoutsByAccessoryAddress(ctx, event.Address)
 	if err != nil {
 		return
 	}

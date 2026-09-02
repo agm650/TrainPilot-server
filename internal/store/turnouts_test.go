@@ -132,6 +132,35 @@ func TestTurnoutObservationDoesNotOverwriteTerminalCommandState(t *testing.T) {
 	}
 }
 
+func TestListTurnoutsByAccessoryAddress(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	first := model.NewSimpleTurnout("first", "First", 12, "", "")
+	second := model.NewSimpleTurnout("second", "Second", 13, "", "")
+	if err := store.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{first, second}}, false); err != nil {
+		t.Fatal(err)
+	}
+
+	turnouts, err := store.ListTurnoutsByAccessoryAddress(ctx, 13)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turnouts) != 1 || turnouts[0].ID != second.ID {
+		t.Fatalf("turnouts at address 13: %+v", turnouts)
+	}
+	turnouts, err = store.ListTurnoutsByAccessoryAddress(ctx, 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turnouts) != 0 {
+		t.Fatalf("turnouts at unused address: %+v", turnouts)
+	}
+}
+
 func TestSeedDemoDoesNotModifyExistingCompoundTurnout(t *testing.T) {
 	ctx := context.Background()
 	store, err := Open(":memory:")
