@@ -32,6 +32,7 @@ All notable changes to this project will be documented in this file.
 - The Unix-socket administration integration test now uses a short temporary path compatible with the macOS socket path limit.
 - Late accessory feedback can no longer restore a stale `pending` command state after a turnout command has failed or timed out.
 - Accessory feedback now loads only the turnout associated with its address, avoiding quadratic SQLite work under concurrent reports.
+- Multi-driver accessory contract tests now use a load-tolerant confirmation deadline on CI runners.
 
 ### Added
 

@@ -25,6 +25,8 @@ type accessoryDriverFactory struct {
 	new     func(*testing.T, context.Context) station.CommandStation
 }
 
+const accessoryDriverContractConfirmationTimeout = 5 * time.Second
+
 func TestRailwayServiceUsesCommonLogicalFixturesWithEveryDriver(t *testing.T) {
 	drivers := []accessoryDriverFactory{
 		{
@@ -93,7 +95,7 @@ func TestRailwayServiceUsesCommonLogicalFixturesWithEveryDriver(t *testing.T) {
 					t.Fatal(err)
 				}
 				bus := events.New()
-				railway := NewRailwayService(db, driver, bus, 250*time.Millisecond)
+				railway := NewRailwayService(db, driver, bus, accessoryDriverContractConfirmationTimeout)
 				railway.StartFeedback(ctx)
 				targets := append([]model.TurnoutPositionDefinition(nil), definition.Positions[1:]...)
 				targets = append(targets, definition.Positions[0])
@@ -159,7 +161,7 @@ func TestRailwayServiceAcceptsExternalZ21AccessoryReport(t *testing.T) {
 	if err := db.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{definition}}, false); err != nil {
 		t.Fatal(err)
 	}
-	railway := NewRailwayService(db, driver, events.New(), 250*time.Millisecond)
+	railway := NewRailwayService(db, driver, events.New(), accessoryDriverContractConfirmationTimeout)
 	railway.StartFeedback(ctx)
 	server.sendPosition(t, definition.Endpoints[0].LinearAddress, station.AccessoryPosition2)
 	waitForTurnoutPosition(t, ctx, db, definition.ID, "diverging", false)
