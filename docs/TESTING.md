@@ -327,9 +327,20 @@ que sur un banc explicitement choisi :
 Aucune ancienne vitesse, fonction ou position d'accessoire ne doit être
 restaurée automatiquement après la reconnexion.
 
-## Tests matériels à ajouter
+## Campagnes matérielles
 
-Les tests matériels n’existent pas encore dans la branche. Lors de leur ajout, ils devront être protégés par un build tag, par exemple :
+Les campagnes d'aiguillages disposent désormais d'une procédure, de fiches et
+du script interactif `scripts/test-turnouts.sh`. Elles ne font jamais partie de
+la CI et ne sont pas considérées comme réussies tant qu'une fiche datée ne
+contient pas les observations réelles. Voir
+[`hardware-tests/turnouts/README.md`](hardware-tests/turnouts/README.md).
+
+Le script refuse toute commande réelle sans
+`--acknowledge-hardware-risk`. Son mode `--dry-run` et ce garde-fou sont testés
+par `go test ./...`. Les observations mécaniques restent confirmées manuellement.
+
+De futurs tests Go directement reliés au matériel devront être protégés par un
+build tag, par exemple :
 
 ```bash
 go test -tags=hardware ./tests/hardware/z21
@@ -359,3 +370,8 @@ un aiguillage visible, avec arrêt d'urgence accessible :
 
 Répéter avec les adresses linéaires `1`, `4`, `5`, `8` et `9` permet de détecter
 rapidement un décalage de convention par groupe de quatre.
+
+La campagne AIG-009 étend cette vérification aux pulses `50ms`, `100ms` et
+`150ms`, aux changements externes, à la reconnexion sans rejeu, aux appareils
+composés, aux échecs partiels et à l'endurance. Les modèles z21/DCC-EX restent
+initialisés à `NOT_TESTED` jusqu'à leur exécution sur le banc.

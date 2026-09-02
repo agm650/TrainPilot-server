@@ -303,6 +303,14 @@ et le rejet d'une position inconnue. Cette option exige `--admin` et
 `--admin-pass` et doit viser uniquement une instance de test explicitement
 choisie.
 
+La validation sur centrale réelle est une campagne séparée. Le guide
+[`docs/hardware-tests/turnouts/README.md`](docs/hardware-tests/turnouts/README.md)
+et `scripts/test-turnouts.sh` couvrent l'adressage, les pulses z21, les retours
+externes, les appareils composés, l'endurance et la reconnexion sans rejeu. Le
+script ne transmet aucune commande sans `--acknowledge-hardware-risk` et offre
+un mode `--dry-run`. Tant qu'aucune fiche datée n'est remplie, le support reste
+validé par simulateurs/fakes uniquement.
+
 Sur une telle instance, les deux familles opt-in peuvent être combinées :
 
 ```bash
@@ -705,7 +713,8 @@ Le pilote accepte les adresses linéaires TrainPilot `1..2040`, les convertit en
 retours spontanés reçus. Les états z21 « pas encore commuté » et « invalide »
 restent inconnus côté turnout : le serveur n'invente jamais une position. Une
 confirmation de centrale n'est pas une preuve de mouvement mécanique des
-lames. La validation sur z21 blanche réelle reste nécessaire.
+lames. La validation sur z21 blanche réelle reste nécessaire et doit suivre la
+campagne AIG-009 documentée dans `docs/hardware-tests/turnouts/`.
 
 ## Rétrosignalisation
 

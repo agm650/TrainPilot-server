@@ -696,3 +696,26 @@ tests HTTP/WebSocket génériques emploient le Simulator. Deux tests bout en bou
 supplémentaires passent par les faux transports z21 et DCC-EX : une commande
 HTTP de triple doit produire sur le WebSocket la position terminale et la
 qualité `station` ou `assumed` propre au driver.
+
+## 22. Validation matérielle
+
+Les faux transports prouvent le contrat logiciel, mais pas le câblage, le
+mouvement mécanique, la convention d'adresse affichée ni l'échauffement. La
+campagne reproductible est décrite dans
+[`hardware-tests/turnouts/README.md`](hardware-tests/turnouts/README.md).
+
+Elle fournit :
+
+- `scripts/test-turnouts.sh`, interactif et inactif sans autorisation explicite ;
+- des essais d'adresse autour des groupes de quatre ;
+- les pulses z21 `50ms`, `100ms` et `150ms` ;
+- le retour z21 et les changements provenant d'un autre client ;
+- la limite DCC-EX `assumed` et l'absence de retour externe supposé ;
+- la coupure/reconnexion avec vingt secondes d'observation sans rejeu ;
+- les séquences triple/TJD, l'échec partiel et l'endurance ;
+- des modèles de fiches z21 et DCC-EX initialisés à `NOT_TESTED`.
+
+En l'absence de fiche datée remplie, le support accessoire matériel reste
+« implémenté et vérifié par fakes », pas « validé sur le matériel ». Un retour
+z21 de qualité `station` ne doit jamais être présenté comme une détection
+physique des lames.

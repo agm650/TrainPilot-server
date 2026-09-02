@@ -69,6 +69,7 @@ archives:
       - api/*.yaml
       - docs/**/*
       - deploy/**/*
+      - scripts/test-turnouts.sh
 
 checksum:
   name_template: >-

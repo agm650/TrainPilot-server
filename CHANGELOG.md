@@ -55,6 +55,7 @@ All notable changes to this project will be documented in this file.
 - Contrôleur métier d'aiguillages avec transitions multi-endpoints sûres, confirmation qualifiée, timeout configurable, sérialisation par appareil, gestion des erreurs partielles et changements externes.
 - Commande REST par `position`, état composé dans les snapshots, codes d'erreur stables et commandes `dccctl turnouts` / `dccctl turnout`.
 - Suite de conformité accessoire commune à Simulator, z21 et DCC-EX, fixtures simples/composées, matrice de capacités et contrôle externe opt-in `--check-turnouts`.
+- Campagne matérielle AIG-009 reproductible avec script interactif protégé, mode dry-run, tests de reconnexion sans rejeu et modèles de fiches z21/DCC-EX.
 
 ### Changed
 

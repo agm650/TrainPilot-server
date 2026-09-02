@@ -66,7 +66,9 @@ dans ce backlog.
 - [x] Sérialiser les transitions multi-endpoints, confirmer chaque étape, agréger la qualité et gérer erreurs partielles et timeouts (`AIG-006`).
 - [x] Stabiliser REST, WebSocket, `dccctl` et les archives v3 pour les appareils composés (`AIG-007`).
 - [x] Exécuter une conformité accessoire commune sur Simulator, z21 et DCC-EX, avec fixtures composées, pannes, concurrence et option `--check-turnouts` (`AIG-008`).
+- [x] Préparer la campagne matérielle reproductible, le script sécurisé et les fiches z21/DCC-EX (`AIG-009`, outillage).
 - [ ] Valider sur z21 réelle l'adressage des accessoires, la durée d'impulsion et la différence entre état de fonction rapporté et position physique.
+- [ ] Exécuter AIG-009 sur les bancs z21 et DCC-EX, ajouter les fiches datées et documenter les observations réelles.
 - [x] Gérer les délais, échecs et incohérences entre position demandée et position confirmée (`AIG-006`).
 - [ ] Préparer les sorties nécessaires au pilotage futur des signaux.
 
