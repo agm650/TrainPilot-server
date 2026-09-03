@@ -1,77 +1,96 @@
-# DCC Control Server
+# TrainPilot Server
 
-Socle serveur pour piloter un réseau ferroviaire numérique DCC depuis plusieurs clients natifs. Le dépôt ne contient volontairement aucun client graphique macOS, iOS ou Linux.
+TrainPilot Server is the foundation for controlling a digital DCC railway from
+multiple native clients. This repository intentionally contains no graphical
+macOS, iOS, or Linux client.
 
-## État de cette version
+## Current release status
 
-Cette version constitue un **MVP fonctionnel et testable**, destiné à figer l’architecture et le contrat des futurs clients.
+This release is a **functional and testable MVP**. Its purpose is to stabilize
+the architecture and the contract used by future clients.
 
-Fonctions incluses :
+Included features:
 
-- serveur HTTP JSON en Go ;
-- contrat OpenAPI et contrat d’événements AsyncAPI ;
-- WebSocket sans dépendance Go externe, avec séquence monotone, snapshot initial et resynchronisation à la demande ;
-- base SQLite via `modernc.org/sqlite`, sans CGO ;
-- utilisateurs, rôles, sessions, access tokens et refresh tokens révocables ;
-- administration des utilisateurs uniquement par socket Unix local ;
-- réservation exclusive d’une locomotive par session ;
-- heartbeat de réservation ;
-- arrêt à vitesse zéro avant libération d’une réservation expirée ;
-- locomotives, cantons, aiguillages et itinéraires de démonstration ;
-- rétrosignalisation normalisée et mapping capteur → canton ;
-- pilote de centrale simulée ;
-- pilote DCC-EX TCP pour alimentation, arrêt, vitesse, fonctions, accessoires et remontées de capteurs, avec suivi de santé et reconnexion automatique ;
-- pilote Z21 UDP pour alimentation, arrêt, vitesse, fonctions, accessoires binaires et parsing R-BUS ;
-- import/export versionné du parc et du circuit dans des archives ZIP natives ;
-- outil de diagnostic et de transfert `dccctl` ;
-- outil de conformité `dcc-api-conformance` ;
-- tests unitaires, de concurrence, de protocoles et d’intégration.
+- Go JSON HTTP server;
+- OpenAPI contract and AsyncAPI event contract;
+- WebSocket implementation without an external Go dependency, with monotonic
+  sequences, an initial snapshot, and on-demand resynchronization;
+- SQLite through `modernc.org/sqlite`, without CGO;
+- users, roles, sessions, revocable access tokens, and refresh tokens;
+- user administration through a local Unix socket only;
+- exclusive locomotive control leases scoped to a session;
+- lease heartbeats;
+- zero-speed stop before releasing an expired lease;
+- demonstration locomotives, blocks, turnouts, and routes;
+- normalized feedback and sensor-to-block mappings;
+- simulated command-station driver;
+- DCC-EX TCP driver for track power, emergency stop, speed, functions,
+  accessories, and sensor feedback, with health tracking and automatic
+  reconnection;
+- Z21 UDP driver for track power, emergency stop, speed, functions, binary
+  accessories, and R-BUS parsing;
+- versioned rolling-stock and layout import/export using native ZIP archives;
+- `dccctl` diagnostics and transfer CLI;
+- `dcc-api-conformance` conformance tool;
+- unit, concurrency, protocol, and integration tests.
 
-Limites assumées du MVP :
+Known MVP limitations:
 
-- l’édition graphique complète du réseau n’est pas encore implémentée ; les archives couvrent les locomotives, cantons, aiguillages, itinéraires et mappings de rétrosignalisation, sans ressources graphiques pour le moment ;
-- le décodage R-BUS doit être validé sur une z21 blanche réelle et les modules choisis ;
-- les commandes et retours d'accessoires z21 sont couverts par un faux serveur UDP, mais leur adressage et leur temporisation doivent encore être validés sur le banc réel ;
-- le pilote DCC-EX fournit les commandes et retours de base ainsi que la reconnexion automatique après une première connexion réussie, mais sa couverture protocolaire et sa validation sur matériel réel restent à compléter ;
-- la confirmation physique de l’arrêt d’une locomotive n’est pas disponible sur toutes les centrales : une temporisation de sécurité est utilisée ;
-- le serveur ne pilote qu’une centrale par processus ;
-- la programmation des CV n’est pas incluse ;
-- le format de mot de passe actuel utilise PBKDF2-HMAC-SHA256 avec 600 000 itérations. Le code isole cette fonction afin de pouvoir migrer vers Argon2id avec une stratégie de rehash progressive.
+- full graphical layout editing is not implemented. Archives currently cover
+  locomotives, blocks, turnouts, routes, and feedback mappings, but not
+  graphical resources;
+- R-BUS decoding still requires validation with a real white z21 and the
+  selected modules;
+- z21 accessory commands and reports are covered by a fake UDP server, but
+  addressing and pulse timing still require validation on the physical test
+  bench;
+- the DCC-EX driver provides the basic commands, feedback, and automatic
+  reconnection after a successful initial connection. Broader protocol coverage
+  and validation on real hardware remain incomplete;
+- physical confirmation that a locomotive has stopped is unavailable on some
+  command stations. A safety delay is used instead;
+- one server process controls one command station;
+- CV programming is not included;
+- passwords currently use PBKDF2-HMAC-SHA256 with 600,000 iterations. The
+  implementation isolates password hashing so it can later migrate to Argon2id
+  with progressive rehashing.
 
-## Arborescence
+## Repository layout
 
 ```text
-api/                         contrats OpenAPI et AsyncAPI
-cmd/dccd/                    serveur et administration locale
-cmd/dccctl/                  client CLI de diagnostic
-cmd/dcc-api-conformance/     tests de conformité contre un serveur actif
-internal/api/                API HTTP et WebSocket
-internal/admin/              serveur/client du socket Unix d’administration
-internal/auth/               mots de passe et tokens opaques
-internal/service/            règles métier
-internal/station/            abstraction et pilotes de centrales
-internal/store/              persistance métier
-internal/transfer/           archives versionnées et validation d’import
-internal/sqlite/             SQLite via database/sql et modernc.org/sqlite
-internal/websocket/          implémentation RFC 6455 minimale
-internal/*_test.go           tests unitaires
-tests/contract/              validation des scénarios contractuels versionnés
-tests/integration/           tests d’intégration
-tests/simulator/scenarios/   scénarios déterministes du banc virtuel
-contract-tests/              scénarios métier lisibles par plusieurs clients
-deploy/                      exemple systemd et configuration Linux
+api/                         OpenAPI and AsyncAPI contracts
+cmd/dccd/                    server and local administration
+cmd/dccctl/                  diagnostics CLI client
+cmd/dcc-api-conformance/     conformance tests against a running server
+internal/api/                HTTP and WebSocket APIs
+internal/admin/              Unix-socket administration server/client
+internal/auth/               passwords and opaque tokens
+internal/service/            business and safety rules
+internal/station/            command-station abstraction and drivers
+internal/store/              domain persistence
+internal/transfer/           versioned archives and import validation
+internal/sqlite/             SQLite through database/sql and modernc.org/sqlite
+internal/websocket/          minimal RFC 6455 implementation
+internal/*_test.go           unit tests
+tests/contract/              versioned contract-scenario validation
+tests/integration/           integration tests
+tests/simulator/scenarios/   deterministic virtual test-bench scenarios
+contract-tests/              domain scenarios readable by multiple clients
+deploy/                      systemd unit and Linux configuration example
 ```
 
-## Prérequis
+## Requirements
 
-### Linux et macOS
+### Linux and macOS
 
-- Go 1.26 ou supérieur ;
-- GoReleaser 2.17 ou supérieur pour produire les binaires et archives.
+- Go 1.26 or later;
+- GoReleaser 2.17 or later to produce binaries and release archives.
 
-La persistance utilise `modernc.org/sqlite`, un pilote `database/sql` sans CGO. Aucun compilateur C ni paquet système SQLite n'est nécessaire. Les binaires peuvent donc être compilés nativement ou en cross-compilation avec `CGO_ENABLED=0`.
+Persistence uses `modernc.org/sqlite`, a pure-Go `database/sql` driver. No C
+compiler or system SQLite package is required. Binaries can be built natively
+or cross-compiled with `CGO_ENABLED=0`.
 
-## Compiler et tester
+## Build and test
 
 ```bash
 go mod download
@@ -83,7 +102,8 @@ goreleaser check
 goreleaser release --snapshot --clean --skip=publish
 ```
 
-GoReleaser produit dans `dist/` une archive par système cible. Chaque archive contient :
+GoReleaser creates one archive per target platform under `dist/`. Each archive
+contains:
 
 ```text
 bin/dccd
@@ -96,76 +116,77 @@ docs/
 deploy/
 ```
 
-Pour ne construire que les trois binaires de la plateforme courante :
+To build only the three binaries for the current platform:
 
 ```bash
 goreleaser build --single-target --snapshot
 ```
 
-## Développer sans centrale DCC
+## Develop without a DCC command station
 
-Le fichier `config.json` versionné est une configuration de développement utilisant le simulateur et une écoute locale.
+The versioned `config.json` is a development configuration that uses the
+simulator and binds to the loopback interface.
 
-Pour les tests Go, le simulateur fournit également une horloge injectable, un
-snapshot profondément copié de son état et un reset déterministe qui conserve
-son état de connexion. Les accessoires simulés distinguent la commande
-`Desired` du retour `Reported` et peuvent confirmer immédiatement, après un
-délai déterministe, ne pas confirmer ou produire un retour incohérent. Ces
-fonctions d'introspection restent internes au banc de test et ne modifient pas
-l'API publique `/api/v1/...`.
+For Go tests, the simulator provides an injectable clock, a deeply copied state
+snapshot, and a deterministic reset that preserves its connection state.
+Simulated accessories distinguish the requested `Desired` state from the
+observed `Reported` state. They can confirm immediately, confirm after a
+deterministic delay, remain unconfirmed, or report an inconsistent state. These
+introspection features belong to the test bench and do not alter the public
+`/api/v1/...` API.
 
-La télémétrie simulée démarre dans un état nominal stable : 25 °C, alimentation
-à 18 000 mV, voie à 0 mV lorsqu'elle est coupée, courants nuls et aucun défaut.
-Les courants, tensions, température, mode programmation, perte d'alimentation,
-surchauffe et courts-circuits peuvent ensuite être injectés sans modèle
-physique ni coupure automatique cachée.
+The initial simulated telemetry is stable: 25 degrees Celsius, an 18,000 mV
+supply, 0 mV on the track while power is off, zero current, and no faults.
+Tests can inject current, voltage, temperature, programming mode, power loss,
+overheating, and short circuits. No physical model or hidden automatic power
+cut is applied.
 
-La connectivité du simulateur peut être forcée à `online`, `degraded` ou
-`offline`. Des règles typées par opération injectent un délai context-aware et
-une erreur sur les N prochains appels ; `Remaining: 0` conserve la règle
-jusqu'à `ClearFaults()` ou `Reset()`. Une opération encore retardée est annulée
-si les faults sont effacés, si le simulateur est reset ou fermé, ou si sa
-connectivité change. Aucune commande refusée n'est rejouée.
+Simulator connectivity can be forced to `online`, `degraded`, or `offline`.
+Typed per-operation rules can add a context-aware delay and an error to the next
+N calls. `Remaining: 0` keeps the rule active until `ClearFaults()` or
+`Reset()`. A delayed operation is cancelled when faults are cleared, the
+simulator is reset or closed, or connectivity changes. Rejected commands are
+never replayed.
 
-Les capteurs simulés sont identifiés par source, type et adresse. `SetFeedback`
-met à jour leur état physique et garantit l'émission ou retourne une erreur de
-saturation ; les répétitions sont conservées. `SetFeedbackState` simule
-explicitement un changement physique dont le message est perdu, tandis que les
-séquences et rebonds utilisent l'horloge injectée. L'ancien `InjectFeedback`
-reste disponible en best-effort pour compatibilité.
+Simulated sensors are identified by source, type, and address. `SetFeedback`
+updates their physical state and either guarantees event delivery or returns a
+saturation error. Repeated events are preserved. `SetFeedbackState` explicitly
+models a physical change whose event was lost. Sequences and bounce patterns
+use the injected clock. The older `InjectFeedback` method remains available as
+a best-effort compatibility API.
 
-Le package `internal/station/simulator/scenario` charge des scénarios JSON
-versionnés et strictement validés avant leur démarrage. En mode manuel, un
-`Runner` associé à `clock.Fake` avance sans sommeil réel et exécute toutes les
-étapes arrivées à échéance, en conservant l'ordre du fichier lorsque plusieurs
-actions partagent le même timestamp. Le mode `StartRealtime(ctx)` utilise le
-temps réel pour les essais interactifs ; il est annulable et s'arrête également
-si le simulateur est fermé ou reset depuis l'extérieur. Son snapshot de
-contrôle expose le scénario chargé, l'état `loaded/running/completed/stopped/failed`,
-le temps logique, la prochaine étape et l'erreur éventuelle.
+The `internal/station/simulator/scenario` package loads versioned JSON scenarios
+and validates the complete document before execution. In manual mode, a
+`Runner` connected to `clock.Fake` advances without real sleeping. It executes
+all due steps and preserves file order when several actions have the same
+timestamp. `StartRealtime(ctx)` uses real time for interactive testing. It is
+cancellable and also stops when the simulator is closed or reset externally.
+The control snapshot exposes the loaded scenario, its
+`loaded/running/completed/stopped/failed` state, logical time, next step, and
+last error.
 
-Les scénarios de référence se trouvent dans `tests/simulator/scenarios/`. Le
-format courant v2 utilise des durées Go (`500ms`, `5s`, `1m`). Le lecteur
-accepte encore le format v1. Les actions disponibles sont :
+Reference scenarios live under `tests/simulator/scenarios/`. The current v2
+format uses Go durations such as `500ms`, `5s`, and `1m`; the loader still
+accepts v1. Available actions are:
 
-- `station.connectivity`, `station.track_power`, `station.emergency_stop` et
-  `station.electrical` ;
-- `feedback.set` avec `emit: true|false`, et `feedback.emit` ;
-- `accessory.report` et `accessory.behavior` ;
-- `fault.operation`, `fault.clear` et `simulator.reset`.
+- `station.connectivity`, `station.track_power`, `station.emergency_stop`, and
+  `station.electrical`;
+- `feedback.set` with `emit: true|false`, and `feedback.emit`;
+- `accessory.report` and `accessory.behavior`;
+- `fault.operation`, `fault.clear`, and `simulator.reset`.
 
-La suite SIM-008 couvre douze situations : conduite nominale, arrêt
-d'urgence, récupération `degraded` et `offline`, court-circuit électrique,
-feedback simple, multiple, avec rebond ou événement perdu, puis confirmation
-d'accessoire réussie, absente ou incohérente. Les scénarios critiques passent
-par l'API HTTP et le WebSocket réels dans `go test ./...`; l'avance reste
-entièrement logique et n'attend jamais 10 ou 30 secondes réelles.
+The SIM-008 suite covers twelve cases: nominal driving, emergency stop,
+`degraded` and `offline` recovery, an electrical short circuit, single and
+multiple feedback sensors, bounce and event loss, then successful, missing, and
+inconsistent accessory confirmation. Critical scenarios exercise the real HTTP
+and WebSocket APIs during `go test ./...`. Time advances logically, without
+waiting 10 or 30 real seconds.
 
-Les scénarios AIG-003 ajoutent les endpoints binaires simples, les trois
-vecteurs valides et le vecteur interdit d'un triple, les quatre vecteurs d'une
-TJD, une panne ciblée sur un endpoint et une confirmation retardée obsolète.
+AIG-003 scenarios add a simple binary endpoint, the three valid and one invalid
+vectors of a three-way turnout, all four vectors of a double slip, a fault
+targeted at one endpoint, and a stale delayed confirmation.
 
-Exemple d'exécution manuelle dans un test :
+Example of manual execution in a Go test:
 
 ```go
 clk := clock.NewFake(start)
@@ -177,28 +198,30 @@ _ = runner.Start(ctx)
 _ = runner.Advance(ctx, 3*time.Second)
 ```
 
-Le moteur ne dépend ni des services métier, ni de SQLite, ni des handlers HTTP.
-Il simule uniquement le monde extérieur observé par TrainPilot.
+The scenario engine depends on neither domain services, SQLite, nor HTTP
+handlers. It only simulates the external world observed by TrainPilot.
 
-Lorsque `testAPI=true` et que `station.driver` vaut `simulator`, ce banc peut
-aussi être piloté depuis un autre processus sous `/test/v1/simulator/...` :
-snapshot, reset, connectivité, télémétrie, feedback, accessoires, faults et
-avance manuelle des scénarios. Ces routes exigent une authentification et sont
-totalement absentes avec un pilote matériel ou lorsque `testAPI=false`. Leur
-contrat séparé est documenté dans
-[`docs/SIMULATOR_TEST_API.md`](docs/SIMULATOR_TEST_API.md) ; elles ne sont pas
-ajoutées à l'OpenAPI public de production.
+When `testAPI=true` and `station.driver` is `simulator`, another process can
+control the test bench through `/test/v1/simulator/...`. The API covers state
+snapshots, reset, connectivity, telemetry, feedback, accessories, faults, and
+manual scenario advancement. These routes require authentication. They do not
+exist with a hardware driver or when `testAPI=false`. Their separate contract
+is documented in
+[`docs/SIMULATOR_TEST_API.md`](docs/SIMULATOR_TEST_API.md); they are deliberately
+absent from the public production OpenAPI contract.
 
-Le guide complet destiné aux développeurs de clients, avec les flux HTTP,
-WebSocket, leases, scénarios, erreurs et diagrammes PlantUML, est disponible
-dans [`docs/CLIENT_SIMULATOR_GUIDE.md`](docs/CLIENT_SIMULATOR_GUIDE.md). Il est
-inclus dans chaque archive de livraison.
+The complete client-development guide covers HTTP, WebSocket, leases,
+scenarios, errors, and PlantUML sequence diagrams. See
+[`docs/CLIENT_SIMULATOR_GUIDE.md`](docs/CLIENT_SIMULATOR_GUIDE.md). It is
+included in every release archive.
+
+Start the server:
 
 ```bash
 go run ./cmd/dccd serve --config config.json
 ```
 
-Dans un autre terminal, créer les utilisateurs pendant que le serveur fonctionne :
+In another terminal, create users while the server is running:
 
 ```bash
 printf '%s\n' 'correct-horse-1' |
@@ -218,17 +241,17 @@ printf '%s\n' 'correct-horse-2' |
     --password-stdin
 ```
 
-Le mode `bootstrap` ne fonctionne que si la table des utilisateurs est vide.
+`bootstrap` works only while the user table is empty.
 
-Après un login, copier l'`accessToken` retourné puis charger et avancer un
-scénario depuis un autre terminal :
+After login, copy the returned `accessToken`, then load and advance a scenario
+from another terminal:
 
 ```bash
 curl -sS http://127.0.0.1:8080/api/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"alice","password":"correct-horse-1","clientId":"simulator-console-1","clientName":"simulator-console","platform":"cli"}'
 
-export TRAINPILOT_TOKEN='<accessToken retourné>'
+export TRAINPILOT_TOKEN='<returned accessToken>'
 
 curl -sS -X POST http://127.0.0.1:8080/test/v1/simulator/scenarios \
   -H "Authorization: Bearer $TRAINPILOT_TOKEN" \
@@ -244,26 +267,27 @@ curl -sS -X POST http://127.0.0.1:8080/test/v1/simulator/scenarios/advance \
   -d '{"duration":"2s"}'
 ```
 
-L'état public est observable avec `dccctl ... power status`. Pour voir le
-snapshot puis les événements ordonnés, un client WebSocket tel que `websocat`
-peut ouvrir `ws://127.0.0.1:8080/api/v1/events` avec l'en-tête
-`Authorization: Bearer <accessToken>`.
+Public state is visible through `dccctl ... power status`. To inspect the
+snapshot and ordered events, a WebSocket client such as `websocat` can connect
+to `ws://127.0.0.1:8080/api/v1/events` with the
+`Authorization: Bearer <accessToken>` header.
 
-Lister les utilisateurs :
+List users:
 
 ```bash
 go run ./cmd/dccd user list --socket /tmp/dccd-admin.sock
 ```
 
-Désactiver un utilisateur et révoquer ses sessions :
+Disable a user and revoke their sessions:
 
 ```bash
 go run ./cmd/dccd user disable --socket /tmp/dccd-admin.sock --username bob
 ```
 
-Aucune route `/api/v1/users` n’est exposée aux clients. Même un utilisateur ayant le rôle applicatif `administrator` ne peut pas créer de compte à distance.
+No `/api/v1/users` route is exposed to clients. Even an application user with
+the `administrator` role cannot create accounts remotely.
 
-## Tester l’API
+## Test the API
 
 ```bash
 DCC_PASSWORD='correct-horse-1' \
@@ -274,7 +298,7 @@ go run ./cmd/dccctl \
   locomotives
 ```
 
-Lancer la suite de conformité :
+Run the conformance suite:
 
 ```bash
 go run ./cmd/dcc-api-conformance \
@@ -283,35 +307,32 @@ go run ./cmd/dcc-api-conformance \
   --user2 bob   --pass2 correct-horse-2
 ```
 
-Sans option destructive, cette suite vérifie l'état de santé, les versions de
-contrat, l'authentification, la rotation et la révocation des jetons, les
-lectures publiques authentifiées, les erreurs structurées et les exports.
-L'inventaire complet est disponible avec :
+Without destructive options, the suite verifies health, contract versions,
+authentication, token rotation and revocation, authenticated read operations,
+structured errors, and exports. Display its complete endpoint inventory with:
 
 ```bash
 go run ./cmd/dcc-api-conformance --list-endpoints
 ```
 
-Les commandes de voie ne sont exécutées qu'avec
-`--allow-active-commands`. Les mutations temporaires de configuration exigent
-en plus `--allow-configuration-mutations`, `--admin` et `--admin-pass` ; elles
-doivent être réservées à une instance jetable utilisant le simulateur.
+Track commands run only with `--allow-active-commands`. Temporary configuration
+changes additionally require `--allow-configuration-mutations`, `--admin`, and
+`--admin-pass`. Use them only with a disposable simulator instance.
 
-Les aiguillages disposent d'un contrôle opt-in séparé. `--check-turnouts`
-valide les positions logiques, commande un appareil, vérifie son état confirmé
-et le rejet d'une position inconnue. Cette option exige `--admin` et
-`--admin-pass` et doit viser uniquement une instance de test explicitement
-choisie.
+Turnouts have a separate opt-in check. `--check-turnouts` validates logical
+positions, commands a turnout, checks its confirmed state, and verifies that an
+unknown position is rejected. It requires `--admin` and `--admin-pass` and must
+target an explicitly selected test instance.
 
-La validation sur centrale réelle est une campagne séparée. Le guide
+Real-hardware validation is a separate campaign. The guide under
 [`docs/hardware-tests/turnouts/README.md`](docs/hardware-tests/turnouts/README.md)
-et `scripts/test-turnouts.sh` couvrent l'adressage, les pulses z21, les retours
-externes, les appareils composés, l'endurance et la reconnexion sans rejeu. Le
-script ne transmet aucune commande sans `--acknowledge-hardware-risk` et offre
-un mode `--dry-run`. Tant qu'aucune fiche datée n'est remplie, le support reste
-validé par simulateurs/fakes uniquement.
+and `scripts/test-turnouts.sh` cover addressing, z21 pulses, external reports,
+compound turnouts, endurance, and reconnection without replay. The script sends
+no command without `--acknowledge-hardware-risk` and supports `--dry-run`.
+Until a dated result sheet is completed, accessory support is considered
+validated by simulators and fakes only.
 
-Sur une telle instance, les deux familles opt-in peuvent être combinées :
+Both opt-in families can be combined on such an instance:
 
 ```bash
 go run ./cmd/dcc-api-conformance \
@@ -324,12 +345,11 @@ go run ./cmd/dcc-api-conformance \
   --check-turnouts
 ```
 
-Ces options restent désactivées par défaut et ne doivent jamais viser une
-centrale réelle sans décision explicite de l'opérateur.
+These options are disabled by default. Never target a real command station
+without an explicit operator decision.
 
-L'expiration naturelle des access tokens et refresh tokens est vérifiée
-uniquement avec `--check-session-expiration`. Utilisez une instance de test
-configurée avec des TTL courtes, par exemple :
+Natural access-token and refresh-token expiration is checked only with
+`--check-session-expiration`. Use a test server configured with short TTLs:
 
 ```json
 "security": {
@@ -338,7 +358,7 @@ configurée avec des TTL courtes, par exemple :
 }
 ```
 
-Puis lancez :
+Then run:
 
 ```bash
 go run ./cmd/dcc-api-conformance \
@@ -349,39 +369,42 @@ go run ./cmd/dcc-api-conformance \
   --session-expiration-max-wait 15s
 ```
 
-Le maximum vaut `15s` par défaut et empêche une attente accidentelle avec les
-TTL de production. Le scénario utilise deux sessions dédiées : il vérifie
-d'abord qu'un access token expiré est refusé tandis que son refresh token reste
-valide, puis qu'un refresh token naturellement expiré ne peut plus produire de
-nouvelle paire. Sans l'option, ces contrôles sont ignorés sans ralentir la suite
-standard.
+The maximum wait defaults to `15s` and prevents accidental waiting with
+production TTLs. The scenario uses two dedicated sessions. It first checks that
+an expired access token is rejected while its refresh token remains valid. It
+then verifies that a naturally expired refresh token cannot issue a new token
+pair. Without the option, these checks are skipped and do not slow the standard
+suite.
 
-La suite active vérifie notamment :
+The active suite also verifies:
 
-- l’authentification des deux utilisateurs ;
-- la lecture du parc ;
-- la réservation exclusive ;
-- le refus de la seconde réservation ;
-- l’envoi d’une commande de vitesse par le propriétaire ;
-- la libération contrôlée ;
-- l’absence d’administration distante des utilisateurs ;
-- l’export du parc ;
-- le refus d’un import par un rôle non administrateur.
+- authentication of both users;
+- rolling-stock listing;
+- exclusive control acquisition;
+- rejection of a conflicting second acquisition;
+- a speed command from the owner;
+- controlled release;
+- absence of remote user administration;
+- rolling-stock export;
+- rejection of an import by a non-administrator.
 
-## Gestion du matériel roulant
+## Rolling-stock management
 
-Le CRUD minimal des locomotives est disponible via l'API. La lecture est accessible à tout utilisateur authentifié ; la création, la modification et la suppression nécessitent le rôle `administrator`. Une locomotive possédant un lease actif ne peut pas être modifiée. Une locomotive référencée par l'historique des leases ne peut pas être supprimée.
+The API provides basic locomotive CRUD. Any authenticated user can read it;
+creation, modification, and deletion require the `administrator` role. A
+locomotive with an active lease cannot be modified. A locomotive referenced by
+lease history cannot be deleted.
 
-Créer rapidement une locomotive à adresse DCC courte pour un test matériel :
+Create a short-address locomotive for a hardware test:
 
 ```bash
 DCC_ADMIN_PASSWORD='correct-horse-admin' go run ./cmd/dccctl \
   --server http://127.0.0.1:8080 --username admin \
   --password-env DCC_ADMIN_PASSWORD \
-  locomotive-add 'Loco test z21' 3 short 128
+  locomotive-add 'z21 test locomotive' 3 short 128
 ```
 
-Lister puis afficher une locomotive :
+List and inspect a locomotive:
 
 ```bash
 DCC_PASSWORD='correct-horse-1' go run ./cmd/dccctl \
@@ -393,7 +416,7 @@ DCC_PASSWORD='correct-horse-1' go run ./cmd/dccctl \
   --password-env DCC_PASSWORD locomotive-show <locomotive-id>
 ```
 
-Les routes correspondantes sont :
+Corresponding routes:
 
 ```text
 GET    /api/v1/locomotives
@@ -403,19 +426,18 @@ PUT    /api/v1/locomotives/{id}
 DELETE /api/v1/locomotives/{id}
 ```
 
-Pour les premiers tests z21, une adresse courte (par exemple `3`) est recommandée afin d'isoler la validation de la conduite et de la rétrosignalisation des particularités des adresses DCC longues.
+For initial z21 testing, prefer a short address such as `3`. This isolates
+driving and feedback validation from long-address details.
 
-### Contrôle avec `dccctl`
+### Control with `dccctl`
 
-`dccctl` conserve sa session et les leases acquis dans le répertoire de
-configuration de l'utilisateur (par exemple `~/.config/dccctl/state.json`
-sous Linux), avec des permissions `0600`. Le chemin peut être remplacé avec
-`--state-file`. Le mot de passe n'est pas enregistré. Après le premier login,
-les commandes suivantes réutilisent la même session et renouvellent
-automatiquement ses tokens si nécessaire.
+`dccctl` stores its session and acquired leases in the user's configuration
+directory, for example `~/.config/dccctl/state.json` on Linux, with `0600`
+permissions. Override the path with `--state-file`. The password is not stored.
+After the first login, later commands reuse the same session and refresh its
+tokens automatically when required.
 
-Le lease est retrouvé automatiquement à partir du serveur, de l'utilisateur
-et de la locomotive :
+The CLI locates a lease automatically from the server, user, and locomotive:
 
 ```bash
 DCC_PASSWORD='correct-horse-1' go run ./cmd/dccctl \
@@ -435,7 +457,7 @@ go run ./cmd/dccctl \
   release loco-bb26001
 ```
 
-Les commandes globales de voie ne nécessitent pas de lease :
+Global track commands do not require a lease:
 
 ```bash
 dccctl --server http://127.0.0.1:8080 --username alice power off
@@ -444,49 +466,44 @@ dccctl --server http://127.0.0.1:8080 --username alice power status
 dccctl --server http://127.0.0.1:8080 --username alice emergency-stop
 ```
 
-`power status` interroge la centrale et affiche l'alimentation, l'arrêt
-d'urgence, les courts-circuits, le mode programmation ainsi que les mesures de
-courant, tension et température disponibles. Avec une Z21, ces données viennent
-de `LAN_X_GET_STATUS` et `LAN_SYSTEMSTATE_GETDATA`. Pour un pilote ne proposant
-pas encore de lecture d'état, l'alimentation vaut `unknown` jusqu'au premier
-ordre `power on` ou `power off` réussi.
+`power status` queries the command station and displays track power, emergency
+stop, short circuits, programming mode, current, voltage, and temperature when
+available. With Z21, these values come from `LAN_X_GET_STATUS` and
+`LAN_SYSTEMSTATE_GETDATA`. For a driver that cannot read status yet, track power
+is `unknown` until the first successful `power on` or `power off` command.
 
-La connectivité d'une centrale vaut `online` après une preuve de communication
-valide et `degraded` dès la première erreur. Le paramètre optionnel
-`station.offlineAfter`, au format de durée Go (`ms`, `s`, `m`, etc.), définit
-le temps maximal passé dans cet état ; sa valeur par défaut est `10s`. Le délai
-démarre à la première erreur de communication. Une réponse valide reçue avant
-son expiration remet immédiatement la centrale `online` ; sinon elle devient
-`offline` une fois le délai écoulé. Avec Z21, les interrogations de statut
-continuent en permanence, y compris hors ligne. Avec DCC-EX TCP, la perte
-confirmée du socket refuse immédiatement les commandes, même pendant le délai
-`degraded`, et déclenche la reconnexion. Dans tous les cas, une commande refusée
-n'est ni mise en file ni rejouée après le retour de la centrale. Une commande
-refusée pour indisponibilité produit HTTP 503 et le code `station_offline`.
+Connectivity becomes `online` after valid communication and `degraded` on the
+first error. Optional `station.offlineAfter` uses the Go duration format (`ms`,
+`s`, `m`, and so on) and defines the maximum time spent in that state. It
+defaults to `10s`. The timer starts at the first communication error. A valid
+response before expiration immediately restores `online`; otherwise health
+becomes `offline` when the delay expires. Z21 status polling continues even
+while offline. With DCC-EX TCP, a confirmed socket loss immediately rejects
+commands, including during the `degraded` interval, and starts reconnection.
+Rejected commands are never queued or replayed when the station returns.
+Station unavailability produces HTTP 503 with code `station_offline`.
 
-Les commandes de sécurité sont arbitrées avant les commandes ordinaires : un
-arrêt d'urgence, une coupure de puissance ou un `throttle` à vitesse zéro déjà
-en attente passe avant les nouveaux ordres de traction ou de fonctions. Après
-un arrêt d'urgence, les vitesses positives et les fonctions restent inhibées
-jusqu'à la réussite d'un ordre explicite `power on`. Elles sont également
-refusées lorsque la puissance est coupée ou encore inconnue. L'API retourne
-alors HTTP 409 avec un code stable parmi `emergency_stop_active`,
-`track_power_off`, `track_power_unknown` et `safety_command_preempted`.
+Safety commands are scheduled before ordinary commands. A queued emergency
+stop, track-power cut, or zero-speed throttle takes precedence over new speed
+and function commands. After an emergency stop, positive speeds and functions
+remain inhibited until an explicit `power on` succeeds. They are also rejected
+while track power is off or unknown. The API returns HTTP 409 with one of these
+stable codes: `emergency_stop_active`, `track_power_off`,
+`track_power_unknown`, or `safety_command_preempted`.
 
-Une commande `throttle` ou de fonction valide repousse l'expiration du lease
-de 10 minutes. Sans activité ni heartbeat pendant ce délai, le serveur lance
-l'arrêt contrôlé puis libère le lease. `throttle` n'acquiert jamais
-implicitement une locomotive : `acquire` reste obligatoire.
+A valid throttle or function command extends its lease by ten minutes. Without
+activity or heartbeat during that period, the server starts a controlled stop
+and then releases the lease. `throttle` never acquires a locomotive implicitly;
+`acquire` is mandatory.
 
-## Import et export
+## Import and export
 
-Les exports sont des archives ZIP version 3 contenant un `manifest.json` et un
-document JSON. Les archives versions 1 et 2 restent importables. Les imports
-utilisent le mode `merge` par défaut. `--replace` remplace la bibliothèque
-correspondante après validation.
+Exports are version 3 ZIP archives containing `manifest.json` and a JSON
+document. Version 1 and 2 archives remain importable. Imports use `merge` by
+default. `--replace` replaces the corresponding library after validation.
 
 ```bash
-# Export accessible à tout utilisateur authentifié
+# Export is available to every authenticated user
 DCC_PASSWORD='correct-horse-1' go run ./cmd/dccctl \
   --server http://127.0.0.1:8080 --username alice \
   --password-env DCC_PASSWORD \
@@ -497,44 +514,58 @@ DCC_PASSWORD='correct-horse-1' go run ./cmd/dccctl \
   --password-env DCC_PASSWORD \
   export-layout layout.dcclayout
 
-# Import réservé au rôle applicatif administrator
+# Import requires the application administrator role
 DCC_ADMIN_PASSWORD='correct-horse-admin' go run ./cmd/dccctl \
   --server http://127.0.0.1:8080 --username admin \
   --password-env DCC_ADMIN_PASSWORD \
   import-layout layout.dcclayout --replace
 ```
 
-La taille totale d’une archive est limitée à 25 Mio et chaque entrée à 10 Mio. Les chemins suspects, versions inconnues, références cassées et identifiants dupliqués sont rejetés avant modification de la base.
+An archive is limited to 25 MiB in total and 10 MiB per entry. Suspicious
+paths, unknown versions, broken references, and duplicate identifiers are
+rejected before the database is modified.
 
-## Contrat des futurs clients
+## Contract for client developers
 
-Le contrat HTTP est dans [`api/openapi.yaml`](api/openapi.yaml). Le contrat WebSocket est dans [`api/asyncapi.yaml`](api/asyncapi.yaml). Le format des archives est détaillé dans [`docs/ARCHIVE_FORMAT.md`](docs/ARCHIVE_FORMAT.md).
-La politique de version, de dépréciation et de migration est décrite dans
+The HTTP contract is [`api/openapi.yaml`](api/openapi.yaml). The WebSocket
+contract is [`api/asyncapi.yaml`](api/asyncapi.yaml). Archive formats are
+documented in [`docs/ARCHIVE_FORMAT.md`](docs/ARCHIVE_FORMAT.md). Versioning,
+deprecation, and migration policy is documented in
 [`docs/API_COMPATIBILITY.md`](docs/API_COMPATIBILITY.md).
 
-Règles structurantes :
+Core rules:
 
-1. Le serveur est la source de vérité.
-2. Une commande de conduite nécessite une session valide et un lease actif appartenant à cette session.
-3. Une locomotive ne peut avoir qu’un lease vivant (`active` ou `stopping`).
-4. Une reprise entre deux sessions du même utilisateur est possible uniquement par l'endpoint explicite `POST /api/v1/control-leases/{leaseId}/takeover`. Elle arrête la locomotive à zéro avant de transférer atomiquement le même lease ; l'acquisition standard ne réalise jamais ce transfert.
-5. Une commande de conduite valide renouvelle le lease ; après 10 minutes d'inactivité, il passe d’abord à `stopping`, une vitesse nulle est envoyée, puis il devient `released` après le délai de sécurité.
-6. Les commandes de sécurité préemptent les commandes de conduite en attente et aucune reprise après arrêt d’urgence n’est implicite.
-7. Les actions d’itinéraire sont refusées si un canton est occupé ou si un itinéraire incompatible est actif.
-8. Les événements WebSocket possèdent une séquence monotone pendant la vie du processus.
-9. Les comptes utilisateurs ne sont administrables que par le socket local du système d’exploitation.
+1. The server is the source of truth.
+2. A driving command requires a valid session and an active lease owned by that
+   session.
+3. A locomotive can have only one live lease (`active` or `stopping`).
+4. A lease can move between two sessions of the same user only through the
+   explicit `POST /api/v1/control-leases/{leaseId}/takeover` endpoint. The
+   server stops the locomotive before atomically transferring the same lease.
+   Standard acquisition never performs a takeover.
+5. A valid driving command renews the lease. After ten minutes of inactivity,
+   it first becomes `stopping`, receives a zero-speed command, and becomes
+   `released` after the safety delay.
+6. Safety commands preempt queued driving commands. Recovery after emergency
+   stop is never implicit.
+7. Route actions are rejected when a block is occupied or an incompatible route
+   is active.
+8. WebSocket events have a monotonic sequence during the process lifetime.
+9. User accounts can be administered only through the operating system's local
+   socket.
 
-À l’ouverture du WebSocket, le serveur envoie un événement `system.snapshot`
-complet dont `sequence` est la séquence courante du bus. Il contient la
-centrale, son état, les locomotives, les leases complets de la session
-connectée, l'état public d'occupation de toutes les locomotives contrôlées, les
-cantons, les aiguillages et les itinéraires. `controlLeases` reste privé à la
-session ; `locomotiveControlStates` permet de distinguer `mine`,
-`same_user_other_session` et `other` sans exposer les identifiants des leases
-des autres sessions. L'absence d'une locomotive dans ce second tableau signifie
-qu'elle est libre. Le client ignore tout événement
-de séquence inférieure ou égale au snapshot ; le serveur filtre également ces
-événements anciens ou dupliqués. S'il détecte ensuite un trou, il envoie :
+When a WebSocket connection opens, the server sends a complete
+`system.snapshot` whose `sequence` is the event bus's current sequence. It
+contains station status, locomotives, full leases for the connected session,
+public ownership state for all controlled locomotives, blocks, turnouts, and
+routes. `controlLeases` remains private to the session.
+`locomotiveControlStates` distinguishes `mine`,
+`same_user_other_session`, and `other` without exposing lease identifiers from
+other sessions. A locomotive absent from that array is free.
+
+The client ignores events with a sequence less than or equal to the snapshot.
+The server also filters old or duplicate events generated while building the
+snapshot. If the client later detects a gap, it sends:
 
 ```json
 {
@@ -543,61 +574,60 @@ de séquence inférieure ou égale au snapshot ; le serveur filtre également ce
 }
 ```
 
-Le serveur répond par un nouveau `system.snapshot`. `lastSequence` est
-informatif dans la version actuelle : le serveur renvoie toujours l’état
-courant complet. Les messages `client.heartbeat` n'étendent ni le jeton
-d'accès ni un lease et ne consomment pas de numéro de séquence. Le WebSocket
-est fermé à l'expiration du jeton utilisé lors de son ouverture ; après un
-refresh, le client ouvre donc une nouvelle connexion avec le nouveau jeton.
-Un logout ou une révocation de session ferme également la connexion. Aucun
-replay des événements intermédiaires n’est conservé actuellement.
+The server answers with a new `system.snapshot`. `lastSequence` is currently
+informational: the response always contains the full current state.
+`client.heartbeat` neither extends the access token nor a lease and consumes no
+server sequence number. The WebSocket closes when the access token used to open
+it expires. After refresh, the client must reconnect with the new token. Logout
+or session revocation also closes the connection. The server does not retain
+intermediate events for replay.
 
-Un takeover réussi publie `locomotive.control.transferred` à toutes les
-sessions connectées. L'ancienne session doit immédiatement abandonner ses
-heartbeats et commandes ; la nouvelle reçoit le même `leaseId` avec une
-nouvelle échéance. Le serveur ne conserve ni ne restaure la vitesse précédente.
+A successful takeover publishes `locomotive.control.transferred` to all
+connected sessions. The old session must immediately stop its heartbeats and
+commands. The new session receives the same `leaseId` with a new expiry. The
+server neither retains nor restores the previous speed.
 
-Chaque connexion possède une file de 64 événements. Si elle déborde, ou si une
-écriture WebSocket dépasse 5 secondes, le serveur ferme la connexion afin de
-ne pas laisser le client poursuivre avec un état incomplet. Le client se
-reconnecte alors et repart du nouveau snapshot complet.
+Each connection has a 64-event queue. If it overflows, or a WebSocket write
+takes more than five seconds, the server closes the connection rather than let
+the client continue with incomplete state. The client then reconnects and
+starts from a new complete snapshot.
 
-La fermeture d'un WebSocket ne libère pas immédiatement les leases : une
-brève coupure réseau ne doit pas provoquer une perte de contrôle. Ils restent
-valides jusqu'à une libération explicite ou leur expiration par absence de
-heartbeat, qui déclenche l'arrêt contrôlé habituel.
+Closing a WebSocket does not immediately release leases. A brief network outage
+must not cause loss of control. Leases remain valid until explicit release or
+heartbeat expiration, which triggers the normal controlled-stop workflow.
 
-## Aiguillages et appareils composés
+## Turnouts and compound accessories
 
-Le modèle distingue désormais l'appareil logique de ses sorties DCC binaires.
-Un aiguillage possède un `kind`, des endpoints et des positions logiques
-définies par des vecteurs `position1`/`position2`.
+The model separates a logical turnout from its binary DCC outputs. A turnout
+has a `kind`, endpoints, and logical positions defined by `position1` and
+`position2` vectors.
 
-L'abstraction de centrale utilise `SetBasicAccessory` avec une adresse linéaire
-portable `1..2040` et une position typée. Elle ne transmet plus
-`straight/diverging` aux drivers. Un provider facultatif distingue les retours
-de centrale, les états supposés et les futurs capteurs physiques.
+The command-station abstraction uses `SetBasicAccessory` with a portable linear
+address in `1..2040` and a typed position. Drivers never receive logical names
+such as `straight` or `diverging`. An optional provider distinguishes station
+reports, assumed state, and future physical sensors.
 
-Il représente un aiguillage simple, triple, une TJD, une TJS ou un appareil
-personnalisé. Une combinaison physique non déclarée reste inconnue. Elle ne
-devient jamais une position commandable.
+The model represents simple, three-way, double-slip, single-slip, and custom
+turnouts. An undeclared physical vector remains unknown and never becomes a
+commandable position.
 
-Le simulateur applique ces vecteurs séquentiellement et publie un
-`AccessoryStateEvent` de qualité `physical` par confirmation. Il permet aussi
-d'injecter un rapport `station`, `assumed` ou `physical`. Une combinaison non
-déclarée laisse `reportedPosition` vide et place `reportedStatus` à `invalid`.
+The simulator applies vectors sequentially and publishes one physical-quality
+`AccessoryStateEvent` for each confirmation. Tests can inject `station`,
+`assumed`, or `physical` reports. An undeclared complete vector clears
+`reportedPosition` and sets `reportedStatus` to `invalid`.
 
-Le service sérialise les commandes par appareil et calcule un chemin dont
-chaque étape ne change qu'un endpoint. Un triple passe ainsi par `straight`
-entre `left` et `right`. Chaque étape doit être confirmée avant la suivante.
-Les changements externes mettent à jour `reportedPosition` sans renvoyer la
-commande demandée.
+The service serializes commands per turnout. It computes a path where each step
+changes one endpoint. A three-way turnout therefore passes through `straight`
+between `left` and `right`. Each step must be confirmed before the next starts.
+External changes update `reportedPosition` without resending the desired
+command.
 
-Le délai `turnout.confirmationTimeout`, égal à `2s` par défaut, accepte les
-durées Go. À expiration, la cible reste dans `desiredPosition`, le dernier
-rapport est conservé et `commandStatus` devient `timeout`.
+`turnout.confirmationTimeout` is a Go duration and defaults to `2s`. It applies
+to every step of a compound transition. On timeout, the target remains in
+`desiredPosition`, the last report is preserved, and `commandStatus` becomes
+`timeout`.
 
-L'API publique commande une position logique propre à l'appareil :
+The public API commands a logical position declared by the turnout:
 
 ```http
 PUT /api/v1/turnouts/T3
@@ -606,13 +636,12 @@ Content-Type: application/json
 {"position":"right"}
 ```
 
-La réponse `204` signifie que toutes les étapes ont été confirmées. Le client
-lit les choix possibles dans `positions`. Il suit ensuite
-`desiredPosition`, `reportedPosition`, `pending`, `reportedStatus`,
-`reportQuality` et `commandStatus`. Le champ historique `state` reste accepté
-uniquement pour un aiguillage `simple`. Il est déprécié.
+A `204` response means every step was confirmed. Clients read valid choices
+from `positions` and then follow `desiredPosition`, `reportedPosition`,
+`pending`, `reportedStatus`, `reportQuality`, and `commandStatus`. The legacy
+`state` request field is accepted only for a `simple` turnout and is deprecated.
 
-La CLI applique le même contrat :
+The CLI uses the same contract:
 
 ```bash
 dccctl turnouts
@@ -620,18 +649,24 @@ dccctl turnout T3 --positions
 dccctl turnout T3 right
 ```
 
-Les anciennes bases et archives à une adresse sont converties automatiquement
-en aiguillages simples. Les exports de layout v3 contiennent la configuration
-physique, mais aucun état runtime. Les champs historiques restent
-temporairement exposés pour les appareils simples. Après un échec partiel,
-aucun rollback aveugle n'est tenté.
+Legacy one-address databases and archives are converted automatically to
+simple turnouts. Layout v3 exports include physical configuration but exclude
+runtime state. Legacy fields remain temporarily exposed for simple turnouts.
+After partial failure, the server performs no blind rollback.
 
-Le modèle, l'adressage linéaire et les exemples sont décrits dans
-[`docs/TURNOUTS.md`](docs/TURNOUTS.md).
+A turnout definition cannot be replaced or removed while `pending=true`.
+Conflicting imports return HTTP 409 with `turnout_configuration_pending`.
+Likewise, one linear accessory address can belong to only one logical turnout.
+An import that shares an address returns HTTP 409 with
+`accessory_address_conflict` and makes no partial change. Deliberate coupling
+must be represented as multiple endpoints of one `custom` turnout.
 
-## Configuration des centrales
+See [`docs/TURNOUTS.md`](docs/TURNOUTS.md) for the complete model, addressing
+rules, validation, driver semantics, and examples.
 
-### Simulateur
+## Command-station configuration
+
+### Simulator
 
 ```json
 "station": {
@@ -639,7 +674,7 @@ Le modèle, l'adressage linéaire et les exemples sont décrits dans
 }
 ```
 
-### DCC-EX sur TCP
+### DCC-EX over TCP
 
 ```json
 "station": {
@@ -651,31 +686,31 @@ Le modèle, l'adressage linéaire et les exemples sont décrits dans
 }
 ```
 
-Le démarrage exige que la première connexion TCP réussisse. Après une perte
-ultérieure du socket, le pilote passe à `degraded`, tente automatiquement de se
-reconnecter, puis devient `offline` après `offlineAfter` si DCC-EX ne revient
-pas. Une reconnexion réussie le remet immédiatement `online` et les retours de
-capteurs reprennent sur le canal existant. Les commandes présentées pendant la
-panne sont refusées sans mise en file ni rejeu ; aucune vitesse, fonction ou
-position d'accessoire antérieure n'est restaurée automatiquement.
+The initial TCP connection must succeed for the server to start. If the socket
+is later lost, the driver becomes `degraded`, automatically reconnects, and
+becomes `offline` after `offlineAfter` if DCC-EX does not return. A successful
+reconnection immediately restores `online`, and sensor feedback resumes on the
+existing channel. Commands submitted while the socket is unavailable are
+rejected without queuing or replay. Earlier speed, function, or accessory
+positions are never restored automatically.
 
-Les accessoires utilisent la forme linéaire brute DCC-EX :
+DCC-EX accessories use the raw linear form:
 
 ```text
 position1 -> <a LINEAR_ADDRESS 0>
 position2 -> <a LINEAR_ADDRESS 1>
 ```
 
-La plage TrainPilot reste `1..2040`. Le pilote ne crée jamais de définition
-persistante `<T>` dans la centrale : les IDs et les appareils composés restent
-propriété de TrainPilot. Après une écriture TCP réussie, il publie un état de
-qualité `assumed`. DCC-EX ne mémorise pas l'état des commandes brutes `<a>` ; ce
-retour ne confirme donc ni la réception par le décodeur ni le mouvement des
-lames. Aucun changement externe n'est déduit sans source de feedback fiable.
-Un décalage par groupe de quatre peut exister avec l'affichage d'un autre
-système ; la procédure de diagnostic est décrite dans `docs/TURNOUTS.md`.
+TrainPilot uses the portable range `1..2040`. The driver never creates a
+persistent `<T>` definition in the command station: IDs and compound turnout
+definitions remain owned by TrainPilot. After a successful TCP write, it
+publishes an `assumed` report. DCC-EX does not retain raw `<a>` command state, so
+this report confirms neither decoder reception nor blade movement. No external
+change is inferred without a reliable feedback source. Other systems may show
+the same output as a decoder/subaddress group of four; the diagnostic procedure
+is documented in `docs/TURNOUTS.md`.
 
-### z21/Z21 sur UDP
+### z21/Z21 over UDP
 
 ```json
 "station": {
@@ -687,17 +722,17 @@ système ; la procédure de diagnostic est décrite dans `docs/TURNOUTS.md`.
 }
 ```
 
-`offlineAfter`, commun à Z21 et DCC-EX, accepte la syntaxe de
-`time.ParseDuration`, par exemple `500ms`, `5s`, `30s` ou `1m`. Une valeur
-invalide, nulle ou négative empêche le démarrage du serveur.
+`offlineAfter` is shared by Z21 and DCC-EX. It accepts `time.ParseDuration`
+syntax such as `500ms`, `5s`, `30s`, or `1m`. An invalid, zero, or negative
+value prevents startup.
 
-`accessoryPulse` configure la durée d'activation d'une sortie binaire z21. Sa
-valeur par défaut est `100ms`. Le format est celui des durées Go et une valeur
-invalide, nulle ou négative empêche aussi le démarrage. La commande active la
-sortie, attend cette durée, puis la désactive. La désactivation est tentée avec
-un contexte de sécurité interne même si la requête cliente est annulée.
+`accessoryPulse` configures how long a z21 binary output stays active and
+defaults to `100ms`. It uses the Go duration format. Invalid, zero, or negative
+values also prevent startup. The driver activates the output, waits for the
+configured duration, and deactivates it. Deactivation uses an internal safety
+context even if the client request is cancelled.
 
-Le délai de confirmation des appareils logiques se configure séparément :
+Logical turnout confirmation has a separate setting:
 
 ```json
 "turnout": {
@@ -705,39 +740,43 @@ Le délai de confirmation des appareils logiques se configure séparément :
 }
 ```
 
-Il s'applique à chaque étape d'une transition composée. Il utilise la syntaxe
-des durées Go et doit être strictement positif.
+It applies to every step of a compound transition, uses Go duration syntax, and
+must be strictly positive.
 
-Le pilote accepte les adresses linéaires TrainPilot `1..2040`, les convertit en
-`FAdr = adresse - 1`, interroge ensuite `LAN_X_GET_TURNOUT_INFO` et publie les
-retours spontanés reçus. Les états z21 « pas encore commuté » et « invalide »
-restent inconnus côté turnout : le serveur n'invente jamais une position. Une
-confirmation de centrale n'est pas une preuve de mouvement mécanique des
-lames. La validation sur z21 blanche réelle reste nécessaire et doit suivre la
-campagne AIG-009 documentée dans `docs/hardware-tests/turnouts/`.
+The driver accepts TrainPilot linear addresses `1..2040`, converts them to
+`FAdr = address - 1`, then queries `LAN_X_GET_TURNOUT_INFO` and publishes
+spontaneous reports. z21 states “not switched yet” and “invalid” remain unknown
+to the turnout; the server never invents a position. A command-station report
+does not prove physical blade movement. Validation on a real white z21 must use
+the AIG-009 campaign under `docs/hardware-tests/turnouts/`.
 
-## Rétrosignalisation
+## Feedback
 
-La table `feedback_mappings` associe une source physique à un canton logique :
+The `feedback_mappings` table maps a physical source to a logical block:
 
 ```text
-provider = dccex, address = 14  → block_id = gare-voie-1
-provider = z21-rbus, address = 9 → block_id = pleine-voie
+provider = dccex, address = 14   -> block_id = station-track-1
+provider = z21-rbus, address = 9 -> block_id = main-line
 ```
 
-Les pilotes publient des événements génériques `FeedbackEvent`. Le service ferroviaire met à jour le canton et émet ensuite `block.occupancy.changed` sur WebSocket.
+Drivers publish generic `FeedbackEvent` values. The railway service updates the
+block and then publishes `block.occupancy.changed` over WebSocket.
 
-## Sécurité réseau
+## Network security
 
-La configuration de démonstration écoute uniquement sur `127.0.0.1` et utilise HTTP. Pour une écoute sur le LAN, configurez `tlsCert` et `tlsKey`, ou placez le serveur derrière un reverse proxy TLS correctement configuré.
+The demonstration configuration listens only on `127.0.0.1` and uses HTTP. To
+listen on a LAN, configure `tlsCert` and `tlsKey`, or place the server behind a
+correctly configured TLS reverse proxy.
 
-Le socket Unix d’administration doit être protégé par les permissions du système. La valeur décimale `432` dans le JSON correspond au mode octal `0660`.
+Protect the administration Unix socket with operating-system permissions. The
+decimal JSON value `432` represents octal mode `0660`.
 
-## Étapes suivantes proposées
+## Suggested next steps
 
-1. Valider les pilotes sur DCC-EX et z21 blanche réels.
-2. Étendre le parc au-delà des locomotives et compléter l’édition du plan de réseau.
-3. Étendre les archives aux ressources graphiques, images et futures migrations de format.
-4. Ajouter les signaux, les conflits d’itinéraires explicites et la libération progressive.
-5. Ajouter les tests matériels exécutés sur un banc dédié.
-6. Développer ensuite les clients Swift et Linux contre le simulateur et les contrats fournis.
+1. Validate both drivers with real DCC-EX and white z21 hardware.
+2. Extend rolling stock beyond locomotives and complete layout editing.
+3. Extend archives with graphical resources, images, and future format
+   migrations.
+4. Add signals, explicit route conflicts, and progressive route release.
+5. Add hardware tests that run only on a dedicated test bench.
+6. Build Swift and Linux clients against the simulator and published contracts.
