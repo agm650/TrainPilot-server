@@ -217,6 +217,10 @@ scenarios, errors, and PlantUML sequence diagrams. See
 [`docs/CLIENT_SIMULATOR_GUIDE.md`](docs/CLIENT_SIMULATOR_GUIDE.md). It is
 included in every release archive.
 
+The complete command-line reference for `dccd`, `dccctl`, and
+`dcc-api-conformance` is available in
+[`docs/COMMANDS.md`](docs/COMMANDS.md).
+
 Start the server:
 
 ```bash
