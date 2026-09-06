@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"time"
 )
@@ -14,6 +15,12 @@ type Config struct {
 		TLSCert string `json:"tlsCert,omitempty"`
 		TLSKey  string `json:"tlsKey,omitempty"`
 	} `json:"http"`
+	Diagnostics struct {
+		Enabled bool   `json:"enabled"`
+		Listen  string `json:"listen"`
+		Metrics bool   `json:"metrics"`
+		Pprof   bool   `json:"pprof"`
+	} `json:"diagnostics"`
 	Admin struct {
 		Socket string `json:"socket"`
 		Mode   uint32 `json:"mode"`
@@ -56,6 +63,8 @@ type Config struct {
 func Default() Config {
 	var c Config
 	c.HTTP.Listen = "127.0.0.1:8080"
+	c.Diagnostics.Listen = "127.0.0.1:6060"
+	c.Diagnostics.Metrics = true
 	c.Admin.Socket = "/tmp/dccd-admin.sock"
 	c.Admin.Mode = 0o660
 	c.Database.Path = "./dcc-control.db"
@@ -129,6 +138,17 @@ func Load(path string) (Config, error) {
 	}
 	if c.HTTP.Listen == "" || c.Admin.Socket == "" || c.Database.Path == "" {
 		return c, errors.New("http.listen, admin.socket and database.path are required")
+	}
+	if c.Diagnostics.Enabled {
+		if c.Diagnostics.Listen == "" {
+			return c, errors.New("diagnostics.listen is required when diagnostics are enabled")
+		}
+		if _, _, err := net.SplitHostPort(c.Diagnostics.Listen); err != nil {
+			return c, fmt.Errorf("diagnostics.listen: %w", err)
+		}
+		if c.Diagnostics.Listen == c.HTTP.Listen {
+			return c, errors.New("diagnostics.listen must differ from http.listen")
+		}
 	}
 	return c, nil
 }

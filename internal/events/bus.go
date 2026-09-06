@@ -4,6 +4,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/agm650/TrainPilot-server/internal/observability"
 )
 
 type Event struct {
@@ -14,9 +16,10 @@ type Event struct {
 }
 
 type Bus struct {
-	seq  atomic.Uint64
-	mu   sync.RWMutex
-	subs map[*subscription]struct{}
+	seq     atomic.Uint64
+	mu      sync.RWMutex
+	subs    map[*subscription]struct{}
+	metrics *observability.Metrics
 }
 
 type subscription struct {
@@ -25,6 +28,8 @@ type subscription struct {
 }
 
 func New() *Bus { return &Bus{subs: make(map[*subscription]struct{})} }
+
+func (b *Bus) SetMetrics(metrics *observability.Metrics) { b.metrics = metrics }
 
 func (b *Bus) CurrentSequence() uint64 {
 	return b.seq.Load()
@@ -38,6 +43,7 @@ func (b *Bus) Publish(eventType string, payload any) Event {
 		select {
 		case sub.events <- e:
 		default:
+			b.metrics.WebSocketQueueDrop(e.Type)
 			select {
 			case sub.overflow <- struct{}{}:
 			default:

@@ -7,10 +7,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/agm650/TrainPilot-server/internal/observability"
 	"github.com/agm650/TrainPilot-server/internal/sqlite"
 )
 
-type Store struct{ DB *sqlite.DB }
+type Store struct {
+	DB      *sqlite.DB
+	metrics *observability.Metrics
+}
 
 func Open(path string) (*Store, error) {
 	db, err := sqlite.Open(path)
@@ -26,6 +30,31 @@ func Open(path string) (*Store, error) {
 }
 
 func (s *Store) Close() error { return s.DB.Close() }
+
+func (s *Store) SetMetrics(metrics *observability.Metrics) {
+	s.metrics = metrics
+	s.DB.SetTransactionObserver(metrics)
+	if metrics != nil {
+		metrics.RegisterSQLiteStats(s.DB.Stats)
+	}
+}
+
+func (s *Store) observe(operation string, started time.Time, err error) {
+	if s.metrics != nil {
+		result := observability.Result(err)
+		switch {
+		case errors.Is(err, ErrNotFound):
+			result = "not_found"
+		case errors.Is(err, ErrConflict):
+			result = "conflict"
+		case errors.Is(err, context.Canceled):
+			result = "canceled"
+		case errors.Is(err, context.DeadlineExceeded):
+			result = "timeout"
+		}
+		s.metrics.ObserveStoreOperationResult(operation, result, time.Since(started))
+	}
+}
 
 func (s *Store) Migrate(ctx context.Context) error {
 	stmts := []string{

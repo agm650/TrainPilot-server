@@ -10,6 +10,7 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/clock"
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
+	"github.com/agm650/TrainPilot-server/internal/observability"
 	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/agm650/TrainPilot-server/internal/store"
 )
@@ -39,12 +40,23 @@ type ControlService struct {
 	lastStationStatus            *station.Status
 	locoStateMu                  sync.RWMutex
 	lastDirection                map[string]station.Direction
+	metrics                      *observability.Metrics
 }
 
 func NewControlService(s *store.Store, st station.CommandStation, b *events.Bus, c clock.Clock, leaseTTL, stopGrace, monitor time.Duration) *ControlService {
 	return &ControlService{store: s, station: st, events: b, clock: c, leaseTTL: leaseTTL, stopGrace: stopGrace, monitor: monitor, stop: make(chan struct{}), commands: newPriorityCommandGate(), lastDirection: make(map[string]station.Direction)}
 }
+func (c *ControlService) SetMetrics(metrics *observability.Metrics) { c.metrics = metrics }
+
 func (c *ControlService) Start() {
+	if c.metrics != nil {
+		if leases, err := c.store.LiveLeases(context.Background(), c.clock.Now()); err == nil {
+			c.metrics.SetActiveLeases(len(leases))
+		}
+		if provider, ok := c.station.(station.HealthProvider); ok {
+			c.metrics.SetStationState(string(provider.Health().Connectivity))
+		}
+	}
 	go func() {
 		ticker := time.NewTicker(c.monitor)
 		defer ticker.Stop()
@@ -204,6 +216,11 @@ func (c *ControlService) publishStationStatusChanges(status station.Status) {
 	c.lastStationStatus = &current
 
 	if previous == nil || previous.Connectivity != status.Connectivity {
+		from := "unknown"
+		if previous != nil {
+			from = string(previous.Connectivity)
+		}
+		c.metrics.ObserveStationTransition(from, string(status.Connectivity))
 		c.events.Publish("station.status.changed", map[string]any{
 			"connectivity": status.Connectivity,
 			"lastSeen":     status.LastSeen,
@@ -279,7 +296,7 @@ func (c *ControlService) SetTrackPower(ctx context.Context, user model.User, ena
 	if err := station.CheckCommandAllowed(c.station); err != nil {
 		return err
 	}
-	if err := c.station.SetTrackPower(ctx, enabled); err != nil {
+	if err := c.observeStationCommand("track_power", func() error { return c.station.SetTrackPower(ctx, enabled) }); err != nil {
 		return err
 	}
 
@@ -287,6 +304,9 @@ func (c *ControlService) SetTrackPower(ctx context.Context, user model.User, ena
 	// by TrainPilot. If the station later reports a different real state, the
 	// corrective status event will still be emitted.
 	c.rememberTrackPower(enabled)
+	if !enabled {
+		c.metrics.SafetyStop("track_power_off")
+	}
 	_, _, wasEmergencyStop := c.safetySnapshot()
 	if enabled {
 		c.rememberEmergencyStop(false)
@@ -303,6 +323,7 @@ func (c *ControlService) StationStatus(ctx context.Context) (station.Status, err
 	if provider, ok := c.station.(station.StatusProvider); ok {
 		status, err := provider.Status(ctx)
 		if err == nil {
+			c.metrics.ObserveStationTransition("unknown", string(status.Connectivity))
 			c.observeSafetyStatus(status)
 			_, _, status.EmergencyStop = c.safetySnapshot()
 		}
@@ -338,16 +359,23 @@ func (c *ControlService) EmergencyStop(ctx context.Context, user model.User) err
 	if err := station.CheckCommandAllowed(c.station); err != nil {
 		return err
 	}
-	if err := c.station.EmergencyStop(ctx); err != nil {
+	if err := c.observeStationCommand("emergency_stop", func() error { return c.station.EmergencyStop(ctx) }); err != nil {
 		return err
 	}
 
 	c.rememberEmergencyStop(true)
+	c.metrics.SafetyStop("emergency_stop")
 
 	c.events.Publish("track.emergency_stop", map[string]any{"active": true, "userId": user.ID})
 	return nil
 }
-func (c *ControlService) Acquire(ctx context.Context, user model.User, sess model.Session, locoID string) (model.ControlLease, error) {
+func (c *ControlService) Acquire(ctx context.Context, user model.User, sess model.Session, locoID string) (lease model.ControlLease, err error) {
+	defer func() {
+		c.metrics.ObserveLeaseOperation("acquire", metricResult(err))
+		if err == nil {
+			c.metrics.AddActiveLeases(1)
+		}
+	}()
 	if !Allowed(user.Role, PermissionDrive) {
 		return model.ControlLease{}, ErrPermissionDenied
 	}
@@ -355,19 +383,20 @@ func (c *ControlService) Acquire(ctx context.Context, user model.User, sess mode
 		return model.ControlLease{}, err
 	}
 	now := c.clock.Now()
-	lease := model.ControlLease{ID: newID(), LocomotiveID: locoID, UserID: user.ID, SessionID: sess.ID, State: model.LeaseActive, AcquiredAt: now, RenewedAt: now, ExpiresAt: now.Add(c.leaseTTL), HeartbeatMillis: c.leaseTTL.Milliseconds() / 3}
+	lease = model.ControlLease{ID: newID(), LocomotiveID: locoID, UserID: user.ID, SessionID: sess.ID, State: model.LeaseActive, AcquiredAt: now, RenewedAt: now, ExpiresAt: now.Add(c.leaseTTL), HeartbeatMillis: c.leaseTTL.Milliseconds() / 3}
 	if err := c.store.CreateLease(ctx, lease); err != nil {
 		return model.ControlLease{}, err
 	}
 	c.events.Publish("locomotive.control.acquired", lease)
 	return lease, nil
 }
-func (c *ControlService) Heartbeat(ctx context.Context, id string, sess model.Session) (model.ControlLease, error) {
+func (c *ControlService) Heartbeat(ctx context.Context, id string, sess model.Session) (lease model.ControlLease, err error) {
+	defer func() { c.metrics.ObserveLeaseOperation("heartbeat", metricResult(err)) }()
 	now := c.clock.Now()
 	if err := c.store.HeartbeatLease(ctx, id, sess.ID, now, now.Add(c.leaseTTL)); err != nil {
 		return model.ControlLease{}, err
 	}
-	lease, err := c.store.GetLease(ctx, id)
+	lease, err = c.store.GetLease(ctx, id)
 	if err == nil {
 		lease.HeartbeatMillis = c.leaseTTL.Milliseconds() / 3
 	}
@@ -411,11 +440,12 @@ func (c *ControlService) LocomotiveControlStates(ctx context.Context, sess model
 	return states, nil
 }
 
-func (c *ControlService) TakeoverLease(ctx context.Context, user model.User, currentSession model.Session, leaseID string) (model.ControlLease, error) {
+func (c *ControlService) TakeoverLease(ctx context.Context, user model.User, currentSession model.Session, leaseID string) (lease model.ControlLease, err error) {
+	defer func() { c.metrics.ObserveLeaseOperation("takeover", metricResult(err)) }()
 	if !Allowed(user.Role, PermissionDrive) {
 		return model.ControlLease{}, ErrPermissionDenied
 	}
-	lease, err := c.store.GetLease(ctx, leaseID)
+	lease, err = c.store.GetLease(ctx, leaseID)
 	if err != nil {
 		return model.ControlLease{}, err
 	}
@@ -466,10 +496,11 @@ func (c *ControlService) TakeoverLease(ctx context.Context, user model.User, cur
 		return model.ControlLease{}, err
 	}
 	direction := c.stopDirection(lease.LocomotiveID)
-	if err := c.station.SetLocoSpeed(ctx, loco.DCCAddress, 0, direction); err != nil {
+	if err := c.observeStationCommand("throttle", func() error { return c.station.SetLocoSpeed(ctx, loco.DCCAddress, 0, direction) }); err != nil {
 		return model.ControlLease{}, err
 	}
 	c.rememberLocoDirection(lease.LocomotiveID, direction)
+	c.metrics.SafetyStop("takeover")
 
 	renewedAt := c.clock.Now()
 	transferred, err := c.store.TransferActiveLease(ctx, leaseID, currentSession.UserID, fromSessionID, currentSession.ID, renewedAt, renewedAt.Add(c.leaseTTL))
@@ -493,7 +524,8 @@ func (c *ControlService) TakeoverLease(ctx context.Context, user model.User, cur
 	return transferred, nil
 }
 
-func (c *ControlService) Release(ctx context.Context, id string, sess model.Session) error {
+func (c *ControlService) Release(ctx context.Context, id string, sess model.Session) (err error) {
+	defer func() { c.metrics.ObserveLeaseOperation("release", metricResult(err)) }()
 	lease, err := c.store.GetLease(ctx, id)
 	if err != nil {
 		return err
@@ -503,7 +535,8 @@ func (c *ControlService) Release(ctx context.Context, id string, sess model.Sess
 	}
 	return c.stopAndScheduleRelease(ctx, lease, "client_release")
 }
-func (c *ControlService) Throttle(ctx context.Context, user model.User, sess model.Session, locoID, leaseID string, speed int, direction station.Direction) error {
+func (c *ControlService) Throttle(ctx context.Context, user model.User, sess model.Session, locoID, leaseID string, speed int, direction station.Direction) (err error) {
+	defer func() { c.metrics.ObserveControlCommand("throttle", metricResult(err)) }()
 	if speed < 0 || speed > 100 {
 		return invalid("speed must be between 0 and 100")
 	}
@@ -544,14 +577,17 @@ func (c *ControlService) Throttle(ctx context.Context, user model.User, sess mod
 	if err := c.store.RenewActiveLeaseForCommand(ctx, leaseID, locoID, sess.ID, now, now.Add(c.leaseTTL)); err != nil {
 		return err
 	}
-	if err := c.station.SetLocoSpeed(ctx, loco.DCCAddress, float64(speed)/100, direction); err != nil {
+	if err := c.observeStationCommand("throttle", func() error {
+		return c.station.SetLocoSpeed(ctx, loco.DCCAddress, float64(speed)/100, direction)
+	}); err != nil {
 		return err
 	}
 	c.rememberLocoDirection(locoID, direction)
 	c.events.Publish("locomotive.speed.changed", map[string]any{"locomotiveId": locoID, "speed": speed, "direction": direction, "userId": user.ID})
 	return nil
 }
-func (c *ControlService) Function(ctx context.Context, sess model.Session, locoID, leaseID string, fn int, on bool) error {
+func (c *ControlService) Function(ctx context.Context, sess model.Session, locoID, leaseID string, fn int, on bool) (err error) {
+	defer func() { c.metrics.ObserveControlCommand("function", metricResult(err)) }()
 	caps := c.station.Capabilities()
 	if caps.Functions <= 0 {
 		return invalid("station does not support locomotive functions")
@@ -588,7 +624,7 @@ func (c *ControlService) Function(ctx context.Context, sess model.Session, locoI
 	if err := c.store.RenewActiveLeaseForCommand(ctx, leaseID, locoID, sess.ID, now, now.Add(c.leaseTTL)); err != nil {
 		return err
 	}
-	if err := c.station.SetLocoFunction(ctx, loco.DCCAddress, fn, on); err != nil {
+	if err := c.observeStationCommand("function", func() error { return c.station.SetLocoFunction(ctx, loco.DCCAddress, fn, on) }); err != nil {
 		return err
 	}
 	c.events.Publish("locomotive.function.changed", map[string]any{"locomotiveId": locoID, "function": fn, "enabled": on})
@@ -598,11 +634,20 @@ func (c *ControlService) Sweep(ctx context.Context) {
 	now := c.clock.Now()
 	expired, _ := c.store.ExpiredActiveLeases(ctx, now)
 	for _, l := range expired {
-		_ = c.stopAndScheduleRelease(ctx, l, "heartbeat_timeout")
+		err := c.stopAndScheduleRelease(ctx, l, "heartbeat_timeout")
+		c.metrics.ObserveLeaseOperation("expire", metricResult(err))
 	}
 	ready, _ := c.store.StoppingLeasesReady(ctx, now)
 	for _, l := range ready {
 		if err := c.store.ReleaseLease(ctx, l.ID, "", l.ReleaseReason); err == nil {
+			c.metrics.AddActiveLeases(-1)
+			if l.ReleaseReason == "heartbeat_timeout" {
+				delay := c.clock.Now().Sub(l.ExpiresAt)
+				if delay < 0 {
+					delay = 0
+				}
+				c.metrics.ObserveLeaseStop("release", delay)
+			}
 			c.events.Publish("locomotive.control.released", l)
 		}
 	}
@@ -626,10 +671,25 @@ func (c *ControlService) stopAndScheduleRelease(ctx context.Context, l model.Con
 		return fmt.Errorf("stop command failed: %w", err)
 	}
 	direction := c.stopDirection(l.LocomotiveID)
-	if err := c.station.SetLocoSpeed(ctx, loco.DCCAddress, 0, direction); err != nil {
+	if err := c.observeStationCommand("throttle", func() error { return c.station.SetLocoSpeed(ctx, loco.DCCAddress, 0, direction) }); err != nil {
 		return fmt.Errorf("stop command failed: %w", err)
 	}
 	c.rememberLocoDirection(l.LocomotiveID, direction)
+	c.metrics.SafetyStop(reason)
+	if reason == "heartbeat_timeout" {
+		delay := c.clock.Now().Sub(l.ExpiresAt)
+		if delay < 0 {
+			delay = 0
+		}
+		c.metrics.ObserveLeaseStop("stop", delay)
+	}
 	c.events.Publish("locomotive.control.expired", map[string]any{"leaseId": l.ID, "locomotiveId": l.LocomotiveID, "reason": reason, "releaseAfter": releaseAt})
 	return nil
+}
+
+func (c *ControlService) observeStationCommand(operation string, command func() error) error {
+	started := time.Now()
+	err := command()
+	c.metrics.ObserveStationCommand(operation, err, time.Since(started))
+	return err
 }

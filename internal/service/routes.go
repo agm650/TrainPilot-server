@@ -6,6 +6,7 @@ import (
 
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
+	"github.com/agm650/TrainPilot-server/internal/observability"
 	"github.com/agm650/TrainPilot-server/internal/store"
 )
 
@@ -13,7 +14,10 @@ type RouteService struct {
 	store   *store.Store
 	railway *RailwayService
 	events  *events.Bus
+	metrics *observability.Metrics
 }
+
+func (r *RouteService) SetMetrics(metrics *observability.Metrics) { r.metrics = metrics }
 
 func NewRouteService(s *store.Store, r *RailwayService, b *events.Bus) *RouteService {
 	return &RouteService{store: s, railway: r, events: b}
@@ -21,7 +25,14 @@ func NewRouteService(s *store.Store, r *RailwayService, b *events.Bus) *RouteSer
 func (r *RouteService) List(ctx context.Context) ([]model.Route, error) {
 	return r.store.ListRoutes(ctx)
 }
-func (r *RouteService) Reserve(ctx context.Context, user model.User, sess model.Session, id string) error {
+func (r *RouteService) Reserve(ctx context.Context, user model.User, sess model.Session, id string) (err error) {
+	result := ""
+	defer func() {
+		if result == "" {
+			result = routeMetricResult(err)
+		}
+		r.metrics.ObserveRoute("reserve", result)
+	}()
 	if !Allowed(user.Role, PermissionDispatch) {
 		return ErrPermissionDenied
 	}
@@ -30,6 +41,7 @@ func (r *RouteService) Reserve(ctx context.Context, user model.User, sess model.
 		return err
 	}
 	if occ {
+		result = "occupied"
 		return fmt.Errorf("route contains an occupied block: %w", store.ErrConflict)
 	}
 	conflict, err := r.store.RouteHasActiveConflict(ctx, id)
@@ -37,6 +49,7 @@ func (r *RouteService) Reserve(ctx context.Context, user model.User, sess model.
 		return err
 	}
 	if conflict {
+		result = "conflict"
 		return store.ErrConflict
 	}
 	if err := r.store.ReserveRoute(ctx, id, sess.ID); err != nil {
@@ -45,7 +58,8 @@ func (r *RouteService) Reserve(ctx context.Context, user model.User, sess model.
 	r.events.Publish("route.reserved", map[string]any{"routeId": id, "sessionId": sess.ID})
 	return nil
 }
-func (r *RouteService) Activate(ctx context.Context, user model.User, sess model.Session, id string) error {
+func (r *RouteService) Activate(ctx context.Context, user model.User, sess model.Session, id string) (err error) {
+	defer func() { r.metrics.ObserveRoute("activate", routeMetricResult(err)) }()
 	if !Allowed(user.Role, PermissionDispatch) {
 		return ErrPermissionDenied
 	}
@@ -64,7 +78,8 @@ func (r *RouteService) Activate(ctx context.Context, user model.User, sess model
 	r.events.Publish("route.activated", map[string]any{"routeId": id})
 	return nil
 }
-func (r *RouteService) Release(ctx context.Context, sess model.Session, id string) error {
+func (r *RouteService) Release(ctx context.Context, sess model.Session, id string) (err error) {
+	defer func() { r.metrics.ObserveRoute("release", routeMetricResult(err)) }()
 	if err := r.store.ReleaseRoute(ctx, id, sess.ID); err != nil {
 		return err
 	}

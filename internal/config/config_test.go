@@ -13,6 +13,9 @@ func TestDefault(t *testing.T) {
 	if cfg.HTTP.Listen != "127.0.0.1:8080" {
 		t.Fatalf("HTTP listen=%q", cfg.HTTP.Listen)
 	}
+	if cfg.Diagnostics.Enabled || cfg.Diagnostics.Listen != "127.0.0.1:6060" || !cfg.Diagnostics.Metrics || cfg.Diagnostics.Pprof {
+		t.Fatalf("diagnostics defaults=%+v", cfg.Diagnostics)
+	}
 	if cfg.Admin.Socket != "/tmp/dccd-admin.sock" || cfg.Admin.Mode != 0o660 {
 		t.Fatalf("admin defaults=%q %#o", cfg.Admin.Socket, cfg.Admin.Mode)
 	}
@@ -111,6 +114,7 @@ func TestLoadParsesTurnoutConfirmationTimeout(t *testing.T) {
 func TestLoadParsesDurationsAndOverrides(t *testing.T) {
 	path := writeConfig(t, `{
 		"http":{"listen":"0.0.0.0:9090"},
+		"diagnostics":{"enabled":true,"listen":"127.0.0.1:9091","metrics":false,"pprof":true},
 		"admin":{"socket":"/tmp/trainpilot.sock","mode":384},
 		"database":{"path":"/tmp/trainpilot.db"},
 		"station":{"driver":"z21","address":"192.0.2.10","port":21105,"transport":"udp"},
@@ -125,6 +129,9 @@ func TestLoadParsesDurationsAndOverrides(t *testing.T) {
 	}
 	if cfg.HTTP.Listen != "0.0.0.0:9090" || cfg.Admin.Socket != "/tmp/trainpilot.sock" || cfg.Database.Path != "/tmp/trainpilot.db" {
 		t.Fatalf("unexpected paths: %+v", cfg)
+	}
+	if !cfg.Diagnostics.Enabled || cfg.Diagnostics.Listen != "127.0.0.1:9091" || cfg.Diagnostics.Metrics || !cfg.Diagnostics.Pprof {
+		t.Fatalf("diagnostics=%+v", cfg.Diagnostics)
 	}
 	if cfg.Security.AccessTokenTTL != 30*time.Minute || cfg.Security.RefreshTokenTTL != 48*time.Hour {
 		t.Fatalf("security durations=%v/%v", cfg.Security.AccessTokenTTL, cfg.Security.RefreshTokenTTL)
@@ -214,6 +221,21 @@ func TestLoadErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := Load(writeConfig(t, tc.json)); err == nil {
 				t.Fatal("expected required field error")
+			}
+		})
+	}
+
+	for _, tc := range []struct {
+		name string
+		json string
+	}{
+		{"missing diagnostics listen", `{"diagnostics":{"enabled":true,"listen":""}}`},
+		{"invalid diagnostics listen", `{"diagnostics":{"enabled":true,"listen":"localhost"}}`},
+		{"shared diagnostics listen", `{"diagnostics":{"enabled":true,"listen":"127.0.0.1:8080"}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := Load(writeConfig(t, tc.json)); err == nil {
+				t.Fatal("expected diagnostics validation error")
 			}
 		})
 	}

@@ -32,6 +32,7 @@ Included features:
 - versioned rolling-stock and layout import/export using native ZIP archives;
 - `dccctl` diagnostics and transfer CLI;
 - `dcc-api-conformance` conformance tool;
+- optional Prometheus and pprof diagnostics on a dedicated listener;
 - unit, concurrency, protocol, and integration tests.
 
 Known MVP limitations:
@@ -65,6 +66,7 @@ cmd/dcc-api-conformance/     conformance tests against a running server
 internal/api/                HTTP and WebSocket APIs
 internal/admin/              Unix-socket administration server/client
 internal/auth/               passwords and opaque tokens
+internal/observability/      Prometheus registry and diagnostic mux
 internal/service/            business and safety rules
 internal/station/            command-station abstraction and drivers
 internal/store/              domain persistence

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/events"
+	"github.com/agm650/TrainPilot-server/internal/observability"
 	"github.com/agm650/TrainPilot-server/internal/service"
 	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/agm650/TrainPilot-server/internal/station/simulator"
@@ -31,9 +32,10 @@ type Server struct {
 	simulatorTest     *simulatorTestController
 	eventBuffer       int
 	eventWriteTimeout time.Duration
+	metrics           *observability.Metrics
 }
 
-func New(auth *service.AuthService, control *service.ControlService, railway *service.RailwayService, routes *service.RouteService, transferSvc *transfer.Service, s *store.Store, b *events.Bus, st station.CommandStation, sim *simulator.Simulator, testAPI bool) *Server {
+func New(auth *service.AuthService, control *service.ControlService, railway *service.RailwayService, routes *service.RouteService, transferSvc *transfer.Service, s *store.Store, b *events.Bus, st station.CommandStation, sim *simulator.Simulator, testAPI bool, metrics ...*observability.Metrics) *Server {
 	x := &Server{
 		mux:               http.NewServeMux(),
 		auth:              auth,
@@ -48,10 +50,20 @@ func New(auth *service.AuthService, control *service.ControlService, railway *se
 		eventBuffer:       defaultEventBufferSize,
 		eventWriteTimeout: defaultEventWriteTimeout,
 	}
+	if len(metrics) > 0 {
+		x.metrics = metrics[0]
+		b.SetMetrics(x.metrics)
+	}
 	x.register(testAPI)
 	return x
 }
-func (s *Server) Handler() http.Handler { return securityHeaders(s.mux) }
+func (s *Server) Handler() http.Handler {
+	handler := securityHeaders(s.mux)
+	if s.metrics != nil {
+		return s.metrics.HTTPMiddleware(handler)
+	}
+	return handler
+}
 func (s *Server) register(testAPI bool) {
 	s.mux.HandleFunc("GET /healthz", s.health)
 	s.mux.HandleFunc("GET /api/v1/system/info", s.systemInfo)

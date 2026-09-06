@@ -50,13 +50,15 @@ func (s *Store) SessionByAccessHash(ctx context.Context, hash string) (model.Ses
 	return sess, err
 }
 
-func (s *Store) SessionByID(ctx context.Context, id string) (model.Session, error) {
+func (s *Store) SessionByID(ctx context.Context, id string) (session model.Session, err error) {
+	started := time.Now()
+	defer func() { s.observe("get_session", started, err) }()
 	row := s.DB.QueryRowContext(ctx, `SELECT id,user_id,client_id,client_name,platform,access_token_hash,refresh_token_hash,access_expires_at,refresh_expires_at,created_at,last_seen_at,revoked_at FROM sessions WHERE id=?`, id)
-	sess, err := scanSession(row)
+	session, err = scanSession(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return sess, ErrNotFound
+		err = ErrNotFound
 	}
-	return sess, err
+	return session, err
 }
 
 func (s *Store) SessionByRefreshHash(ctx context.Context, hash string) (model.Session, error) {
@@ -76,8 +78,10 @@ func (s *Store) RotateSessionTokens(ctx context.Context, id, accessHash, refresh
 	return requireAffected(res)
 }
 
-func (s *Store) TouchSession(ctx context.Context, id string, now time.Time) error {
-	_, err := s.DB.ExecContext(ctx, `UPDATE sessions SET last_seen_at=? WHERE id=? AND revoked_at IS NULL`, timeText(now), id)
+func (s *Store) TouchSession(ctx context.Context, id string, now time.Time) (err error) {
+	started := time.Now()
+	defer func() { s.observe("touch_session", started, err) }()
+	_, err = s.DB.ExecContext(ctx, `UPDATE sessions SET last_seen_at=? WHERE id=? AND revoked_at IS NULL`, timeText(now), id)
 	return err
 }
 

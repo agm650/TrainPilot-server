@@ -5,19 +5,21 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/sqlite"
 	"github.com/agm650/TrainPilot-server/internal/station"
 )
 
-func (s *Store) ListLocomotives(ctx context.Context) ([]model.Locomotive, error) {
+func (s *Store) ListLocomotives(ctx context.Context) (out []model.Locomotive, err error) {
+	started := time.Now()
+	defer func() { s.observe("list_locomotives", started, err) }()
 	rows, err := s.DB.QueryContext(ctx, `SELECT id,name,dcc_address,address_kind,speed_steps,manufacturer,model FROM locomotives ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []model.Locomotive
 	for rows.Next() {
 		var x model.Locomotive
 		if err := rows.Scan(&x.ID, &x.Name, &x.DCCAddress, &x.AddressKind, &x.SpeedSteps, &x.Manufacturer, &x.Model); err != nil {
@@ -25,13 +27,15 @@ func (s *Store) ListLocomotives(ctx context.Context) ([]model.Locomotive, error)
 		}
 		out = append(out, x)
 	}
-	return out, rows.Err()
+	err = rows.Err()
+	return out, err
 }
-func (s *Store) GetLocomotive(ctx context.Context, id string) (model.Locomotive, error) {
-	var x model.Locomotive
-	err := s.DB.QueryRowContext(ctx, `SELECT id,name,dcc_address,address_kind,speed_steps,manufacturer,model FROM locomotives WHERE id=?`, id).Scan(&x.ID, &x.Name, &x.DCCAddress, &x.AddressKind, &x.SpeedSteps, &x.Manufacturer, &x.Model)
+func (s *Store) GetLocomotive(ctx context.Context, id string) (x model.Locomotive, err error) {
+	started := time.Now()
+	defer func() { s.observe("get_locomotive", started, err) }()
+	err = s.DB.QueryRowContext(ctx, `SELECT id,name,dcc_address,address_kind,speed_steps,manufacturer,model FROM locomotives WHERE id=?`, id).Scan(&x.ID, &x.Name, &x.DCCAddress, &x.AddressKind, &x.SpeedSteps, &x.Manufacturer, &x.Model)
 	if errors.Is(err, sql.ErrNoRows) {
-		return x, ErrNotFound
+		err = ErrNotFound
 	}
 	return x, err
 }
@@ -88,18 +92,41 @@ func (s *Store) ListBlocks(ctx context.Context) ([]model.Block, error) {
 	return out, rows.Err()
 }
 func (s *Store) SetBlockOccupied(ctx context.Context, id string, occupied bool) error {
-	res, err := s.DB.ExecContext(ctx, `UPDATE blocks SET occupied=? WHERE id=?`, boolInt(occupied), id)
-	if err != nil {
-		return err
-	}
-	return requireAffected(res)
+	_, err := s.SetBlockOccupiedObserved(ctx, id, occupied)
+	return err
 }
-func (s *Store) ListTurnouts(ctx context.Context) ([]model.Turnout, error) {
+
+func (s *Store) SetBlockOccupiedObserved(ctx context.Context, id string, occupied bool) (changed bool, err error) {
+	started := time.Now()
+	defer func() { s.observe("update_block", started, err) }()
+	value := boolInt(occupied)
+	res, err := s.DB.ExecContext(ctx, `UPDATE blocks SET occupied=? WHERE id=? AND occupied<>?`, value, id, value)
+	if err != nil {
+		return false, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if affected > 0 {
+		return true, nil
+	}
+	var exists int
+	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM blocks WHERE id=?`, id).Scan(&exists); err != nil {
+		return false, err
+	}
+	if exists == 0 {
+		return false, ErrNotFound
+	}
+	return false, nil
+}
+func (s *Store) ListTurnouts(ctx context.Context) (out []model.Turnout, err error) {
+	started := time.Now()
+	defer func() { s.observe("list_turnouts", started, err) }()
 	rows, err := s.DB.QueryContext(ctx, `SELECT id,name,kind,desired_position,reported_position,pending,reported_status,quality,command_status,dcc_address,desired_state,reported_state FROM turnouts ORDER BY name,id`)
 	if err != nil {
 		return nil, err
 	}
-	var out []model.Turnout
 	for rows.Next() {
 		var x model.Turnout
 		var pending int
@@ -127,12 +154,14 @@ func (s *Store) ListTurnouts(ctx context.Context) ([]model.Turnout, error) {
 	}
 	return out, nil
 }
-func (s *Store) GetTurnout(ctx context.Context, id string) (model.Turnout, error) {
-	var x model.Turnout
+func (s *Store) GetTurnout(ctx context.Context, id string) (x model.Turnout, err error) {
+	started := time.Now()
+	defer func() { s.observe("get_turnout", started, err) }()
 	var pending int
-	err := s.DB.QueryRowContext(ctx, `SELECT id,name,kind,desired_position,reported_position,pending,reported_status,quality,command_status,dcc_address,desired_state,reported_state FROM turnouts WHERE id=?`, id).Scan(&x.ID, &x.Name, &x.Kind, &x.DesiredPosition, &x.ReportedPosition, &pending, &x.ReportedStatus, &x.Quality, &x.CommandStatus, &x.DCCAddress, &x.DesiredState, &x.ReportedState)
+	err = s.DB.QueryRowContext(ctx, `SELECT id,name,kind,desired_position,reported_position,pending,reported_status,quality,command_status,dcc_address,desired_state,reported_state FROM turnouts WHERE id=?`, id).Scan(&x.ID, &x.Name, &x.Kind, &x.DesiredPosition, &x.ReportedPosition, &pending, &x.ReportedStatus, &x.Quality, &x.CommandStatus, &x.DCCAddress, &x.DesiredState, &x.ReportedState)
 	if errors.Is(err, sql.ErrNoRows) {
-		return x, ErrNotFound
+		err = ErrNotFound
+		return x, err
 	}
 	if err != nil {
 		return x, err
@@ -190,7 +219,9 @@ func (s *Store) SetTurnoutState(ctx context.Context, id, position string) error 
 	return requireAffected(res)
 }
 
-func (s *Store) SetTurnoutDesiredPosition(ctx context.Context, id, position string, pending bool) error {
+func (s *Store) SetTurnoutDesiredPosition(ctx context.Context, id, position string, pending bool) (err error) {
+	started := time.Now()
+	defer func() { s.observe("update_turnout", started, err) }()
 	legacy := position
 	if legacy != "straight" && legacy != "diverging" {
 		legacy = "unknown"
@@ -203,7 +234,8 @@ func (s *Store) SetTurnoutDesiredPosition(ctx context.Context, id, position stri
 	if err != nil {
 		return err
 	}
-	return requireAffected(res)
+	err = requireAffected(res)
+	return err
 }
 
 func (s *Store) SetTurnoutReportedPosition(ctx context.Context, id, position string, pending bool) error {
@@ -226,7 +258,9 @@ func (s *Store) SetTurnoutReportedPosition(ctx context.Context, id, position str
 	return requireAffected(res)
 }
 
-func (s *Store) SetTurnoutObservation(ctx context.Context, id, position string, reportedStatus station.AccessoryReportState, quality station.AccessoryReportQuality) error {
+func (s *Store) SetTurnoutObservation(ctx context.Context, id, position string, reportedStatus station.AccessoryReportState, quality station.AccessoryReportQuality) (err error) {
+	started := time.Now()
+	defer func() { s.observe("update_turnout", started, err) }()
 	legacy := position
 	if legacy != "straight" && legacy != "diverging" {
 		legacy = "unknown"
@@ -235,7 +269,8 @@ func (s *Store) SetTurnoutObservation(ctx context.Context, id, position string, 
 	if err != nil {
 		return err
 	}
-	return requireAffected(res)
+	err = requireAffected(res)
+	return err
 }
 
 func (s *Store) SetTurnoutCommandResult(ctx context.Context, id string, pending bool, status model.TurnoutCommandStatus) error {
@@ -338,11 +373,12 @@ func (s *Store) SeedDemo(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) BlockForFeedback(ctx context.Context, provider string, address int) (string, error) {
-	var blockID string
-	err := s.DB.QueryRowContext(ctx, `SELECT block_id FROM feedback_mappings WHERE (provider=? OR provider='*') AND address=? ORDER BY provider DESC LIMIT 1`, provider, address).Scan(&blockID)
+func (s *Store) BlockForFeedback(ctx context.Context, provider string, address int) (blockID string, err error) {
+	started := time.Now()
+	defer func() { s.observe("map_feedback", started, err) }()
+	err = s.DB.QueryRowContext(ctx, `SELECT block_id FROM feedback_mappings WHERE (provider=? OR provider='*') AND address=? ORDER BY provider DESC LIMIT 1`, provider, address).Scan(&blockID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrNotFound
+		err = ErrNotFound
 	}
 	return blockID, err
 }

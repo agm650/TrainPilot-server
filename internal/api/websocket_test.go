@@ -23,6 +23,7 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/clock"
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
+	"github.com/agm650/TrainPilot-server/internal/observability"
 	"github.com/agm650/TrainPilot-server/internal/service"
 	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/agm650/TrainPilot-server/internal/station/simulator"
@@ -53,6 +54,10 @@ func newWebsocketFixtureWithAccessTTL(t *testing.T, accessTTL time.Duration) web
 }
 
 func newWebsocketFixtureWithStation(t *testing.T, accessTTL time.Duration, wrap func(*simulator.Simulator) station.CommandStation) websocketFixture {
+	return newWebsocketFixtureWithStationAndMetrics(t, accessTTL, wrap, nil)
+}
+
+func newWebsocketFixtureWithStationAndMetrics(t *testing.T, accessTTL time.Duration, wrap func(*simulator.Simulator) station.CommandStation, metrics *observability.Metrics) websocketFixture {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	db, err := store.Open(":memory:")
@@ -93,11 +98,20 @@ func newWebsocketFixtureWithStation(t *testing.T, accessTTL time.Duration, wrap 
 	}
 	bus := events.New()
 	railway := service.NewRailwayService(db, commandStation, bus)
+	if metrics != nil {
+		db.SetMetrics(metrics)
+		bus.SetMetrics(metrics)
+		railway.SetMetrics(metrics)
+	}
 	railway.StartFeedback(ctx)
 	controlClock := clock.NewFake(time.Now().UTC())
 	control := service.NewControlService(db, commandStation, bus, controlClock, 15*time.Second, time.Second, time.Hour)
 	routes := service.NewRouteService(db, railway, bus)
-	server := New(authSvc, control, railway, routes, transfer.New(db, bus, authClock), db, bus, commandStation, sim, true)
+	if metrics != nil {
+		control.SetMetrics(metrics)
+		routes.SetMetrics(metrics)
+	}
+	server := New(authSvc, control, railway, routes, transfer.New(db, bus, authClock), db, bus, commandStation, sim, true, metrics)
 
 	locomotives, err := railway.Locomotives(ctx)
 	if err != nil || len(locomotives) == 0 {

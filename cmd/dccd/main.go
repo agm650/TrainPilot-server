@@ -21,6 +21,7 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/config"
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
+	"github.com/agm650/TrainPilot-server/internal/observability"
 	"github.com/agm650/TrainPilot-server/internal/service"
 	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/agm650/TrainPilot-server/internal/station/dccex"
@@ -67,6 +68,11 @@ func serve(args []string) error {
 		return err
 	}
 	defer db.Close()
+	var metrics *observability.Metrics
+	if cfg.Diagnostics.Enabled && cfg.Diagnostics.Metrics {
+		metrics = observability.New(cfg.Database.Path)
+		db.SetMetrics(metrics)
+	}
 	if cfg.SeedDemo {
 		if err := db.SeedDemo(context.Background()); err != nil {
 			return err
@@ -74,6 +80,7 @@ func serve(args []string) error {
 	}
 	clk := clock.Real{}
 	bus := events.New()
+	bus.SetMetrics(metrics)
 	userSvc := service.NewUserService(db, clk)
 	authSvc := service.NewAuthService(db, userSvc, clk, cfg.Security.AccessTokenTTL, cfg.Security.RefreshTokenTTL)
 	st, sim, err := buildStation(cfg)
@@ -87,20 +94,31 @@ func serve(args []string) error {
 	railway := service.NewRailwayService(db, st, bus, cfg.Turnout.ConfirmationTimeout)
 	control := service.NewControlService(db, st, bus, clk, cfg.Control.LeaseTTL, cfg.Control.StopGrace, cfg.Control.MonitorPeriod)
 	routes := service.NewRouteService(db, railway, bus)
+	railway.SetMetrics(metrics)
+	control.SetMetrics(metrics)
+	routes.SetMetrics(metrics)
 	transferSvc := transfer.New(db, bus, clk)
 	runCtx, runCancel := context.WithCancel(context.Background())
 	defer runCancel()
 	railway.StartFeedback(runCtx)
 	control.Start()
 	defer control.Close()
-	api := httpapi.New(authSvc, control, railway, routes, transferSvc, db, bus, st, sim, cfg.TestAPI)
+	api := httpapi.New(authSvc, control, railway, routes, transferSvc, db, bus, st, sim, cfg.TestAPI, metrics)
 	httpServer := &http.Server{Addr: cfg.HTTP.Listen, Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second}
+	var diagnosticsServer *http.Server
+	if cfg.Diagnostics.Enabled {
+		diagnosticsServer = &http.Server{
+			Addr:              cfg.Diagnostics.Listen,
+			Handler:           observability.DiagnosticHandler(metrics, cfg.Diagnostics.Metrics, cfg.Diagnostics.Pprof),
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+	}
 	adminServer := adminapi.NewServer(cfg.Admin.Socket, os.FileMode(cfg.Admin.Mode), userSvc)
 	if err := adminServer.Start(); err != nil {
 		return err
 	}
 	defer adminServer.Close(context.Background())
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
 	go func() {
 		log.Printf("public API listening on %s", cfg.HTTP.Listen)
 		if (cfg.HTTP.TLSCert == "") != (cfg.HTTP.TLSKey == "") {
@@ -113,19 +131,30 @@ func serve(args []string) error {
 		}
 		errCh <- httpServer.ListenAndServe()
 	}()
+	if diagnosticsServer != nil {
+		go func() {
+			log.Printf("diagnostics listening on %s", cfg.Diagnostics.Listen)
+			errCh <- diagnosticsServer.ListenAndServe()
+		}()
+	}
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	var serveErr error
 	select {
 	case s := <-sig:
 		log.Printf("received %s", s)
 	case err := <-errCh:
 		if !errors.Is(err, http.ErrServerClosed) {
-			return err
+			serveErr = err
 		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return httpServer.Shutdown(ctx)
+	shutdownErr := httpServer.Shutdown(ctx)
+	if diagnosticsServer != nil {
+		shutdownErr = errors.Join(shutdownErr, diagnosticsServer.Shutdown(ctx))
+	}
+	return errors.Join(serveErr, shutdownErr)
 }
 func buildStation(cfg config.Config) (station.CommandStation, *simulator.Simulator, error) {
 	switch cfg.Station.Driver {

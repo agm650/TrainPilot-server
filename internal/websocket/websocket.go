@@ -70,11 +70,16 @@ func (c *Conn) Close() error {
 }
 
 func (c *Conn) WriteJSON(v any) error {
+	_, err := c.WriteJSONWithSize(v)
+	return err
+}
+
+func (c *Conn) WriteJSONWithSize(v any) (int, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return c.writeFrame(0x1, b)
+	return len(b), c.writeFrame(0x1, b)
 }
 
 func (c *Conn) SetWriteDeadline(deadline time.Time) error {

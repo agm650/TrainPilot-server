@@ -29,20 +29,24 @@ func scanLease(scanner interface{ Scan(...any) error }) (model.ControlLease, err
 	l.ReleaseAfter, err = nullableTime(release)
 	return l, err
 }
-func (s *Store) CreateLease(ctx context.Context, l model.ControlLease) error {
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO control_leases(id,locomotive_id,user_id,session_id,state,acquired_at,renewed_at,expires_at,release_after,release_reason) VALUES(?,?,?,?,?,?,?,?,?,?)`, l.ID, l.LocomotiveID, l.UserID, l.SessionID, l.State, timeText(l.AcquiredAt), timeText(l.RenewedAt), timeText(l.ExpiresAt), nil, l.ReleaseReason)
+func (s *Store) CreateLease(ctx context.Context, l model.ControlLease) (err error) {
+	started := time.Now()
+	defer func() { s.observe("create_lease", started, err) }()
+	_, err = s.DB.ExecContext(ctx, `INSERT INTO control_leases(id,locomotive_id,user_id,session_id,state,acquired_at,renewed_at,expires_at,release_after,release_reason) VALUES(?,?,?,?,?,?,?,?,?,?)`, l.ID, l.LocomotiveID, l.UserID, l.SessionID, l.State, timeText(l.AcquiredAt), timeText(l.RenewedAt), timeText(l.ExpiresAt), nil, l.ReleaseReason)
 	if isUnique(err) {
-		return ErrConflict
+		err = ErrConflict
 	}
 	return err
 }
-func (s *Store) GetLease(ctx context.Context, id string) (model.ControlLease, error) {
+func (s *Store) GetLease(ctx context.Context, id string) (lease model.ControlLease, err error) {
+	started := time.Now()
+	defer func() { s.observe("get_lease", started, err) }()
 	row := s.DB.QueryRowContext(ctx, `SELECT id,locomotive_id,user_id,session_id,state,acquired_at,renewed_at,expires_at,release_after,release_reason FROM control_leases WHERE id=?`, id)
-	l, err := scanLease(row)
+	lease, err = scanLease(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return l, ErrNotFound
+		err = ErrNotFound
 	}
-	return l, err
+	return lease, err
 }
 func (s *Store) LiveLeaseForLoco(ctx context.Context, locoID string) (model.ControlLease, error) {
 	row := s.DB.QueryRowContext(ctx, `SELECT id,locomotive_id,user_id,session_id,state,acquired_at,renewed_at,expires_at,release_after,release_reason FROM control_leases WHERE locomotive_id=? AND state IN ('active','stopping')`, locoID)
@@ -57,13 +61,15 @@ func (s *Store) LiveLeaseForLoco(ctx context.Context, locoID string) (model.Cont
 // exclusivity. Expiry timestamps are deliberately not filtered here: until
 // Sweep transitions an expired active lease, acquisition still considers the
 // locomotive occupied through the live-lease unique index.
-func (s *Store) LiveLeases(ctx context.Context, _ time.Time) ([]model.ControlLease, error) {
+func (s *Store) LiveLeases(ctx context.Context, _ time.Time) (leases []model.ControlLease, err error) {
+	started := time.Now()
+	defer func() { s.observe("list_live_leases", started, err) }()
 	rows, err := s.DB.QueryContext(ctx, `SELECT id,locomotive_id,user_id,session_id,state,acquired_at,renewed_at,expires_at,release_after,release_reason FROM control_leases WHERE state IN ('active','stopping') ORDER BY acquired_at,id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	leases := make([]model.ControlLease, 0)
+	leases = make([]model.ControlLease, 0)
 	for rows.Next() {
 		lease, err := scanLease(rows)
 		if err != nil {
@@ -71,7 +77,8 @@ func (s *Store) LiveLeases(ctx context.Context, _ time.Time) ([]model.ControlLea
 		}
 		leases = append(leases, lease)
 	}
-	return leases, rows.Err()
+	err = rows.Err()
+	return leases, err
 }
 
 func (s *Store) LiveLeasesForSession(ctx context.Context, sessionID string) ([]model.ControlLease, error) {
@@ -90,12 +97,15 @@ func (s *Store) LiveLeasesForSession(ctx context.Context, sessionID string) ([]m
 	}
 	return leases, rows.Err()
 }
-func (s *Store) HeartbeatLease(ctx context.Context, id, sessionID string, renewed, expires time.Time) error {
+func (s *Store) HeartbeatLease(ctx context.Context, id, sessionID string, renewed, expires time.Time) (err error) {
+	started := time.Now()
+	defer func() { s.observe("heartbeat_lease", started, err) }()
 	res, err := s.DB.ExecContext(ctx, `UPDATE control_leases SET renewed_at=?,expires_at=? WHERE id=? AND session_id=? AND state='active' AND expires_at>?`, timeText(renewed), timeText(expires), id, sessionID, timeText(renewed))
 	if err != nil {
 		return err
 	}
-	return requireAffected(res)
+	err = requireAffected(res)
+	return err
 }
 
 func (s *Store) TransferActiveLease(ctx context.Context, leaseID, userID, fromSessionID, toSessionID string, renewedAt, expiresAt time.Time) (model.ControlLease, error) {
@@ -114,13 +124,16 @@ func (s *Store) TransferActiveLease(ctx context.Context, leaseID, userID, fromSe
 // RenewActiveLeaseForCommand validates ownership and extends an unexpired lease
 // in one statement. This prevents a command from reviving a lease which has
 // already reached its inactivity deadline but has not yet been swept.
-func (s *Store) RenewActiveLeaseForCommand(ctx context.Context, id, locomotiveID, sessionID string, now, expires time.Time) error {
+func (s *Store) RenewActiveLeaseForCommand(ctx context.Context, id, locomotiveID, sessionID string, now, expires time.Time) (err error) {
+	started := time.Now()
+	defer func() { s.observe("renew_lease", started, err) }()
 	res, err := s.DB.ExecContext(ctx, `UPDATE control_leases SET renewed_at=?,expires_at=? WHERE id=? AND locomotive_id=? AND session_id=? AND state='active' AND expires_at>?`,
 		timeText(now), timeText(expires), id, locomotiveID, sessionID, timeText(now))
 	if err != nil {
 		return err
 	}
-	return requireAffected(res)
+	err = requireAffected(res)
+	return err
 }
 func (s *Store) ExpiredActiveLeases(ctx context.Context, now time.Time) ([]model.ControlLease, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT id,locomotive_id,user_id,session_id,state,acquired_at,renewed_at,expires_at,release_after,release_reason FROM control_leases WHERE state='active' AND expires_at<=?`, timeText(now))
@@ -169,7 +182,9 @@ func (s *Store) StoppingLeasesReady(ctx context.Context, now time.Time) ([]model
 	}
 	return out, rows.Err()
 }
-func (s *Store) ReleaseLease(ctx context.Context, id, sessionID, reason string) error {
+func (s *Store) ReleaseLease(ctx context.Context, id, sessionID, reason string) (err error) {
+	started := time.Now()
+	defer func() { s.observe("release_lease", started, err) }()
 	q := `UPDATE control_leases SET state='released',release_reason=?,release_after=NULL WHERE id=? AND state IN ('active','stopping')`
 	args := []any{reason, id}
 	if sessionID != "" {
@@ -180,5 +195,6 @@ func (s *Store) ReleaseLease(ctx context.Context, id, sessionID, reason string) 
 	if err != nil {
 		return err
 	}
-	return requireAffected(res)
+	err = requireAffected(res)
+	return err
 }

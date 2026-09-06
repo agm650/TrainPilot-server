@@ -10,6 +10,7 @@ import (
 
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
+	"github.com/agm650/TrainPilot-server/internal/observability"
 	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/agm650/TrainPilot-server/internal/store"
 )
@@ -29,7 +30,10 @@ type RailwayService struct {
 	accessoryQualities   map[string]map[string]station.AccessoryReportQuality
 	accessoryGenerations map[string]map[string]uint64
 	turnoutRuntime       map[string]*turnoutCommandRuntime
+	metrics              *observability.Metrics
 }
+
+func (r *RailwayService) SetMetrics(metrics *observability.Metrics) { r.metrics = metrics }
 
 const DefaultTurnoutConfirmationTimeout = 2 * time.Second
 
@@ -187,7 +191,8 @@ func (r *RailwayService) Blocks(ctx context.Context) ([]model.Block, error) {
 func (r *RailwayService) Turnouts(ctx context.Context) ([]model.Turnout, error) {
 	return r.store.ListTurnouts(ctx)
 }
-func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, position string) error {
+func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, position string) (err error) {
+	defer func() { r.metrics.ObserveTurnoutCommand(turnoutMetricResult(err)) }()
 	if !Allowed(user.Role, PermissionDispatch) {
 		return ErrPermissionDenied
 	}
@@ -250,11 +255,16 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, po
 				Address:  endpoint.LinearAddress,
 				Position: model.PhysicalAccessoryPosition(endpoint, required),
 			}
-			if err := r.station.SetBasicAccessory(ctx, command); err != nil {
+			if err := r.observeStationCommand("accessory", func() error { return r.station.SetBasicAccessory(ctx, command) }); err != nil {
 				return r.failTurnoutCommand(ctx, t, position, "driver_error", errors.Join(ErrTurnoutTransitionFailed, err))
 			}
 		}
 		if err := r.waitForTurnoutPosition(ctx, t, generation, confirmation, next.ID, changed); err != nil {
+			confirmationResult := "interrupted"
+			if errors.Is(err, ErrTurnoutConfirmationTimeout) {
+				confirmationResult = "timeout"
+			}
+			r.metrics.ObserveTurnoutConfirmation(confirmationResult)
 			reason := "confirmation_timeout"
 			status := model.TurnoutCommandTimeout
 			if !errors.Is(err, ErrTurnoutConfirmationTimeout) {
@@ -263,6 +273,7 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, po
 			}
 			return r.failTurnoutCommandWithStatus(ctx, t, position, reason, status, err)
 		}
+		r.metrics.ObserveTurnoutConfirmation("confirmed")
 		currentPosition = next.ID
 	}
 	if err := r.store.SetTurnoutCommandResult(ctx, id, false, model.TurnoutCommandSucceeded); err != nil {
@@ -272,11 +283,17 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, po
 	return nil
 }
 func (r *RailwayService) SetBlockFeedback(ctx context.Context, id string, occupied bool) error {
-	if err := r.store.SetBlockOccupied(ctx, id, occupied); err != nil {
-		return err
+	_, err := r.setBlockFeedbackObserved(ctx, id, occupied)
+	return err
+}
+
+func (r *RailwayService) setBlockFeedbackObserved(ctx context.Context, id string, occupied bool) (bool, error) {
+	changed, err := r.store.SetBlockOccupiedObserved(ctx, id, occupied)
+	if err != nil {
+		return false, err
 	}
 	r.events.Publish("block.occupancy.changed", map[string]any{"blockId": id, "occupied": occupied})
-	return nil
+	return changed, nil
 }
 
 func (r *RailwayService) StartFeedback(ctx context.Context) {
@@ -289,11 +306,23 @@ func (r *RailwayService) StartFeedback(ctx context.Context) {
 				if !ok {
 					return
 				}
+				started := time.Now()
 				blockID, err := r.store.BlockForFeedback(ctx, event.Source, event.Address)
 				if err != nil {
+					result := "mapping_error"
+					if errors.Is(err, store.ErrNotFound) {
+						result = "unmapped"
+					}
+					r.metrics.ObserveFeedback(event.Source, result, time.Since(started))
 					continue
 				}
-				_ = r.SetBlockFeedback(ctx, blockID, event.Active)
+				changed, err := r.setBlockFeedbackObserved(ctx, blockID, event.Active)
+				if err != nil {
+					r.metrics.ObserveFeedback(event.Source, "update_error", time.Since(started))
+					continue
+				}
+				r.metrics.ObserveFeedbackOccupancy(event.Source, changed)
+				r.metrics.ObserveFeedback(event.Source, "mapped", time.Since(started))
 			}
 		}
 	}()
@@ -314,6 +343,13 @@ func (r *RailwayService) StartFeedback(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+func (r *RailwayService) observeStationCommand(operation string, command func() error) error {
+	started := time.Now()
+	err := command()
+	r.metrics.ObserveStationCommand(operation, err, time.Since(started))
+	return err
 }
 
 func (r *RailwayService) handleAccessoryStateEvent(ctx context.Context, event station.AccessoryStateEvent) {
@@ -347,7 +383,12 @@ func (r *RailwayService) handleAccessoryStateEvent(ctx context.Context, event st
 				r.accessoryGenerations[turnout.ID][endpoint.ID] = runtime.confirmation
 			}
 			position, reportState, quality := r.resolveTurnoutObservationLocked(turnout)
+			wrongFeedback := turnout.Pending &&
+				reportState == station.AccessoryReportKnown && position != "" && position != turnout.DesiredPosition
 			r.accessoryMu.Unlock()
+			if wrongFeedback {
+				r.metrics.ObserveTurnoutConfirmation("wrong_feedback")
+			}
 			_ = r.persistTurnoutObservation(ctx, turnout.ID, position, reportState, quality)
 			r.accessoryMu.Lock()
 			r.signalTurnoutUpdateLocked(turnout.ID)

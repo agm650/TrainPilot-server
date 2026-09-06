@@ -5,18 +5,20 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/sqlite"
 )
 
-func (s *Store) ListRoutes(ctx context.Context) ([]model.Route, error) {
+func (s *Store) ListRoutes(ctx context.Context) (out []model.Route, err error) {
+	started := time.Now()
+	defer func() { s.observe("list_routes", started, err) }()
 	rows, err := s.DB.QueryContext(ctx, `SELECT id,name,state,reserved_by_session FROM routes ORDER BY name,id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []model.Route
 	for rows.Next() {
 		var r model.Route
 		if err := rows.Scan(&r.ID, &r.Name, &r.State, &r.ReservedBySession); err != nil {
@@ -24,7 +26,8 @@ func (s *Store) ListRoutes(ctx context.Context) ([]model.Route, error) {
 		}
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	err = rows.Err()
+	return out, err
 }
 func (s *Store) GetRoute(ctx context.Context, id string) (model.Route, error) {
 	var r model.Route
@@ -44,30 +47,39 @@ func (s *Store) RouteHasActiveConflict(ctx context.Context, id string) (bool, er
 	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM route_conflicts rc JOIN routes r ON r.id=rc.conflict_route_id WHERE rc.route_id=? AND r.state IN ('reserved','active')`, id).Scan(&count)
 	return count > 0, err
 }
-func (s *Store) ReserveRoute(ctx context.Context, id, sessionID string) error {
+func (s *Store) ReserveRoute(ctx context.Context, id, sessionID string) (err error) {
+	started := time.Now()
+	defer func() { s.observe("reserve_route", started, err) }()
 	res, err := s.DB.ExecContext(ctx, `UPDATE routes SET state='reserved',reserved_by_session=? WHERE id=? AND state='idle'`, sessionID, id)
 	if err != nil {
 		return err
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		return ErrConflict
+		err = ErrConflict
+		return err
 	}
 	return nil
 }
-func (s *Store) ActivateRoute(ctx context.Context, id, sessionID string) error {
+func (s *Store) ActivateRoute(ctx context.Context, id, sessionID string) (err error) {
+	started := time.Now()
+	defer func() { s.observe("activate_route", started, err) }()
 	res, err := s.DB.ExecContext(ctx, `UPDATE routes SET state='active' WHERE id=? AND state='reserved' AND reserved_by_session=?`, id, sessionID)
 	if err != nil {
 		return err
 	}
-	return requireAffected(res)
+	err = requireAffected(res)
+	return err
 }
-func (s *Store) ReleaseRoute(ctx context.Context, id, sessionID string) error {
+func (s *Store) ReleaseRoute(ctx context.Context, id, sessionID string) (err error) {
+	started := time.Now()
+	defer func() { s.observe("release_route", started, err) }()
 	res, err := s.DB.ExecContext(ctx, `UPDATE routes SET state='idle',reserved_by_session='' WHERE id=? AND reserved_by_session=?`, id, sessionID)
 	if err != nil {
 		return err
 	}
-	return requireAffected(res)
+	err = requireAffected(res)
+	return err
 }
 func (s *Store) RouteTurnoutRequirements(ctx context.Context, id string) (map[string]string, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT turnout_id,required_state FROM route_turnouts WHERE route_id=?`, id)

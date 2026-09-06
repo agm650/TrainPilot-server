@@ -21,8 +21,19 @@ import (
 type Result = sql.Result
 
 type DB struct {
-	db *sql.DB
+	db                  *sql.DB
+	transactionObserver TransactionObserver
 }
+
+type TransactionObserver interface {
+	ObserveStoreTransaction(result string)
+}
+
+func (d *DB) SetTransactionObserver(observer TransactionObserver) {
+	d.transactionObserver = observer
+}
+
+func (d *DB) Stats() sql.DBStats { return d.db.Stats() }
 
 // Tx is an explicit BEGIN IMMEDIATE transaction bound to one database
 // connection. Only the operations currently required by the store are exposed.
@@ -90,6 +101,12 @@ func (d *DB) QueryRowContext(ctx context.Context, query string, args ...any) *sq
 // IMMEDIATE acquires the write reservation at the start of the operation, which
 // makes conflicts deterministic for imports and other multi-statement writes.
 func (d *DB) WithTransaction(ctx context.Context, fn func(*Tx) error) (err error) {
+	result := "begin_error"
+	defer func() {
+		if d.transactionObserver != nil {
+			d.transactionObserver.ObserveStoreTransaction(result)
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -106,6 +123,7 @@ func (d *DB) WithTransaction(ctx context.Context, fn func(*Tx) error) (err error
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return fmt.Errorf("begin sqlite transaction: %w", err)
 	}
+	result = "rollback"
 
 	tx := &Tx{conn: conn}
 	rollback := func() error {
@@ -121,6 +139,7 @@ func (d *DB) WithTransaction(ctx context.Context, fn func(*Tx) error) (err error
 
 	defer func() {
 		if recovered := recover(); recovered != nil {
+			result = "panic"
 			_ = rollback()
 			panic(recovered)
 		}
@@ -143,11 +162,13 @@ func (d *DB) WithTransaction(ctx context.Context, fn func(*Tx) error) (err error
 	commitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if _, err := conn.ExecContext(commitCtx, "COMMIT"); err != nil {
+		result = "commit_error"
 		_ = rollback()
 		return fmt.Errorf("commit sqlite transaction: %w", err)
 	}
 
 	tx.finished = true
+	result = "commit"
 
 	return nil
 }

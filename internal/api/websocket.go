@@ -89,13 +89,16 @@ func (s *Server) buildSystemSnapshot(ctx context.Context, session model.Session)
 }
 
 func (s *Server) writeSystemSnapshot(conn *ws.Conn, r *http.Request) (uint64, error) {
+	started := time.Now()
 	snapshot, err := s.buildSystemSnapshot(r.Context(), sessionFrom(r))
 	if err != nil {
 		return 0, err
 	}
-	if err := s.writeWebSocketJSON(conn, snapshot); err != nil {
+	size, err := s.writeWebSocketJSONWithSize(conn, snapshot)
+	if err != nil {
 		return 0, err
 	}
+	s.metrics.ObserveWebSocketSnapshot(time.Since(started), size)
 	return snapshot.Sequence, nil
 }
 
@@ -114,6 +117,21 @@ func (s *Server) writeWebSocketJSON(conn *ws.Conn, value any) error {
 	return err
 }
 
+func (s *Server) writeWebSocketJSONWithSize(conn *ws.Conn, value any) (int, error) {
+	timeout := s.eventWriteTimeout
+	if timeout <= 0 {
+		timeout = defaultEventWriteTimeout
+	}
+	if err := conn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+		return 0, err
+	}
+	size, err := conn.WriteJSONWithSize(value)
+	if err == nil {
+		_ = conn.SetWriteDeadline(time.Time{})
+	}
+	return size, err
+}
+
 func eventFollowsSequence(event events.Event, sequence uint64) bool {
 	return event.Sequence > sequence
 }
@@ -124,6 +142,8 @@ func (s *Server) eventsWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	disconnected := s.metrics.WebSocketConnected()
+	defer disconnected()
 
 	bufferSize := s.eventBuffer
 	if bufferSize <= 0 {
@@ -157,6 +177,7 @@ func (s *Server) eventsWebSocket(w http.ResponseWriter, r *http.Request) {
 				_ = s.store.TouchSession(r.Context(), sessionFrom(r).ID, time.Now().UTC())
 
 			case "client.snapshot_request":
+				s.metrics.WebSocketSnapshotRequest()
 				// Coalesce repeated requests. The writer loop is the only code
 				// writing to the WebSocket connection.
 				select {
@@ -204,8 +225,10 @@ func (s *Server) eventsWebSocket(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if err := s.writeWebSocketJSON(conn, e); err != nil {
+				s.metrics.WebSocketEvent(e.Type, false)
 				return
 			}
+			s.metrics.WebSocketEvent(e.Type, true)
 			lastSequence = e.Sequence
 		}
 	}
