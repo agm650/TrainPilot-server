@@ -1,34 +1,34 @@
-# Référence des commandes TrainPilot
+# TrainPilot command reference
 
-Ce document couvre les commandes fournies par les trois binaires du dépôt :
+This document covers the commands provided by the repository's three binaries:
 
-- `dccd` : serveur et administration locale des utilisateurs ;
-- `dccctl` : client interactif de l'API TrainPilot ;
-- `dcc-api-conformance` : validation du contrat d'une instance.
+- `dccd`: server and local user administration;
+- `dccctl`: interactive client for the TrainPilot API;
+- `dcc-api-conformance`: validation of an instance's contract.
 
-Les endpoints HTTP ne sont pas recopiés ici. Leur référence reste
-`api/openapi.yaml`. Les commandes de développement et les scripts de test sont
-documentés dans `docs/TESTING.md`.
+HTTP endpoints are not duplicated here. Their reference remains
+`api/openapi.yaml`. Development commands and test scripts are documented in
+`docs/TESTING.md`.
 
-Les exemples utilisent des binaires installés. Pendant le développement,
-remplacer par `go run ./cmd/dccd`, `go run ./cmd/dccctl` ou
+The examples use installed binaries. During development, replace them with
+`go run ./cmd/dccd`, `go run ./cmd/dccctl`, or
 `go run ./cmd/dcc-api-conformance`.
 
-## Précautions
+## Safety precautions
 
-Les commandes suivantes peuvent agir sur du matériel réel :
+The following commands can act on real hardware:
 
-- `dccctl throttle` et `dccctl function` ;
-- `dccctl power on` et `dccctl power off` ;
-- `dccctl emergency-stop` ;
-- `dccctl turnout` avec une position ;
-- `dcc-api-conformance --allow-active-commands` ;
+- `dccctl throttle` and `dccctl function`;
+- `dccctl power on` and `dccctl power off`;
+- `dccctl emergency-stop`;
+- `dccctl turnout` with a position;
+- `dcc-api-conformance --allow-active-commands`;
 - `dcc-api-conformance --check-turnouts`.
 
-Les utiliser uniquement sur une centrale explicitement sélectionnée.
-Pour les tests automatisés, utiliser le simulateur.
+Only use them with an explicitly selected command station.
+Use the simulator for automated tests.
 
-## Variables utilisées dans les exemples
+## Variables used in the examples
 
 ```bash
 export TRAINPILOT_URL='http://127.0.0.1:8080'
@@ -38,54 +38,55 @@ export DCC_ADMIN_PASSWORD='correct-horse-admin'
 export DCCD_SOCKET='/tmp/dccd-admin.sock'
 ```
 
-Ne pas conserver de vrais mots de passe dans l'historique du shell.
+Do not store real passwords in the shell history.
 
 ## `dccd`
 
 ### `dccd serve`
 
-Démarre le serveur HTTP, le socket Unix d'administration et la centrale
-configurée. Le listener de diagnostic est aussi démarré s'il est activé.
+Starts the HTTP server, the administration Unix socket, and the configured
+command station. The diagnostics listener is also started when enabled.
 
 ```bash
 dccd serve --config config.json
 ```
 
-Options :
+Options:
 
-- `--config <fichier>` : charge une configuration JSON ;
-- sans `--config` : utilise les valeurs par défaut intégrées.
+- `--config <file>`: load a JSON configuration file;
+- without `--config`: use the built-in default values.
 
-### Options communes de `dccd user`
+### Common `dccd user` options
 
-Les commandes utilisateur parlent au socket Unix local. Le serveur doit être
-en cours d'exécution.
+User commands communicate through the local Unix socket. The server must be
+running.
 
-- `--socket <chemin>` : socket d'administration ; défaut
-  `/tmp/dccd-admin.sock` ;
-- `--username <nom>` : utilisateur ciblé ;
-- `--display-name <nom>` : nom affiché lors d'une création ;
-- `--role <rôle>` : `viewer`, `driver`, `dispatcher` ou `administrator` ;
-- `--must-change` : impose un changement de mot de passe ;
-- `--password-stdin` : lit le mot de passe sur l'entrée standard.
+- `--socket <path>`: administration socket; defaults to
+  `/tmp/dccd-admin.sock`;
+- `--username <name>`: target user;
+- `--display-name <name>`: display name used when creating a user;
+- `--role <role>`: `viewer`, `driver`, `dispatcher`, or
+  `administrator`;
+- `--must-change`: require a password change;
+- `--password-stdin`: read the password from standard input.
 
 ### `dccd user bootstrap`
 
-Crée le premier utilisateur. Cette commande est refusée dès qu'un utilisateur
-existe déjà.
+Creates the first user. This command is rejected as soon as a user already
+exists.
 
 ```bash
 printf '%s\n' "$DCC_ADMIN_PASSWORD" | dccd user bootstrap \
   --socket "$DCCD_SOCKET" \
   --username admin \
-  --display-name 'Administrateur' \
+  --display-name 'Administrator' \
   --role administrator \
   --password-stdin
 ```
 
 ### `dccd user add`
 
-Ajoute un utilisateur activé.
+Adds an enabled user.
 
 ```bash
 printf '%s\n' "$DCC_PASSWORD" | dccd user add \
@@ -96,12 +97,11 @@ printf '%s\n' "$DCC_PASSWORD" | dccd user add \
   --password-stdin
 ```
 
-Ajouter `--must-change` pour imposer un nouveau mot de passe à la prochaine
-connexion.
+Add `--must-change` to require a new password at the next login.
 
 ### `dccd user list`
 
-Liste les utilisateurs, leurs rôles et leur état d'activation.
+Lists users, their roles, and whether they are enabled.
 
 ```bash
 dccd user list --socket "$DCCD_SOCKET"
@@ -109,7 +109,7 @@ dccd user list --socket "$DCCD_SOCKET"
 
 ### `dccd user enable`
 
-Réactive un utilisateur désactivé.
+Re-enables a disabled user.
 
 ```bash
 dccd user enable --socket "$DCCD_SOCKET" --username alice
@@ -117,7 +117,7 @@ dccd user enable --socket "$DCCD_SOCKET" --username alice
 
 ### `dccd user disable`
 
-Désactive un utilisateur et révoque ses sessions actives.
+Disables a user and revokes their active sessions.
 
 ```bash
 dccd user disable --socket "$DCCD_SOCKET" --username alice
@@ -125,7 +125,7 @@ dccd user disable --socket "$DCCD_SOCKET" --username alice
 
 ### `dccd user role`
 
-Change le rôle d'un utilisateur.
+Changes a user's role.
 
 ```bash
 dccd user role \
@@ -136,7 +136,7 @@ dccd user role \
 
 ### `dccd user passwd`
 
-Remplace le mot de passe et révoque les sessions de l'utilisateur.
+Replaces the password and revokes the user's sessions.
 
 ```bash
 printf '%s\n' "$DCC_PASSWORD" | dccd user passwd \
@@ -148,20 +148,20 @@ printf '%s\n' "$DCC_PASSWORD" | dccd user passwd \
 
 ## `dccctl`
 
-### Authentification et options globales
+### Authentication and global options
 
-Chaque commande métier exige `--username`.
+Every operational command requires `--username`.
 
-- `--server <URL>` : URL du serveur ; défaut `http://127.0.0.1:8080` ;
-- `--username <nom>` : utilisateur de l'API ; obligatoire ;
-- `--password-env <variable>` : variable contenant le mot de passe ;
-- `--state-file <fichier>` : stockage local de la session et des leases.
+- `--server <URL>`: server URL; defaults to `http://127.0.0.1:8080`;
+- `--username <name>`: API user; required;
+- `--password-env <variable>`: variable containing the password;
+- `--state-file <file>`: local session and lease storage.
 
-Si `--password-env` est absent, `dccctl` demande le mot de passe. Le mot de
-passe n'est jamais écrit dans le fichier d'état. Les tokens et leases le sont,
-avec des permissions `0600`.
+If `--password-env` is absent, `dccctl` prompts for the password. The
+password is never written to the state file. Tokens and leases are stored
+there with `0600` permissions.
 
-Le préfixe commun utilisé ci-dessous est :
+The common prefix used below is:
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username alice --password-env DCC_PASSWORD
@@ -169,7 +169,7 @@ dccctl --server "$TRAINPILOT_URL" --username alice --password-env DCC_PASSWORD
 
 ### `dccctl locomotives`
 
-Liste les locomotives avec leur ID, leur adresse DCC et leur nom.
+Lists locomotives with their ID, DCC address, and name.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username alice \
@@ -178,7 +178,7 @@ dccctl --server "$TRAINPILOT_URL" --username alice \
 
 ### `dccctl locomotive-show`
 
-Affiche toutes les propriétés d'une locomotive.
+Displays all properties of a locomotive.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username alice \
@@ -187,15 +187,15 @@ dccctl --server "$TRAINPILOT_URL" --username alice \
 
 ### `dccctl locomotive-add`
 
-Ajoute une locomotive. Le rôle `administrator` est requis.
+Adds a locomotive. The `administrator` role is required.
 
-Syntaxe :
+Syntax:
 
 ```text
-locomotive-add <nom> <adresse-dcc> [short|long] [14|28|128] [fabricant] [modèle]
+locomotive-add <name> <dcc-address> [short|long] [14|28|128] [manufacturer] [model]
 ```
 
-Exemple :
+Example:
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username admin \
@@ -203,23 +203,23 @@ dccctl --server "$TRAINPILOT_URL" --username admin \
   locomotive-add 'BB 26001' 3 short 128 Jouef 'BB 26000'
 ```
 
-Le type d'adresse est déduit si son argument est absent.
+The address type is inferred when its argument is omitted.
 
 ### `dccctl locomotive-update`
 
-Modifie une locomotive. Le rôle `administrator` est requis. Une locomotive
-avec un lease actif ne peut pas être modifiée.
+Updates a locomotive. The `administrator` role is required. A locomotive
+with an active lease cannot be updated.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username admin \
   --password-env DCC_ADMIN_PASSWORD \
-  locomotive-update loco-bb26001 'BB 26001 rénovée' 3 short 128 Jouef 'BB 26000'
+  locomotive-update loco-bb26001 'Refurbished BB 26001' 3 short 128 Jouef 'BB 26000'
 ```
 
 ### `dccctl locomotive-delete`
 
-Supprime une locomotive. Le rôle `administrator` est requis. Une locomotive
-référencée par l'historique des leases ne peut pas être supprimée.
+Deletes a locomotive. The `administrator` role is required. A locomotive
+referenced by the lease history cannot be deleted.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username admin \
@@ -228,8 +228,8 @@ dccctl --server "$TRAINPILOT_URL" --username admin \
 
 ### `dccctl acquire`
 
-Acquiert le contrôle exclusif d'une locomotive. Le lease est conservé dans le
-fichier d'état local.
+Acquires exclusive control of a locomotive. The lease is stored in the local
+state file.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username alice \
@@ -238,31 +238,32 @@ dccctl --server "$TRAINPILOT_URL" --username alice \
 
 ### `dccctl throttle`
 
-Règle la vitesse et le sens. Un lease sauvegardé par `acquire` est obligatoire.
-La vitesse est comprise entre 0 et 100. Le sens vaut `forward` par défaut.
+Sets the speed and direction. A lease stored by `acquire` is required.
+The speed must be between 0 and 100. The default direction is `forward`.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username alice \
   --password-env DCC_PASSWORD throttle loco-bb26001 40 forward
 ```
 
-Une vitesse de `0` est une commande d'arrêt prioritaire.
+A speed of `0` is a priority stop command.
 
 ### `dccctl function`
 
-Active ou désactive une fonction de locomotive. Un lease est obligatoire.
-Le numéro est compris entre 0 et 68, sous réserve des capacités de la centrale.
+Enables or disables a locomotive function. A lease is required.
+The number must be between 0 and 68, subject to the command station's
+capabilities.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username alice \
   --password-env DCC_PASSWORD function loco-bb26001 0 true
 ```
 
-Utiliser `false` pour désactiver la fonction.
+Use `false` to disable the function.
 
 ### `dccctl release`
 
-Demande l'arrêt contrôlé puis la libération du lease.
+Requests a controlled stop, then releases the lease.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username alice \
@@ -271,8 +272,8 @@ dccctl --server "$TRAINPILOT_URL" --username alice \
 
 ### `dccctl power status`
 
-Affiche la connectivité, l'alimentation, l'arrêt d'urgence et la télémétrie
-connue de la centrale.
+Displays the known connectivity, power, emergency-stop, and telemetry state
+of the command station.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username alice \
@@ -281,19 +282,19 @@ dccctl --server "$TRAINPILOT_URL" --username alice \
 
 ### `dccctl power on`
 
-Active l'alimentation de la voie. Aucun lease n'est requis.
+Enables track power. No lease is required.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username alice \
   --password-env DCC_PASSWORD power on
 ```
 
-Après un arrêt d'urgence, cette commande autorise de nouveau les commandes
-actives si elle réussit.
+After an emergency stop, this command permits active commands again when it
+succeeds.
 
 ### `dccctl power off`
 
-Coupe l'alimentation de la voie. Cette commande de sécurité est prioritaire.
+Disables track power. This safety command has priority.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username alice \
@@ -302,7 +303,7 @@ dccctl --server "$TRAINPILOT_URL" --username alice \
 
 ### `dccctl emergency-stop`
 
-Envoie un arrêt d'urgence global. Cette commande est prioritaire.
+Sends a global emergency stop. This command has priority.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username alice \
@@ -311,7 +312,7 @@ dccctl --server "$TRAINPILOT_URL" --username alice \
 
 ### `dccctl turnouts`
 
-Liste les aiguillages et leur état opérationnel.
+Lists turnouts and their operational state.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username dispatcher \
@@ -320,7 +321,7 @@ dccctl --server "$TRAINPILOT_URL" --username dispatcher \
 
 ### `dccctl turnout --positions`
 
-Liste les positions logiques déclarées pour un aiguillage.
+Lists the logical positions declared for a turnout.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username dispatcher \
@@ -329,8 +330,8 @@ dccctl --server "$TRAINPILOT_URL" --username dispatcher \
 
 ### `dccctl turnout <id> <position>`
 
-Commande une position logique. Le rôle `dispatcher` ou `administrator` est
-requis. Seules les positions déclarées sont acceptées.
+Commands a logical position. The `dispatcher` or `administrator` role is
+required. Only declared positions are accepted.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username dispatcher \
@@ -339,8 +340,8 @@ dccctl --server "$TRAINPILOT_URL" --username dispatcher \
 
 ### `dccctl export-rolling-stock`
 
-Exporte le matériel roulant dans une archive. Le fichier est écrit avec des
-permissions `0600`. Un fichier existant est remplacé.
+Exports rolling stock to an archive. The file is written with `0600`
+permissions. An existing file is replaced.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username alice \
@@ -349,20 +350,20 @@ dccctl --server "$TRAINPILOT_URL" --username alice \
 
 ### `dccctl import-rolling-stock`
 
-Importe une archive de matériel roulant. Le rôle `administrator` est requis.
-Par défaut, les données sont fusionnées.
+Imports a rolling-stock archive. The `administrator` role is required.
+By default, data is merged.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username admin \
   --password-env DCC_ADMIN_PASSWORD import-rolling-stock rolling-stock.zip
 ```
 
-Ajouter `--replace` pour remplacer la bibliothèque existante. Cette option est
-destructrice et peut être refusée si des leases sont actifs.
+Add `--replace` to replace the existing library. This option is destructive
+and may be rejected when leases are active.
 
 ### `dccctl export-layout`
 
-Exporte les cantons, mappings de feedback, aiguillages et itinéraires.
+Exports blocks, feedback mappings, turnouts, and routes.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username alice \
@@ -371,26 +372,26 @@ dccctl --server "$TRAINPILOT_URL" --username alice \
 
 ### `dccctl import-layout`
 
-Importe une archive de réseau. Le rôle `administrator` est requis. Par défaut,
-les données sont fusionnées.
+Imports a layout archive. The `administrator` role is required. By default,
+data is merged.
 
 ```bash
 dccctl --server "$TRAINPILOT_URL" --username admin \
   --password-env DCC_ADMIN_PASSWORD import-layout layout.zip
 ```
 
-Ajouter `--replace` pour remplacer la configuration existante.
+Add `--replace` to replace the existing configuration.
 
-### Aide et autocomplétion
+### Help and shell completion
 
-Afficher l'aide générale ou celle d'une commande :
+Display general help or help for a command:
 
 ```bash
 dccctl --help
 dccctl help throttle
 ```
 
-Générer l'autocomplétion pour `bash`, `fish`, `powershell` ou `zsh` :
+Generate completion scripts for `bash`, `fish`, `powershell`, or `zsh`:
 
 ```bash
 dccctl --username alice --password-env DCC_PASSWORD completion bash > dccctl.bash
@@ -399,18 +400,18 @@ dccctl --username alice --password-env DCC_PASSWORD completion powershell > dccc
 dccctl --username alice --password-env DCC_PASSWORD completion zsh > _dccctl
 ```
 
-La commande d'autocomplétion hérite actuellement de l'initialisation globale.
-Elle requiert donc un nom d'utilisateur et une session valide.
+The completion command currently inherits global initialization. It therefore
+requires a username and a valid session.
 
 ## `dcc-api-conformance`
 
-Ce binaire vérifie le contrat public d'un serveur en cours d'exécution. Il
-retourne un code non nul si au moins une vérification échoue.
+This binary verifies the public contract of a running server. It returns a
+non-zero status code when at least one check fails.
 
-### Vérifications passives
+### Passive checks
 
-Le mode par défaut vérifie la santé, les versions, l'authentification, les
-lectures, les erreurs structurées et les exports. Il ne commande pas la voie.
+The default mode checks health, versions, authentication, read operations,
+structured errors, and exports. It does not command the track.
 
 ```bash
 dcc-api-conformance \
@@ -419,20 +420,20 @@ dcc-api-conformance \
   --user2 bob --pass2 'correct-horse-2'
 ```
 
-Ce mode crée et révoque des sessions de test.
+This mode creates and revokes test sessions.
 
-### Inventaire des endpoints
+### Endpoint inventory
 
-Affiche chaque endpoint public et sa classe de conformité. Aucun serveur n'est
-contacté.
+Displays every public endpoint and its conformance class. No server is
+contacted.
 
 ```bash
 dcc-api-conformance --list-endpoints
 ```
 
-### Commandes actives
+### Active commands
 
-Ajoute les tests d'alimentation, de lease, de vitesse et de fonctions.
+Adds track-power, lease, speed, and function checks.
 
 ```bash
 dcc-api-conformance \
@@ -442,12 +443,12 @@ dcc-api-conformance \
   --allow-active-commands
 ```
 
-Utiliser uniquement une instance de test explicitement sélectionnée.
+Only use this on an explicitly selected test instance.
 
-### Mutations de configuration
+### Configuration mutations
 
-Ajoute les tests CRUD et les imports temporaires. Un compte administrateur est
-obligatoire. Utiliser une base jetable.
+Adds CRUD checks and temporary imports. An administrator account is required.
+Use a disposable database.
 
 ```bash
 dcc-api-conformance \
@@ -458,10 +459,10 @@ dcc-api-conformance \
   --allow-configuration-mutations
 ```
 
-### Vérification des aiguillages
+### Turnout checks
 
-Commande les positions déclarées et vérifie leurs confirmations. Un compte
-administrateur est obligatoire.
+Commands declared positions and verifies their confirmations. An administrator
+account is required.
 
 ```bash
 dcc-api-conformance \
@@ -472,12 +473,12 @@ dcc-api-conformance \
   --check-turnouts
 ```
 
-Cette option est active même sans `--allow-active-commands`.
+This option is active even without `--allow-active-commands`.
 
-### Expiration des sessions
+### Session expiration
 
-Vérifie l'expiration naturelle des access tokens et refresh tokens. Utiliser
-des TTL courts sur une instance dédiée.
+Checks the natural expiration of access and refresh tokens. Use short TTLs on
+a dedicated instance.
 
 ```bash
 dcc-api-conformance \
@@ -488,21 +489,21 @@ dcc-api-conformance \
   --session-expiration-max-wait 15s
 ```
 
-La durée maximale vaut `15s` par défaut. Elle évite d'attendre les TTL de
-production.
+The maximum duration defaults to `15s`. It avoids waiting for production
+TTLs.
 
-### Options complètes
+### Complete option list
 
-- `--server <URL>` : serveur ciblé ;
-- `--user1`, `--pass1` : premier compte conducteur ;
-- `--user2`, `--pass2` : second compte conducteur ;
-- `--admin`, `--admin-pass` : compte utilisé par les tests administratifs ;
-- `--allow-active-commands` : autorise les commandes de voie ;
-- `--allow-configuration-mutations` : autorise les mutations temporaires ;
-- `--check-turnouts` : commande et vérifie les aiguillages ;
-- `--check-session-expiration` : vérifie les expirations naturelles ;
-- `--session-expiration-max-wait <durée>` : borne chaque attente ;
-- `--list-endpoints` : affiche l'inventaire puis quitte.
+- `--server <URL>`: target server;
+- `--user1`, `--pass1`: first driver account;
+- `--user2`, `--pass2`: second driver account;
+- `--admin`, `--admin-pass`: account used by administrative checks;
+- `--allow-active-commands`: allow track commands;
+- `--allow-configuration-mutations`: allow temporary mutations;
+- `--check-turnouts`: command and verify turnouts;
+- `--check-session-expiration`: verify natural expirations;
+- `--session-expiration-max-wait <duration>`: limit each wait;
+- `--list-endpoints`: display the inventory, then exit.
 
-Les mots de passe sont passés en arguments par cet outil. Utiliser uniquement
-des comptes de test dédiés.
+This tool receives passwords as command-line arguments. Only use dedicated
+test accounts.
