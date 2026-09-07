@@ -1,0 +1,17 @@
+[Unit]
+Description=TrainPilot %i node_exporter textfile collector
+
+[Service]
+Type=oneshot
+StateDirectory=node_exporter
+StateDirectoryMode=0755
+ExecStartPre=/usr/bin/install -d -m 0755 /var/lib/node_exporter/textfile_collector
+ExecStart=/usr/local/libexec/trainpilot-%i-textfile.sh /var/lib/node_exporter/textfile_collector/trainpilot-%i.prom
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/node_exporter

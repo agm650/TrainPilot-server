@@ -166,3 +166,6 @@ go tool trace trace.out
 ```
 
 Désactiver `pprof` après la capture.
+
+Pour la collecte externe et les dashboards Grafana de benchmark, voir
+`docs/BENCHMARK-MONITORING.md`.

@@ -4,6 +4,9 @@
 running TrainPilot server. Run it on a separate machine when measuring server
 performance so generator resource use is not attributed to the server.
 
+Use `docs/BENCHMARK-MONITORING.md` to connect an existing Prometheus and
+Grafana installation and to measure monitoring overhead.
+
 ## Safety
 
 The tool is passive unless its profile contains active operations. Active

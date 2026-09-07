@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the TrainPilot %i textfile collector periodically
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=10s
+AccuracySec=1s
+Unit=trainpilot-textfile@%i.service
+
+[Install]
+WantedBy=timers.target
