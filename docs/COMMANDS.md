@@ -1,10 +1,11 @@
 # TrainPilot command reference
 
-This document covers the commands provided by the repository's three binaries:
+This document covers the commands provided by the repository's four binaries:
 
 - `dccd`: server and local user administration;
 - `dccctl`: interactive client for the TrainPilot API;
-- `dcc-api-conformance`: validation of an instance's contract.
+- `dcc-api-conformance`: validation of an instance's contract;
+- `trainpilot-bench`: reproducible remote load generator.
 
 HTTP endpoints are not duplicated here. Their reference remains
 `api/openapi.yaml`. Development commands and test scripts are documented in
@@ -12,7 +13,7 @@ HTTP endpoints are not duplicated here. Their reference remains
 
 The examples use installed binaries. During development, replace them with
 `go run ./cmd/dccd`, `go run ./cmd/dccctl`, or
-`go run ./cmd/dcc-api-conformance`.
+`go run ./cmd/dcc-api-conformance`, or `go run ./cmd/trainpilot-bench`.
 
 ## Safety precautions
 
@@ -402,6 +403,71 @@ dccctl --username alice --password-env DCC_PASSWORD completion zsh > _dccctl
 
 The completion command currently inherits global initialization. It therefore
 requires a username and a valid session.
+
+## `trainpilot-bench`
+
+The benchmark process is designed to run on a different machine from the
+server. See `docs/BENCHMARKING.md` for profile and credential formats.
+
+### `trainpilot-bench validate-profile`
+
+Validates a versioned YAML profile and its referenced fixture without
+contacting a server.
+
+```bash
+trainpilot-bench validate-profile benchmarks/profiles/smoke.yaml
+```
+
+Use `--fixture <file>` to override the fixture declared by the profile.
+
+### `trainpilot-bench run`
+
+Runs warm-up and measured phases, prints a summary, and writes a versioned JSON
+report.
+
+```bash
+trainpilot-bench run \
+  --server http://192.168.1.20:8080 \
+  --profile benchmarks/profiles/smoke.yaml \
+  --credentials benchmark-credentials.json \
+  --allow-active-commands \
+  --allow-simulator-api \
+  --output benchmarks/results/simulator-smoke.json
+```
+
+Credential files must have `0600` permissions on Unix. As an alternative, pass
+one or more environment mappings:
+
+```bash
+trainpilot-bench run \
+  --profile benchmarks/profiles/smoke.yaml \
+  --credential benchmark-01=TRAINPILOT_BENCH_PASSWORD \
+  --allow-active-commands \
+  --allow-simulator-api \
+  --output benchmarks/results/simulator-smoke.json
+```
+
+Options:
+
+- `--server <URL>`: target server; defaults to `http://127.0.0.1:8080`;
+- `--profile <file>`: versioned YAML profile; required;
+- `--fixture <file>`: override the profile's fixture;
+- `--credentials <file>`: protected JSON credentials file;
+- `--credential <user=ENV>`: environment-backed account; repeatable;
+- `--duration <duration>`: override the measured duration;
+- `--seed <integer>`: override the deterministic seed;
+- `--output <file>`: JSON report path; required;
+- `--allow-active-commands`: allow commands that can affect a railway;
+- `--allow-simulator-api`: allow simulator test-event injection;
+- `--allow-real-hardware`: additionally confirm active commands against a
+  non-simulator driver.
+
+The root command also provides `--version`, `help`, and generated completion
+commands for `bash`, `fish`, `powershell`, and `zsh`.
+
+`--credentials` and `--credential` are mutually exclusive. Active profiles are
+rejected unless explicitly enabled. A non-simulator target requires both
+active-command and real-hardware confirmation.
 
 ## `dcc-api-conformance`
 

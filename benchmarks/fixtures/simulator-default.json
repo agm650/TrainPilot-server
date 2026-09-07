@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "locomotiveIds": [
+    "loco-bb26001",
+    "loco-cc72030"
+  ],
+  "feedbackTargets": [
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 1,
+      "blockId": "block-a"
+    }
+  ],
+  "incompatibleRoutePairs": []
+}

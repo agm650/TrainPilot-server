@@ -32,6 +32,7 @@ Included features:
 - versioned rolling-stock and layout import/export using native ZIP archives;
 - `dccctl` diagnostics and transfer CLI;
 - `dcc-api-conformance` conformance tool;
+- `trainpilot-bench` reproducible remote load generator;
 - optional Prometheus and pprof diagnostics on a dedicated listener;
 - unit, concurrency, protocol, and integration tests.
 
@@ -63,6 +64,8 @@ api/                         OpenAPI and AsyncAPI contracts
 cmd/dccd/                    server and local administration
 cmd/dccctl/                  diagnostics CLI client
 cmd/dcc-api-conformance/     conformance tests against a running server
+cmd/trainpilot-bench/        reproducible remote load generator
+benchmarks/                  benchmark profiles, fixtures, and ignored results
 internal/api/                HTTP and WebSocket APIs
 internal/admin/              Unix-socket administration server/client
 internal/auth/               passwords and opaque tokens
@@ -217,9 +220,12 @@ scenarios, errors, and PlantUML sequence diagrams. See
 [`docs/CLIENT_SIMULATOR_GUIDE.md`](docs/CLIENT_SIMULATOR_GUIDE.md). It is
 included in every release archive.
 
-The complete command-line reference for `dccd`, `dccctl`, and
-`dcc-api-conformance` is available in
+The complete command-line reference for `dccd`, `dccctl`,
+`dcc-api-conformance`, and `trainpilot-bench` is available in
 [`docs/COMMANDS.md`](docs/COMMANDS.md).
+
+Benchmark setup, safety controls, profiles, and reports are documented in
+[`docs/BENCHMARKING.md`](docs/BENCHMARKING.md).
 
 Start the server:
 

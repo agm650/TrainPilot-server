@@ -45,12 +45,29 @@ builds:
     flags:
       - -trimpath
 
+  - id: benchmark
+    main: ./cmd/trainpilot-bench
+    binary: bin/trainpilot-bench
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
 archives:
   - id: distribution
     ids:
       - server
       - cli
       - conformance
+      - benchmark
 
     formats:
       - tar.gz
@@ -70,6 +87,9 @@ archives:
       - docs/**/*
       - deploy/**/*
       - scripts/test-turnouts.sh
+      - scripts/benchmark-prepare-users.sh
+      - benchmarks/profiles/**/*
+      - benchmarks/fixtures/**/*
 
 checksum:
   name_template: >-

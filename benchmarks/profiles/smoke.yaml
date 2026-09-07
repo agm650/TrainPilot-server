@@ -1,0 +1,30 @@
+schema_version: 1
+name: simulator-smoke
+warmup: 5s
+duration: 60s
+seed: 650
+fixture: ../fixtures/simulator-default.json
+operation_timeout: 5s
+
+clients:
+  users: 4
+  websockets: 4
+  active_locomotives: 2
+  workers: 16
+
+rates:
+  login_per_second: 0.2
+  refresh_per_second: 0.2
+  lease_acquire_per_second: 0.2
+  lease_heartbeat_per_second: 2
+  lease_release_per_second: 0.2
+  throttle_per_second: 10
+  functions_per_second: 3
+  feedback_per_second: 10
+  accessories_per_second: 2
+  route_operations_per_second: 1
+  reads_per_second: 5
+
+behavior:
+  reconnect_probability: 0.001
+  snapshot_probability: 0.001
