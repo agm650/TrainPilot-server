@@ -32,6 +32,7 @@ phase. The runner checks the exact resource counts before starting.
 All capacity profiles require zero unexpected errors, invariant violations,
 panics, crashes, invalid JSON, and SQLite corruption. Expected contention and
 offline refusals belong to their named scenario operation, not normal traffic.
+Expected HTTP responses are declared with profile `expected_errors` rules.
 
 ## Storm profiles
 
@@ -43,9 +44,9 @@ offline refusals belong to their named scenario operation, not normal traffic.
 - `websocket-reconnect-storm`: 50 clients reconnect after each post-snapshot
   event. Check initial snapshots and goroutine/file-descriptor recovery.
 - `lease-contention`: 10, 20, then 50 clients target one stable locomotive.
-  HTTP 409 is expected; more than one accepted lease is an invariant failure.
+  HTTP 409 is declared as expected; more than one accepted lease is an invariant failure.
 - `route-contention`: 10, 20, then 50 operations use declared incompatible
-  route pairs. HTTP 409 is expected; incompatible activation is a failure.
+  route pairs. HTTP 409 is declared as expected; incompatible activation is a failure.
 
 ## Ramp-up
 
@@ -53,8 +54,9 @@ Use the generated `xlarge` data set. Run: idle 0-2 min, small 2-5 min, medium
 5-8 min, large 8-12 min, xlarge 12-15 min, a storm profile 15-17 min, then
 medium 17-20 min. `scripts/benchmark-run-ramp.sh` runs this sequence and uses
 the xlarge fixture override for every stage. Keep the same seed. Compare
-queues, goroutines, RSS, and latency before and after overload. Automated
-single-report aggregation belongs to the reporting work item.
+queues, goroutines, RSS, and latency before and after overload. Use
+`trainpilot-bench compare` with at least three reports in each group to compare
+the medians of repeated runs.
 
 The `ramp-burst` stage injects 250 simultaneous feedback operations.
 

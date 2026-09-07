@@ -54,6 +54,13 @@ func TestProfileValidation(t *testing.T) {
 		{"rate", func(p *Profile) { p.Rates.ThrottlePerSecond = -1 }},
 		{"probability", func(p *Profile) { p.Behavior.ReconnectProbability = 2 }},
 		{"drop probability", func(p *Profile) { p.Behavior.DropEventProbability = 2 }},
+		{"empty expected error", func(p *Profile) { p.ExpectedErrors = []ExpectedErrorRule{{Operation: "throttle"}} }},
+		{"invalid expected status", func(p *Profile) {
+			p.ExpectedErrors = []ExpectedErrorRule{{Operation: "throttle", HTTPStatuses: []int{200}}}
+		}},
+		{"invalid expected kind", func(p *Profile) {
+			p.ExpectedErrors = []ExpectedErrorRule{{Operation: "throttle", Kinds: []string{"network"}}}
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -41,3 +41,40 @@ func TestReportDoesNotContainCredentialsAndUsesPrivatePermissions(t *testing.T) 
 		t.Fatalf("permissions=%04o", info.Mode().Perm())
 	}
 }
+
+func TestServerURLIsSanitizedForReports(t *testing.T) {
+	got := sanitizedServerURL("https://user:password@example.test/api?token=secret#fragment")
+	if got != "https://example.test/api" {
+		t.Fatalf("url=%q", got)
+	}
+}
+
+func TestGeneratedRunIDIsAUUID(t *testing.T) {
+	id, err := newRunID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !validRunID(id) {
+		t.Fatalf("run ID=%q", id)
+	}
+}
+
+func TestBenchmarkSchemasContainValidJSON(t *testing.T) {
+	paths, err := filepath.Glob(filepath.Join("..", "..", "benchmarks", "schema", "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 4 {
+		t.Fatalf("schema count=%d", len(paths))
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var schema map[string]any
+		if err := json.Unmarshal(data, &schema); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+	}
+}

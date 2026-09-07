@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trainpilot.example/schemas/benchmark-result-v2.json",
+  "title": "TrainPilot benchmark result v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "benchmarkVersion", "startedAt", "endedAt", "duration", "warmup", "profile", "profileSha256", "seed", "server", "clientHost", "operations", "webSocket", "invariants", "overallResult"],
+  "properties": {
+    "schemaVersion": {"const": 2},
+    "runId": {"type": "string", "format": "uuid"},
+    "benchmarkVersion": {"type": "string"},
+    "startedAt": {"type": "string", "format": "date-time"},
+    "endedAt": {"type": "string", "format": "date-time"},
+    "duration": {"type": "string"},
+    "warmup": {"type": "string"},
+    "profile": {"type": "object"},
+    "profileSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "fixtureSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "seed": {"type": "integer"},
+    "server": {"$ref": "#/$defs/server"},
+    "clientHost": {"$ref": "#/$defs/clientHost"},
+    "hardware": {"$ref": "#/$defs/hardware"},
+    "systemMetrics": {"$ref": "system-metrics-v1.json"},
+    "operations": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/operation"}
+    },
+    "webSocket": {"$ref": "#/$defs/webSocket"},
+    "invariants": {"type": "array", "items": {"$ref": "#/$defs/invariant"}},
+    "warnings": {"type": "array", "items": {"$ref": "#/$defs/warning"}},
+    "overallResult": {"enum": ["PASS", "WARN", "FAIL"]}
+  },
+  "$defs": {
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "url": {"type": "string"},
+        "serverVersion": {"type": "string"},
+        "apiVersion": {"type": "string"},
+        "eventApiVersion": {"type": "string"},
+        "stationDriver": {"type": "string"},
+        "gitCommit": {"type": "string"},
+        "goVersion": {"type": "string"},
+        "os": {"type": "string"},
+        "arch": {"type": "string"},
+        "configuration": {"type": "object", "additionalProperties": {"type": "string"}}
+      }
+    },
+    "clientHost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostname", "os", "arch", "cpus", "goVersion"],
+      "properties": {
+        "hostname": {"type": "string"}, "os": {"type": "string"}, "arch": {"type": "string"},
+        "cpus": {"type": "integer", "minimum": 0}, "goVersion": {"type": "string"}
+      }
+    },
+    "hardware": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": {"type": "string"}, "cpu": {"type": "string"}, "cores": {"type": "integer", "minimum": 0},
+        "ramBytes": {"type": "integer", "minimum": 0}, "storage": {"type": "string"}, "os": {"type": "string"},
+        "kernel": {"type": "string"}, "arch": {"type": "string"}, "network": {"type": "string"}, "notes": {"type": "string"}
+      }
+    },
+    "latency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["p50Milliseconds", "p90Milliseconds", "p95Milliseconds", "p99Milliseconds", "maxMilliseconds"],
+      "properties": {
+        "p50Milliseconds": {"type": "number", "minimum": 0}, "p90Milliseconds": {"type": "number", "minimum": 0},
+        "p95Milliseconds": {"type": "number", "minimum": 0}, "p99Milliseconds": {"type": "number", "minimum": 0},
+        "maxMilliseconds": {"type": "number", "minimum": 0}
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "successes", "expectedErrors", "unexpectedErrors", "timeouts", "skipped", "achievedRatePerSecond", "latency"],
+      "properties": {
+        "requestedRatePerSecond": {"type": "number", "minimum": 0}, "requestedBurstCount": {"type": "integer", "minimum": 0},
+        "count": {"type": "integer", "minimum": 0}, "successes": {"type": "integer", "minimum": 0},
+        "expectedErrors": {"type": "integer", "minimum": 0}, "unexpectedErrors": {"type": "integer", "minimum": 0},
+        "timeouts": {"type": "integer", "minimum": 0}, "skipped": {"type": "integer", "minimum": 0},
+        "achievedRatePerSecond": {"type": "number", "minimum": 0}, "latency": {"$ref": "#/$defs/latency"}
+      }
+    },
+    "webSocket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["connections", "disconnections", "reconnects", "sequenceGaps", "snapshots", "snapshotRequests", "eventsReceived", "invalidMessages", "unresolvedSequenceGaps", "feedbackLatency"],
+      "properties": {
+        "connections": {"type": "integer", "minimum": 0}, "disconnections": {"type": "integer", "minimum": 0},
+        "reconnects": {"type": "integer", "minimum": 0}, "sequenceGaps": {"type": "integer", "minimum": 0},
+        "snapshots": {"type": "integer", "minimum": 0}, "snapshotRequests": {"type": "integer", "minimum": 0},
+        "eventsReceived": {"type": "integer", "minimum": 0}, "invalidMessages": {"type": "integer", "minimum": 0},
+        "unresolvedSequenceGaps": {"type": "integer", "minimum": 0}, "queueOverflows": {"type": "integer", "minimum": 0},
+        "feedbackLatency": {"$ref": "#/$defs/latency"}
+      }
+    },
+    "invariant": {
+      "type": "object", "additionalProperties": false, "required": ["name", "status", "observations", "violationCount"],
+      "properties": {"name": {"type": "string"}, "status": {"enum": ["PASS", "FAIL", "NOT_OBSERVED"]}, "observations": {"type": "integer", "minimum": 0}, "violationCount": {"type": "integer", "minimum": 0}, "violations": {"type": "array", "items": {"type": "string"}}}
+    },
+    "warning": {
+      "type": "object", "additionalProperties": false, "required": ["name", "actual", "limit", "unit", "status"],
+      "properties": {"name": {"type": "string"}, "actual": {"type": "number"}, "limit": {"type": "number"}, "unit": {"type": "string"}, "status": {"const": "WARN"}}
+    }
+  }
+}

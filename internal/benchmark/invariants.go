@@ -95,7 +95,7 @@ func (t *invariantTracker) Results() ([]InvariantResult, bool) {
 		}
 		results = append(results, InvariantResult{
 			Name: name, Status: status, Observations: state.observations,
-			Violations: append([]string(nil), state.violations...),
+			ViolationCount: int64(len(state.violations)), Violations: append([]string(nil), state.violations...),
 		})
 	}
 	return results, failed
@@ -194,6 +194,7 @@ type webSocketMetrics struct {
 	disconnections   atomic.Int64
 	reconnects       atomic.Int64
 	sequenceGaps     atomic.Int64
+	unresolvedGaps   atomic.Int64
 	snapshots        atomic.Int64
 	snapshotRequests atomic.Int64
 	eventsReceived   atomic.Int64
@@ -210,7 +211,8 @@ func (m *webSocketMetrics) summary() WebSocketSummary {
 	return WebSocketSummary{
 		Connections: m.connections.Load(), Disconnections: m.disconnections.Load(),
 		Reconnects: m.reconnects.Load(), SequenceGaps: m.sequenceGaps.Load(),
-		Snapshots: m.snapshots.Load(), SnapshotRequests: m.snapshotRequests.Load(),
+		UnresolvedSequenceGaps: m.unresolvedGaps.Load(),
+		Snapshots:              m.snapshots.Load(), SnapshotRequests: m.snapshotRequests.Load(),
 		EventsReceived: m.eventsReceived.Load(), InvalidMessages: m.invalidMessages.Load(),
 		FeedbackLatency: latencyPercentiles(latencies),
 	}

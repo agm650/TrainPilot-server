@@ -167,6 +167,18 @@ bursts:
 ```
 
 Burst offsets start when the run starts and may fall in warm-up or measurement.
+Expected failures are explicit and scoped to an operation. A rule matches when
+its HTTP status, problem code, or supported kind matches:
+
+```yaml
+expected_errors:
+  - operation: lease_contention
+    http_statuses: [409]
+    problem_codes: [lease_conflict]
+  - operation: throttle
+    kinds: [timeout]
+```
+
 `behavior.drop_event_probability` deterministically discards selected received
 events so the next sequence triggers the normal snapshot resynchronization.
 See `benchmarks/README.md` for the capacity, storm, ramp-up, failure, and soak
@@ -215,18 +227,21 @@ deterministic.
 
 ## Report
 
-The JSON report has `schemaVersion: 1`. It includes:
+The JSON report has `schemaVersion: 2`. Its schema is
+`benchmarks/schema/result-v2.json`. It includes:
 
+- a UUID identifying the run;
 - benchmark, server, API, event API, and station-driver versions;
 - start and end timestamps;
 - warm-up and measured durations;
 - the full effective profile and profile/fixture SHA-256 hashes;
 - seed and client host metadata;
-- totals, successes, failures, timeouts, skipped schedules, throughput, p50,
-  p90, p95, p99, and maximum latency per operation;
+- requested and achieved rates, counts, successes, expected and unexpected
+  errors, timeouts, skipped schedules, and latency percentiles per operation;
 - WebSocket connections, reconnects, sequence gaps, snapshots, events, and
   feedback-to-event latency;
-- invariant observations and the overall `PASS` or `FAIL` result.
+- invariant observations, informational threshold warnings, and the overall
+  `PASS`, `WARN`, or `FAIL` result.
 
 Latency samples are retained with `time.Duration` precision for the run, then
 sorted once when the report is produced. This provides exact sample
@@ -248,9 +263,81 @@ The runner monitors:
 - valid JSON responses and events;
 - continued server health.
 
-Any observed violation sets `overallResult` to `FAIL`, independently of
-latency. An invariant that cannot be exercised by the selected fixture is
-reported as `NOT_OBSERVED` rather than silently claimed as tested.
+Any observed violation or unexpected operation error sets `overallResult` to
+`FAIL`, independently of latency. An invariant that cannot be exercised by the
+selected fixture is reported as `NOT_OBSERVED` rather than silently claimed as
+tested. Expected errors must be declared by a named scenario profile.
+The contention profiles declare HTTP 409 as expected and report it separately.
 
-Comparison thresholds and historical report comparison are intentionally
-deferred to the reporting and comparison work item.
+For `medium` and `large`, the initial latency and host targets are informative.
+Exceeding them produces `WARN`, never `FAIL`. The targets are command p95 below
+50 ms, command p99 below 100 ms, feedback-to-WebSocket p95 below 100 ms, and
+zero WebSocket queue overflows, SQLite errors, network drops, swap use, and
+thermal-throttling events. They are not API guarantees.
+Command latency covers lease acquire/heartbeat/release, throttle, function,
+accessory, and route operations. Login and read latency remain visible but do
+not use these command targets.
+
+## External metadata and metrics
+
+Prometheus is not accessed by `trainpilot-bench`. An external script may query
+Prometheus or use system tools, then write a summary matching
+`benchmarks/schema/system-metrics-v1.json`. Static DUT and server metadata use
+`benchmarks/schema/run-metadata-v1.json`. Complete examples are available at
+`benchmarks/examples/run-metadata.json` and
+`benchmarks/examples/system-metrics.json`. Unknown fields are rejected.
+
+The external summary uses bytes for sizes, degrees Celsius for temperature,
+and percentages for CPU. Process CPU follows `pidstat`: 100 percent is one
+fully used logical CPU. Host CPU uses 100 percent for the whole host. Maxima
+cover the measured phase. Error, drop, overflow, and throttling fields are
+counter deltas over that phase. Capture `databaseInitialBytes` immediately
+before warm-up and `databaseFinalBytes` after the measured phase and cleanup.
+
+Attach either document after the benchmark. Omitting `--output` replaces the
+input report atomically:
+
+```bash
+trainpilot-bench enrich-report benchmarks/results/run.json \
+  --metadata /tmp/run-metadata.json \
+  --metrics /tmp/system-metrics.json
+```
+
+Configuration keys containing `password`, `secret`, `token`, `credential`,
+`apiKey`, `authorization`, or `cookie` are rejected. Values must also be
+reviewed before publication. The server URL written by the runner has user
+information, query parameters, and fragments removed.
+
+Ordinary local reports may omit external metadata. A published baseline must
+pass the stricter validation:
+
+```bash
+trainpilot-bench validate-report --publication benchmarks/results/run.json
+```
+
+Publication requires run/profile identity, load-generator metadata, hardware
+identity, TrainPilot commit, server Go/OS/arch, relevant configuration, the
+metrics source, database sizes, CPU/RSS, swap, SQLite errors, network drops,
+WebSocket overflows, and thermal-throttling data.
+
+## Compare repeated runs
+
+Each group accepts any number of reports greater than or equal to three. The
+tool compares the median p50/p95/p99, achieved throughput, expected and
+unexpected errors, WebSocket gaps and overflows, and imported CPU/RAM maxima.
+For an even run count, the median is the mean of the two middle values.
+
+```bash
+trainpilot-bench compare \
+  --baseline baseline-1.json --baseline baseline-2.json --baseline baseline-3.json \
+  --candidate candidate-1.json --candidate candidate-2.json --candidate candidate-3.json \
+  --output comparison.json
+```
+
+Reports inside one group must share the same profile hash and hardware
+description, benchmark version, server version/commit, and configuration. A
+relative verdict requires matching profile hashes, hardware, and server
+configuration between groups. Cross-profile, cross-hardware, or
+cross-configuration comparisons remain informative and omit the verdict. On comparable groups, any candidate
+functional failure gives `FAIL`; a median p95 increase of at least 10 percent
+gives `WARN`. No relative performance threshold currently gives `FAIL`.

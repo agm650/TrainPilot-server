@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "source": "external-prometheus-summary-script-v1",
+  "databaseInitialBytes": 1048576,
+  "databaseFinalBytes": 1179648,
+  "processCpuMaxPercent": 72.5,
+  "processRssMaxBytes": 134217728,
+  "hostCpuMaxPercent": 81.2,
+  "hostRamMaxBytes": 536870912,
+  "swapMaxBytes": 0,
+  "sqliteErrors": 0,
+  "networkDrops": 0,
+  "webSocketQueueOverflows": 0,
+  "temperatureMaxCelsius": 63.4,
+  "thermalThrottlingEvents": 0
+}

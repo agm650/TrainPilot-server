@@ -17,12 +17,27 @@ type operationRecorder struct {
 }
 
 type operationStats struct {
-	Total     int64
-	Successes int64
-	Failures  int64
-	Timeouts  int64
-	Skipped   int64
-	Latencies []time.Duration
+	Count            int64
+	Successes        int64
+	ExpectedErrors   int64
+	UnexpectedErrors int64
+	Timeouts         int64
+	Skipped          int64
+	Latencies        []time.Duration
+}
+
+type expectedOperationError struct {
+	err error
+}
+
+func (e expectedOperationError) Error() string { return e.err.Error() }
+func (e expectedOperationError) Unwrap() error { return e.err }
+
+func expectedError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return expectedOperationError{err: err}
 }
 
 func newOperationRecorder() *operationRecorder {
@@ -47,11 +62,16 @@ func (r *operationRecorder) Record(name string, latency time.Duration, err error
 		stats = &operationStats{}
 		r.stats[name] = stats
 	}
-	stats.Total++
+	stats.Count++
 	if err == nil {
 		stats.Successes++
 	} else {
-		stats.Failures++
+		var expected expectedOperationError
+		if errors.As(err, &expected) {
+			stats.ExpectedErrors++
+		} else {
+			stats.UnexpectedErrors++
+		}
 		if contextCanceledOrDeadline(err) {
 			stats.Timeouts++
 		}
@@ -77,19 +97,42 @@ func contextCanceledOrDeadline(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
 }
 
-func (r *operationRecorder) Summaries(measured time.Duration) map[string]OperationSummary {
+func (r *operationRecorder) Summaries(measured time.Duration, requestedRates map[string]float64, requestedBursts map[string]int64) map[string]OperationSummary {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	result := make(map[string]OperationSummary, len(r.stats))
-	for name, stats := range r.stats {
+	names := make(map[string]struct{}, len(r.stats)+len(requestedRates)+len(requestedBursts))
+	for name := range r.stats {
+		names[name] = struct{}{}
+	}
+	for name, rate := range requestedRates {
+		if rate > 0 {
+			names[name] = struct{}{}
+		}
+	}
+	for name, count := range requestedBursts {
+		if count > 0 {
+			names[name] = struct{}{}
+		}
+	}
+	result := make(map[string]OperationSummary, len(names))
+	for name := range names {
+		stats := r.stats[name]
+		if stats == nil {
+			stats = &operationStats{}
+		}
 		latencies := append([]time.Duration(nil), stats.Latencies...)
 		sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
 		summary := OperationSummary{
-			Total: stats.Total, Successes: stats.Successes, Failures: stats.Failures,
+			RequestedBurstCount: requestedBursts[name], Count: stats.Count, Successes: stats.Successes,
+			ExpectedErrors: stats.ExpectedErrors, UnexpectedErrors: stats.UnexpectedErrors,
 			Timeouts: stats.Timeouts, Skipped: stats.Skipped, Latency: latencyPercentiles(latencies),
 		}
+		if rate, ok := requestedRates[name]; ok && rate > 0 {
+			rateCopy := rate
+			summary.RequestedRatePerSecond = &rateCopy
+		}
 		if measured > 0 {
-			summary.ThroughputPerSecond = float64(stats.Total) / measured.Seconds()
+			summary.AchievedRatePerSecond = float64(stats.Count) / measured.Seconds()
 		}
 		result[name] = summary
 	}

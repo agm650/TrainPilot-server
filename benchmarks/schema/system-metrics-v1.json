@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trainpilot.example/schemas/benchmark-system-metrics-v1.json",
+  "title": "TrainPilot external system metrics summary v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "source"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "source": {"type": "string", "minLength": 1},
+    "databaseInitialBytes": {"type": "integer", "minimum": 0},
+    "databaseFinalBytes": {"type": "integer", "minimum": 0},
+    "processCpuMaxPercent": {"type": "number", "minimum": 0},
+    "processRssMaxBytes": {"type": "integer", "minimum": 0},
+    "hostCpuMaxPercent": {"type": "number", "minimum": 0},
+    "hostRamMaxBytes": {"type": "integer", "minimum": 0},
+    "swapMaxBytes": {"type": "integer", "minimum": 0},
+    "sqliteErrors": {"type": "integer", "minimum": 0},
+    "networkDrops": {"type": "integer", "minimum": 0},
+    "webSocketQueueOverflows": {"type": "integer", "minimum": 0},
+    "temperatureMaxCelsius": {"type": "number", "minimum": 0},
+    "thermalThrottlingEvents": {"type": "integer", "minimum": 0}
+  }
+}

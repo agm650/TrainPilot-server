@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "hardware": {
+    "model": "Raspberry Pi 3 Model B Plus Rev 1.3",
+    "cpu": "Broadcom BCM2837B0",
+    "cores": 4,
+    "ramBytes": 1073741824,
+    "storage": "32 GB industrial microSD",
+    "os": "Raspberry Pi OS 64-bit",
+    "kernel": "6.12.0-rpi8-rpi-v8",
+    "arch": "arm64",
+    "network": "1 Gbit Ethernet adapter, 100 Mbit effective link",
+    "notes": "Official power supply; passive heatsink; no fan"
+  },
+  "server": {
+    "gitCommit": "replace-with-full-commit",
+    "goVersion": "go1.26.0",
+    "os": "linux",
+    "arch": "arm64",
+    "configuration": {
+      "databaseJournalMode": "WAL",
+      "diagnosticsEnabled": "true",
+      "metricsEnabled": "true",
+      "scrapeInterval": "15s"
+    }
+  }
+}

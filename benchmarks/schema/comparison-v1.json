@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trainpilot.example/schemas/benchmark-comparison-v1.json",
+  "title": "TrainPilot benchmark comparison v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "generatedAt", "baseline", "candidate", "comparable", "operations", "webSocket", "functional"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "generatedAt": {"type": "string", "format": "date-time"},
+    "baseline": {"$ref": "#/$defs/group"},
+    "candidate": {"$ref": "#/$defs/group"},
+    "comparable": {"type": "boolean"},
+    "reason": {"type": "string"},
+    "result": {"enum": ["PASS", "WARN", "FAIL"]},
+    "operations": {"type": "object", "additionalProperties": {"$ref": "#/$defs/operation"}},
+    "webSocket": {"type": "object", "additionalProperties": {"$ref": "#/$defs/metric"}},
+    "systemMetrics": {"type": "object", "additionalProperties": {"$ref": "#/$defs/metric"}},
+    "functional": {"$ref": "#/$defs/functional"}
+  },
+  "$defs": {
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runs", "profileName", "profileSha256"],
+      "properties": {
+        "runs": {"type": "integer", "minimum": 3}, "profileName": {"type": "string"},
+        "profileSha256": {"type": "string"}, "hardware": {"type": "object"},
+        "benchmarkVersion": {"type": "string"}, "serverVersion": {"type": "string"},
+        "serverGitCommit": {"type": "string"},
+        "serverConfiguration": {"type": "object", "additionalProperties": {"type": "string"}}
+      }
+    },
+    "metric": {
+      "type": "object", "additionalProperties": false,
+      "required": ["baselineMedian", "candidateMedian", "delta"],
+      "properties": {
+        "baselineMedian": {"type": "number"}, "candidateMedian": {"type": "number"},
+        "delta": {"type": "number"}, "percentChange": {"type": "number"}
+      }
+    },
+    "operation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["p50Milliseconds", "p95Milliseconds", "p99Milliseconds", "achievedRatePerSecond", "expectedErrors", "unexpectedErrors"],
+      "properties": {
+        "p50Milliseconds": {"$ref": "#/$defs/metric"}, "p95Milliseconds": {"$ref": "#/$defs/metric"},
+        "p99Milliseconds": {"$ref": "#/$defs/metric"}, "achievedRatePerSecond": {"$ref": "#/$defs/metric"},
+        "expectedErrors": {"$ref": "#/$defs/metric"}, "unexpectedErrors": {"$ref": "#/$defs/metric"}
+      }
+    },
+    "functional": {
+      "type": "object", "additionalProperties": false,
+      "required": ["baselineFailedRuns", "candidateFailedRuns", "baselineInvariantViolations", "candidateInvariantViolations", "baselineUnexpectedErrors", "candidateUnexpectedErrors"],
+      "properties": {
+        "baselineFailedRuns": {"type": "integer", "minimum": 0}, "candidateFailedRuns": {"type": "integer", "minimum": 0},
+        "baselineInvariantViolations": {"type": "integer", "minimum": 0}, "candidateInvariantViolations": {"type": "integer", "minimum": 0},
+        "baselineUnexpectedErrors": {"type": "integer", "minimum": 0}, "candidateUnexpectedErrors": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

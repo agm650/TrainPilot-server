@@ -35,7 +35,7 @@ func newRootCommand() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
-	command.AddCommand(newValidateProfileCommand(), newGenerateFixtureCommand(), newRunCommand())
+	command.AddCommand(newValidateProfileCommand(), newGenerateFixtureCommand(), newRunCommand(), newEnrichReportCommand(), newValidateReportCommand(), newCompareCommand())
 	return command
 }
 
@@ -182,9 +182,121 @@ func executeRun(command *cobra.Command, flags *runFlags) error {
 	bench.WriteConsoleSummary(command.OutOrStdout(), report)
 	fmt.Fprintf(command.OutOrStdout(), "Report: %s\n", flags.output)
 	if report.OverallResult == "FAIL" {
-		return errors.New("benchmark invariant violation")
+		return errors.New("benchmark functional failure")
 	}
 	return nil
+}
+
+func newEnrichReportCommand() *cobra.Command {
+	var metadataPath string
+	var metricsPath string
+	var outputPath string
+	command := &cobra.Command{
+		Use:   "enrich-report <report.json>",
+		Short: "Attach external hardware and system metrics to a report",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if metadataPath == "" && metricsPath == "" {
+				return errors.New("provide --metadata or --metrics")
+			}
+			report, err := bench.LoadReport(args[0])
+			if err != nil {
+				return err
+			}
+			if metadataPath != "" {
+				metadata, err := bench.LoadRunMetadata(metadataPath)
+				if err != nil {
+					return err
+				}
+				bench.ApplyRunMetadata(&report, metadata)
+			}
+			if metricsPath != "" {
+				metrics, err := bench.LoadSystemMetrics(metricsPath)
+				if err != nil {
+					return err
+				}
+				bench.ApplySystemMetrics(&report, metrics)
+			}
+			bench.ApplyReportPolicy(&report)
+			destination := outputPath
+			if destination == "" {
+				destination = args[0]
+			}
+			if err := bench.WriteReport(destination, report); err != nil {
+				return err
+			}
+			fmt.Fprintf(command.OutOrStdout(), "Enriched report: %s\n", destination)
+			return nil
+		},
+	}
+	command.Flags().StringVar(&metadataPath, "metadata", "", "versioned hardware and server metadata JSON")
+	command.Flags().StringVar(&metricsPath, "metrics", "", "versioned external system metrics summary JSON")
+	command.Flags().StringVar(&outputPath, "output", "", "output report path; defaults to replacing the input atomically")
+	return command
+}
+
+func newValidateReportCommand() *cobra.Command {
+	var publication bool
+	command := &cobra.Command{
+		Use:   "validate-report <report.json>",
+		Short: "Validate a benchmark report",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			report, err := bench.LoadReport(args[0])
+			if err != nil {
+				return err
+			}
+			if publication {
+				if err := bench.ValidateReportForPublication(report); err != nil {
+					return err
+				}
+			}
+			fmt.Fprintf(command.OutOrStdout(), "Report is valid: %s\n", args[0])
+			return nil
+		},
+	}
+	command.Flags().BoolVar(&publication, "publication", false, "require all metadata needed for a published baseline")
+	return command
+}
+
+func newCompareCommand() *cobra.Command {
+	var baselinePaths []string
+	var candidatePaths []string
+	var outputPath string
+	command := &cobra.Command{
+		Use:   "compare",
+		Short: "Compare medians from two groups of at least three reports",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			baseline, err := bench.LoadReports(baselinePaths)
+			if err != nil {
+				return fmt.Errorf("baseline: %w", err)
+			}
+			candidate, err := bench.LoadReports(candidatePaths)
+			if err != nil {
+				return fmt.Errorf("candidate: %w", err)
+			}
+			comparison, err := bench.CompareReports(baseline, candidate)
+			if err != nil {
+				return err
+			}
+			bench.WriteComparisonSummary(command.OutOrStdout(), comparison)
+			if err := bench.WriteComparison(outputPath, comparison); err != nil {
+				return err
+			}
+			if outputPath != "" {
+				fmt.Fprintf(command.OutOrStdout(), "Comparison report: %s\n", outputPath)
+			}
+			if comparison.Result == "FAIL" {
+				return errors.New("candidate has functional failures")
+			}
+			return nil
+		},
+	}
+	command.Flags().StringArrayVar(&baselinePaths, "baseline", nil, "baseline report path; repeat at least three times")
+	command.Flags().StringArrayVar(&candidatePaths, "candidate", nil, "candidate report path; repeat at least three times")
+	command.Flags().StringVar(&outputPath, "output", "", "optional versioned comparison JSON path")
+	return command
 }
 
 func loadRunCredentials(flags *runFlags) ([]bench.Credential, error) {

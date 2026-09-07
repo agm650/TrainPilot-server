@@ -219,19 +219,31 @@ func Run(ctx context.Context, options RunOptions) (Report, error) {
 	cleanupNeeded = false
 
 	results, invariantFailure := engine.invariants.Results()
+	runID, err := newRunID()
+	if err != nil {
+		return Report{}, err
+	}
 	report := Report{
-		SchemaVersion: ReportSchemaVersion, BenchmarkVersion: options.BenchmarkVersion,
+		SchemaVersion: ReportSchemaVersion, RunID: runID, BenchmarkVersion: options.BenchmarkVersion,
 		StartedAt: startedAt, EndedAt: measuredEnded, Duration: engine.profile.Duration.String(),
 		Warmup: engine.profile.Warmup.String(), Profile: engine.profile,
 		ProfileSHA256: profileHash(engine.profile), FixtureSHA256: fixtureHash(engine.options.Fixture), Seed: engine.profile.Seed,
 		Server: serverMetadata(options.Server, engine.info), ClientHost: currentHostMetadata(),
-		Operations: engine.recorder.Summaries(measuredEnded.Sub(measurementStarted)),
+		Operations: engine.recorder.Summaries(measuredEnded.Sub(measurementStarted), engine.operationRates(), engine.requestedBursts()),
 		WebSocket:  engine.wsMetrics.summary(), Invariants: results, OverallResult: "PASS",
 	}
-	if invariantFailure {
-		report.OverallResult = "FAIL"
-	}
+	applyReportPolicy(&report, invariantFailure)
 	return report, nil
+}
+
+func (e *runEngine) requestedBursts() map[string]int64 {
+	counts := make(map[string]int64)
+	for _, burst := range e.profile.Bursts {
+		if burst.At.Duration >= e.profile.Warmup.Duration {
+			counts[burst.Operation] += int64(burst.Count)
+		}
+	}
+	return counts
 }
 
 func (e *runEngine) preflight(ctx context.Context) error {
@@ -506,10 +518,45 @@ func (e *runEngine) executeJob(parent context.Context, job scheduledJob) {
 		e.recorder.Skip(job.operation)
 		return
 	}
+	if e.isExpectedError(job.operation, err) {
+		err = expectedError(err)
+	}
 	e.recorder.Record(job.operation, time.Since(started), err)
 	if isJSONError(err) {
 		e.invariants.Violate(invariantValidJSON, fmt.Sprintf("invalid JSON during %s", job.operation))
 	}
+}
+
+func (e *runEngine) isExpectedError(operation string, err error) bool {
+	if err == nil {
+		return false
+	}
+	for _, rule := range e.profile.ExpectedErrors {
+		if rule.Operation != operation {
+			continue
+		}
+		for _, kind := range rule.Kinds {
+			if kind == "timeout" && contextCanceledOrDeadline(err) {
+				return true
+			}
+		}
+		var httpError *client.HTTPError
+		if errors.As(err, &httpError) {
+			for _, status := range rule.HTTPStatuses {
+				if httpError.StatusCode == status {
+					return true
+				}
+			}
+		}
+		if httpError != nil && httpError.Problem != nil {
+			for _, code := range rule.ProblemCodes {
+				if httpError.Problem.Code == code {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (e *runEngine) perform(ctx context.Context, operation string, random *rand.Rand) error {
@@ -561,7 +608,7 @@ func (e *runEngine) performLeaseContention(ctx context.Context, random *rand.Ran
 	})
 	if hasHTTPStatus(err, http.StatusConflict) {
 		e.invariants.Observe(invariantExclusiveLease)
-		return nil
+		return err
 	}
 	if err != nil {
 		return err
@@ -594,14 +641,14 @@ func (e *runEngine) performRouteContention(ctx context.Context, random *rand.Ran
 	session := e.sessions[sessionIndex]
 	if err := session.withClient(ctx, func(c *client.Client) error { return c.ReserveRoute(ctx, routeID) }); err != nil {
 		if hasHTTPStatus(err, http.StatusConflict) {
-			return nil
+			return err
 		}
 		return err
 	}
 	if err := session.withClient(ctx, func(c *client.Client) error { return c.ActivateRoute(ctx, routeID) }); err != nil {
 		_ = session.withClient(ctx, func(c *client.Client) error { return c.ReleaseRoute(ctx, routeID) })
 		if hasHTTPStatus(err, http.StatusConflict) {
-			return nil
+			return err
 		}
 		return err
 	}

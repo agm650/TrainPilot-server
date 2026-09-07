@@ -91,6 +91,7 @@ func (e *runEngine) consumeWebSocket(ctx context.Context, client *webSocketClien
 			lastSequence = message.Sequence
 			if *awaitingResync {
 				e.invariants.Observe(invariantWebSocketResync)
+				e.wsMetrics.unresolvedGaps.Add(-1)
 				*awaitingResync = false
 			}
 			ready()
@@ -108,6 +109,7 @@ func (e *runEngine) consumeWebSocket(ctx context.Context, client *webSocketClien
 		}
 		if !*awaitingResync && lastSequence > 0 && message.Sequence > lastSequence+1 {
 			e.wsMetrics.sequenceGaps.Add(1)
+			e.wsMetrics.unresolvedGaps.Add(1)
 			*awaitingResync = true
 			if err := client.WriteJSON(map[string]any{"type": "client.snapshot_request", "lastSequence": lastSequence}, e.profile.OperationTimeout.Duration); err != nil {
 				return err

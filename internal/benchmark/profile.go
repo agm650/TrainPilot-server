@@ -45,17 +45,18 @@ func (d *Duration) UnmarshalJSON(data []byte) error {
 }
 
 type Profile struct {
-	SchemaVersion    int             `yaml:"schema_version" json:"schemaVersion"`
-	Name             string          `yaml:"name" json:"name"`
-	Warmup           Duration        `yaml:"warmup" json:"warmup"`
-	Duration         Duration        `yaml:"duration" json:"duration"`
-	Seed             int64           `yaml:"seed" json:"seed"`
-	Fixture          string          `yaml:"fixture,omitempty" json:"fixture,omitempty"`
-	OperationTimeout Duration        `yaml:"operation_timeout,omitempty" json:"operationTimeout"`
-	Clients          ClientProfile   `yaml:"clients" json:"clients"`
-	Rates            RateProfile     `yaml:"rates" json:"rates"`
-	Behavior         BehaviorProfile `yaml:"behavior" json:"behavior"`
-	Bursts           []BurstProfile  `yaml:"bursts,omitempty" json:"bursts,omitempty"`
+	SchemaVersion    int                 `yaml:"schema_version" json:"schemaVersion"`
+	Name             string              `yaml:"name" json:"name"`
+	Warmup           Duration            `yaml:"warmup" json:"warmup"`
+	Duration         Duration            `yaml:"duration" json:"duration"`
+	Seed             int64               `yaml:"seed" json:"seed"`
+	Fixture          string              `yaml:"fixture,omitempty" json:"fixture,omitempty"`
+	OperationTimeout Duration            `yaml:"operation_timeout,omitempty" json:"operationTimeout"`
+	Clients          ClientProfile       `yaml:"clients" json:"clients"`
+	Rates            RateProfile         `yaml:"rates" json:"rates"`
+	Behavior         BehaviorProfile     `yaml:"behavior" json:"behavior"`
+	Bursts           []BurstProfile      `yaml:"bursts,omitempty" json:"bursts,omitempty"`
+	ExpectedErrors   []ExpectedErrorRule `yaml:"expected_errors,omitempty" json:"expectedErrors,omitempty"`
 }
 
 type ClientProfile struct {
@@ -89,6 +90,13 @@ type BurstProfile struct {
 	At        Duration `yaml:"at" json:"at"`
 	Operation string   `yaml:"operation" json:"operation"`
 	Count     int      `yaml:"count" json:"count"`
+}
+
+type ExpectedErrorRule struct {
+	Operation    string   `yaml:"operation" json:"operation"`
+	HTTPStatuses []int    `yaml:"http_statuses,omitempty" json:"httpStatuses,omitempty"`
+	ProblemCodes []string `yaml:"problem_codes,omitempty" json:"problemCodes,omitempty"`
+	Kinds        []string `yaml:"kinds,omitempty" json:"kinds,omitempty"`
 }
 
 func LoadProfile(path string) (Profile, error) {
@@ -201,6 +209,32 @@ func (p Profile) Validate() error {
 		}
 		if burst.Count <= 0 || burst.Count > 100_000 {
 			return fmt.Errorf("bursts[%d].count must be between 1 and 100000", index)
+		}
+	}
+	for index, rule := range p.ExpectedErrors {
+		if !allowedBurstOperations[rule.Operation] {
+			return fmt.Errorf("expected_errors[%d].operation %q is unsupported", index, rule.Operation)
+		}
+		if !p.HasOperation(rule.Operation) {
+			return fmt.Errorf("expected_errors[%d].operation %q is not scheduled", index, rule.Operation)
+		}
+		if len(rule.HTTPStatuses) == 0 && len(rule.ProblemCodes) == 0 && len(rule.Kinds) == 0 {
+			return fmt.Errorf("expected_errors[%d] must define http_statuses, problem_codes, or kinds", index)
+		}
+		for _, status := range rule.HTTPStatuses {
+			if status < 400 || status > 599 {
+				return fmt.Errorf("expected_errors[%d].http_statuses must contain HTTP error statuses", index)
+			}
+		}
+		for _, code := range rule.ProblemCodes {
+			if code == "" {
+				return fmt.Errorf("expected_errors[%d].problem_codes must not contain empty values", index)
+			}
+		}
+		for _, kind := range rule.Kinds {
+			if kind != "timeout" {
+				return fmt.Errorf("expected_errors[%d].kinds contains unsupported value %q", index, kind)
+			}
 		}
 	}
 	leaseConsumerRate := p.Rates.LeaseHeartbeatPerSecond + p.Rates.LeaseReleasePerSecond + p.Rates.ThrottlePerSecond + p.Rates.FunctionsPerSecond

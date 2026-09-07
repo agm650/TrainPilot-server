@@ -8,6 +8,8 @@ operation_timeout: 5s
 clients: {users: 50, websockets: 10, active_locomotives: 0, workers: 64}
 rates: {reads_per_second: 5}
 behavior: {}
+expected_errors:
+  - {operation: route_contention, http_statuses: [409]}
 bursts:
   - {at: 35s, operation: route_contention, count: 10}
   - {at: 95s, operation: route_contention, count: 20}

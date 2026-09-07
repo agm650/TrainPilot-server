@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trainpilot.example/schemas/benchmark-run-metadata-v1.json",
+  "title": "TrainPilot benchmark run metadata v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "hardware", "server"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "hardware": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "model": {"type": "string"}, "cpu": {"type": "string"}, "cores": {"type": "integer", "minimum": 0},
+        "ramBytes": {"type": "integer", "minimum": 0}, "storage": {"type": "string"}, "os": {"type": "string"},
+        "kernel": {"type": "string"}, "arch": {"type": "string"}, "network": {"type": "string"}, "notes": {"type": "string"}
+      }
+    },
+    "server": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "gitCommit": {"type": "string"}, "goVersion": {"type": "string"}, "os": {"type": "string"}, "arch": {"type": "string"},
+        "configuration": {"type": "object", "additionalProperties": {"type": "string"}}
+      }
+    }
+  }
+}
