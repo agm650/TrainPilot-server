@@ -39,3 +39,22 @@ func TestRunCommandRequiresCredentials(t *testing.T) {
 		t.Fatalf("error=%v", err)
 	}
 }
+
+func TestGenerateFixtureCommand(t *testing.T) {
+	outputDirectory := filepath.Join(t.TempDir(), "small")
+	command := newRootCommand()
+	var output bytes.Buffer
+	command.SetOut(&output)
+	command.SetArgs([]string{"generate-fixture", "small", "--output", outputDirectory})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), `fixture "small" written`) {
+		t.Fatalf("output=%q", output.String())
+	}
+	for _, name := range []string{"rolling-stock.dcclib", "layout.dcclayout", "fixture.json"} {
+		if _, err := os.Stat(filepath.Join(outputDirectory, name)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}

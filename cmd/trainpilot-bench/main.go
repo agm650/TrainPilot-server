@@ -35,7 +35,26 @@ func newRootCommand() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
-	command.AddCommand(newValidateProfileCommand(), newRunCommand())
+	command.AddCommand(newValidateProfileCommand(), newGenerateFixtureCommand(), newRunCommand())
+	return command
+}
+
+func newGenerateFixtureCommand() *cobra.Command {
+	var output string
+	command := &cobra.Command{
+		Use:   "generate-fixture <small|medium|large|xlarge>",
+		Short: "Generate deterministic import archives and benchmark selectors",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := bench.WriteDataset(output, args[0]); err != nil {
+				return err
+			}
+			fmt.Fprintf(command.OutOrStdout(), "fixture %q written to %s\n", args[0], output)
+			return nil
+		},
+	}
+	command.Flags().StringVar(&output, "output", "", "output directory")
+	_ = command.MarkFlagRequired("output")
 	return command
 }
 
@@ -79,6 +98,7 @@ type runFlags struct {
 	credentials         string
 	environmentAccounts []string
 	duration            time.Duration
+	warmup              time.Duration
 	seed                int64
 	output              string
 	allowActive         bool
@@ -102,6 +122,7 @@ func newRunCommand() *cobra.Command {
 	command.Flags().StringVar(&flags.credentials, "credentials", "", "credentials JSON path")
 	command.Flags().StringSliceVar(&flags.environmentAccounts, "credential", nil, "credential mapping username=ENV_VAR; repeat for multiple accounts")
 	command.Flags().DurationVar(&flags.duration, "duration", 0, "override measured duration")
+	command.Flags().DurationVar(&flags.warmup, "warmup", 0, "override warm-up duration")
 	command.Flags().Int64Var(&flags.seed, "seed", 0, "override deterministic seed")
 	command.Flags().StringVar(&flags.output, "output", "", "JSON report path")
 	command.Flags().BoolVar(&flags.allowActive, "allow-active-commands", false, "allow leases, track power, throttle, functions, accessories, and routes")
@@ -119,6 +140,9 @@ func executeRun(command *cobra.Command, flags *runFlags) error {
 	}
 	if command.Flags().Changed("duration") {
 		profile.Duration.Duration = flags.duration
+	}
+	if command.Flags().Changed("warmup") {
+		profile.Warmup.Duration = flags.warmup
 	}
 	if command.Flags().Changed("seed") {
 		profile.Seed = flags.seed

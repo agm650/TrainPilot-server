@@ -1,0 +1,18 @@
+schema_version: 1
+name: ramp-burst
+warmup: 0s
+duration: 2m
+seed: 650
+fixture: ../fixtures/xlarge/fixture.json
+operation_timeout: 5s
+clients: {users: 50, websockets: 50, active_locomotives: 50, workers: 128}
+rates:
+  throttle_per_second: 100
+  functions_per_second: 25
+  feedback_per_second: 100
+  accessories_per_second: 25
+  route_operations_per_second: 10
+  reads_per_second: 40
+behavior: {reconnect_probability: 0.001, snapshot_probability: 0.001}
+bursts:
+  - {at: 1m, operation: feedback, count: 250}

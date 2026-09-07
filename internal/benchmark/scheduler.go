@@ -5,12 +5,41 @@ import (
 	"encoding/binary"
 	"hash/fnv"
 	"math/rand"
+	"sort"
 	"time"
 )
 
 type scheduledJob struct {
 	operation string
 	seed      int64
+}
+
+func runBurstScheduler(ctx context.Context, bursts []BurstProfile, seed int64, jobs chan<- scheduledJob, dropped func()) {
+	ordered := append([]BurstProfile(nil), bursts...)
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].At.Duration < ordered[j].At.Duration })
+	started := time.Now()
+	var sequence uint64
+	for _, burst := range ordered {
+		delay := burst.At.Duration - time.Since(started)
+		if delay > 0 {
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+		}
+		for index := 0; index < burst.Count; index++ {
+			sequence++
+			job := scheduledJob{operation: burst.Operation, seed: operationSeed(seed, "burst:"+burst.Operation, sequence)}
+			select {
+			case jobs <- job:
+			default:
+				dropped()
+			}
+		}
+	}
 }
 
 func scheduleOffsets(rate float64, duration time.Duration, seed int64) []time.Duration {

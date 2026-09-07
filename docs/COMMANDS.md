@@ -409,6 +409,18 @@ requires a username and a valid session.
 The benchmark process is designed to run on a different machine from the
 server. See `docs/BENCHMARKING.md` for profile and credential formats.
 
+### `trainpilot-bench generate-fixture`
+
+Generates deterministic import archives and a benchmark selector for `small`,
+`medium`, `large`, or `xlarge`:
+
+```bash
+trainpilot-bench generate-fixture medium --output /tmp/trainpilot-medium
+```
+
+Import the archives before starting the measured run. Repeated generation of
+the same preset produces identical files and stable resource IDs.
+
 ### `trainpilot-bench validate-profile`
 
 Validates a versioned YAML profile and its referenced fixture without
@@ -455,6 +467,7 @@ Options:
 - `--credentials <file>`: protected JSON credentials file;
 - `--credential <user=ENV>`: environment-backed account; repeatable;
 - `--duration <duration>`: override the measured duration;
+- `--warmup <duration>`: override the warm-up duration, including `0s`;
 - `--seed <integer>`: override the deterministic seed;
 - `--output <file>`: JSON report path; required;
 - `--allow-active-commands`: allow commands that can affect a railway;

@@ -1,6 +1,8 @@
 package benchmark
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +53,7 @@ func TestProfileValidation(t *testing.T) {
 		{"users", func(p *Profile) { p.Clients.Users = 0 }},
 		{"rate", func(p *Profile) { p.Rates.ThrottlePerSecond = -1 }},
 		{"probability", func(p *Profile) { p.Behavior.ReconnectProbability = 2 }},
+		{"drop probability", func(p *Profile) { p.Behavior.DropEventProbability = 2 }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -92,5 +95,43 @@ func TestFeedbackRateRequiresFixtureTarget(t *testing.T) {
 	fixture := Fixture{SchemaVersion: FixtureSchemaVersion, FeedbackTargets: []FeedbackTarget{{Source: "simulator", Kind: "occupancy", Address: 1, BlockID: "block-a"}}}
 	if err := ValidateFixtureForProfile(profile, fixture); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLoadFixtureRejectsDuplicateSelectorsAndInvalidDataset(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "fixture.json")
+	data := `{"schemaVersion":1,"dataset":{"preset":"small","locomotives":0,"blocks":20,"turnouts":10,"routes":10}}`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadFixture(path); err == nil || !strings.Contains(err.Error(), "resource counts") {
+		t.Fatalf("error=%v", err)
+	}
+	data = `{"schemaVersion":1,"locomotiveIds":["same","same"]}`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadFixture(path); err == nil || !strings.Contains(err.Error(), "duplicates") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestProfileBurstsAreValidatedAndAffectSafetyFlags(t *testing.T) {
+	profile, err := DecodeProfile(strings.NewReader(validProfileYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile.Rates.ThrottlePerSecond = 0
+	profile.Clients.ActiveLocomotives = 0
+	profile.Bursts = []BurstProfile{{At: Duration{Duration: 1500 * time.Millisecond}, Operation: "feedback", Count: 250}}
+	if err := profile.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !profile.HasSimulatorOperations() || profile.HasActiveOperations() {
+		t.Fatalf("unexpected safety flags: simulator=%t active=%t", profile.HasSimulatorOperations(), profile.HasActiveOperations())
+	}
+	profile.Bursts[0].Operation = "unknown"
+	if err := profile.Validate(); err == nil {
+		t.Fatal("expected unsupported burst operation error")
 	}
 }

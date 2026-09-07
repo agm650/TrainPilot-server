@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "name": "benchmark-station-latency-recovery",
+  "initial": {"connectivity": "online", "trackPower": true},
+  "steps": [
+    {"at": "2m", "action": "fault.operation", "operation": "throttle", "delay": "100ms"},
+    {"at": "2m", "action": "fault.operation", "operation": "function", "delay": "100ms"},
+    {"at": "2m", "action": "fault.operation", "operation": "accessory", "delay": "100ms"},
+    {"at": "4m", "action": "fault.clear"},
+    {"at": "4m", "action": "fault.operation", "operation": "throttle", "delay": "500ms"},
+    {"at": "4m", "action": "fault.operation", "operation": "function", "delay": "500ms"},
+    {"at": "4m", "action": "fault.operation", "operation": "accessory", "delay": "500ms"},
+    {"at": "6m", "action": "fault.clear"}
+  ]
+}

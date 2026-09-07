@@ -1,0 +1,21 @@
+schema_version: 1
+name: large
+warmup: 2m
+duration: 10m
+seed: 650
+fixture: ../fixtures/large/fixture.json
+operation_timeout: 5s
+clients: {users: 30, websockets: 30, active_locomotives: 25, workers: 64}
+rates:
+  login_per_second: 0.5
+  refresh_per_second: 0.5
+  lease_acquire_per_second: 1
+  lease_heartbeat_per_second: 8
+  lease_release_per_second: 1
+  throttle_per_second: 50
+  functions_per_second: 10
+  feedback_per_second: 50
+  accessories_per_second: 10
+  route_operations_per_second: 5
+  reads_per_second: 20
+behavior: {reconnect_probability: 0.001, snapshot_probability: 0.001}

@@ -1,0 +1,21 @@
+schema_version: 1
+name: xlarge
+warmup: 2m
+duration: 10m
+seed: 650
+fixture: ../fixtures/xlarge/fixture.json
+operation_timeout: 5s
+clients: {users: 50, websockets: 50, active_locomotives: 50, workers: 128}
+rates:
+  login_per_second: 1
+  refresh_per_second: 1
+  lease_acquire_per_second: 2
+  lease_heartbeat_per_second: 15
+  lease_release_per_second: 2
+  throttle_per_second: 100
+  functions_per_second: 25
+  feedback_per_second: 250
+  accessories_per_second: 25
+  route_operations_per_second: 10
+  reads_per_second: 40
+behavior: {reconnect_probability: 0.001, snapshot_probability: 0.001}

@@ -1,0 +1,10 @@
+schema_version: 1
+name: idle
+warmup: 2m
+duration: 10m
+seed: 650
+fixture: ../fixtures/small/fixture.json
+operation_timeout: 5s
+clients: {users: 1, websockets: 1, active_locomotives: 0, workers: 4}
+rates: {}
+behavior: {}

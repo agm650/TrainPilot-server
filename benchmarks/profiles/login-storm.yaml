@@ -1,0 +1,14 @@
+schema_version: 1
+name: login-storm
+warmup: 1m
+duration: 5m
+seed: 650
+fixture: ../fixtures/medium/fixture.json
+operation_timeout: 10s
+clients: {users: 15, websockets: 5, active_locomotives: 0, workers: 64}
+rates: {reads_per_second: 5}
+behavior: {}
+bursts:
+  - {at: 1m10s, operation: login, count: 10}
+  - {at: 2m10s, operation: login, count: 20}
+  - {at: 3m10s, operation: login, count: 50}

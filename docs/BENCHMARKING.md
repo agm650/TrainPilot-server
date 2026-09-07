@@ -135,9 +135,39 @@ phase. `operation_timeout` applies to individual HTTP and connection attempts.
 
 Fixtures select stable locomotive IDs, map simulator feedback addresses to
 expected block events, and may declare incompatible route pairs. The broader
-small-to-xlarge data sets belong to the benchmark-scenarios work item.
+small-to-xlarge data sets live under `benchmarks/fixtures/`. Each generated
+data set contains importable rolling-stock and layout archives plus the runner
+fixture. The runner rejects a server whose resource counts do not match the
+selected data set.
 Profile fixture paths are relative to the profile file. A `--fixture` override
 is relative to the current working directory.
+
+Regenerate a deterministic data set outside the measured phase:
+
+```bash
+trainpilot-bench generate-fixture medium --output /tmp/trainpilot-medium
+dccctl --server "$TRAINPILOT_URL" --username admin \
+  --password-env DCC_ADMIN_PASSWORD import-rolling-stock \
+  /tmp/trainpilot-medium/rolling-stock.dcclib --replace
+dccctl --server "$TRAINPILOT_URL" --username admin \
+  --password-env DCC_ADMIN_PASSWORD import-layout \
+  /tmp/trainpilot-medium/layout.dcclayout --replace
+```
+
+Profiles may declare simultaneous scheduled operations:
+
+```yaml
+bursts:
+  - at: 1m
+    operation: feedback
+    count: 50
+```
+
+Burst offsets start when the run starts and may fall in warm-up or measurement.
+`behavior.drop_event_probability` deterministically discards selected received
+events so the next sequence triggers the normal snapshot resynchronization.
+See `benchmarks/README.md` for the capacity, storm, ramp-up, failure, and soak
+scenario matrix.
 
 Validate a profile before use:
 

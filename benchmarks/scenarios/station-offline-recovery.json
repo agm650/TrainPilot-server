@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "benchmark-station-offline-recovery",
+  "initial": {"connectivity": "online", "trackPower": true},
+  "steps": [
+    {"at": "2m", "action": "station.connectivity", "connectivity": "degraded"},
+    {"at": "3m", "action": "station.connectivity", "connectivity": "offline"},
+    {"at": "4m", "action": "station.connectivity", "connectivity": "online"}
+  ]
+}

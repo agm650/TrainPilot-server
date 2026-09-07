@@ -1,0 +1,282 @@
+{
+  "schemaVersion": 1,
+  "dataset": {
+    "preset": "medium",
+    "locomotives": 250,
+    "blocks": 100,
+    "turnouts": 50,
+    "routes": 75
+  },
+  "locomotiveIds": [
+    "benchmark-loco-0001",
+    "benchmark-loco-0002",
+    "benchmark-loco-0003",
+    "benchmark-loco-0004",
+    "benchmark-loco-0005",
+    "benchmark-loco-0006",
+    "benchmark-loco-0007",
+    "benchmark-loco-0008",
+    "benchmark-loco-0009",
+    "benchmark-loco-0010"
+  ],
+  "feedbackTargets": [
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 1,
+      "blockId": "benchmark-block-0001"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 2,
+      "blockId": "benchmark-block-0002"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 3,
+      "blockId": "benchmark-block-0003"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 4,
+      "blockId": "benchmark-block-0004"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 5,
+      "blockId": "benchmark-block-0005"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 6,
+      "blockId": "benchmark-block-0006"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 7,
+      "blockId": "benchmark-block-0007"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 8,
+      "blockId": "benchmark-block-0008"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 9,
+      "blockId": "benchmark-block-0009"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 10,
+      "blockId": "benchmark-block-0010"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 11,
+      "blockId": "benchmark-block-0011"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 12,
+      "blockId": "benchmark-block-0012"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 13,
+      "blockId": "benchmark-block-0013"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 14,
+      "blockId": "benchmark-block-0014"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 15,
+      "blockId": "benchmark-block-0015"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 16,
+      "blockId": "benchmark-block-0016"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 17,
+      "blockId": "benchmark-block-0017"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 18,
+      "blockId": "benchmark-block-0018"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 19,
+      "blockId": "benchmark-block-0019"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 20,
+      "blockId": "benchmark-block-0020"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 21,
+      "blockId": "benchmark-block-0021"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 22,
+      "blockId": "benchmark-block-0022"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 23,
+      "blockId": "benchmark-block-0023"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 24,
+      "blockId": "benchmark-block-0024"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 25,
+      "blockId": "benchmark-block-0025"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 26,
+      "blockId": "benchmark-block-0026"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 27,
+      "blockId": "benchmark-block-0027"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 28,
+      "blockId": "benchmark-block-0028"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 29,
+      "blockId": "benchmark-block-0029"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 30,
+      "blockId": "benchmark-block-0030"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 31,
+      "blockId": "benchmark-block-0031"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 32,
+      "blockId": "benchmark-block-0032"
+    }
+  ],
+  "incompatibleRoutePairs": [
+    {
+      "first": "benchmark-route-0001",
+      "second": "benchmark-route-0002"
+    },
+    {
+      "first": "benchmark-route-0003",
+      "second": "benchmark-route-0004"
+    },
+    {
+      "first": "benchmark-route-0005",
+      "second": "benchmark-route-0006"
+    },
+    {
+      "first": "benchmark-route-0007",
+      "second": "benchmark-route-0008"
+    },
+    {
+      "first": "benchmark-route-0009",
+      "second": "benchmark-route-0010"
+    },
+    {
+      "first": "benchmark-route-0011",
+      "second": "benchmark-route-0012"
+    },
+    {
+      "first": "benchmark-route-0013",
+      "second": "benchmark-route-0014"
+    },
+    {
+      "first": "benchmark-route-0015",
+      "second": "benchmark-route-0016"
+    },
+    {
+      "first": "benchmark-route-0017",
+      "second": "benchmark-route-0018"
+    },
+    {
+      "first": "benchmark-route-0019",
+      "second": "benchmark-route-0020"
+    },
+    {
+      "first": "benchmark-route-0021",
+      "second": "benchmark-route-0022"
+    },
+    {
+      "first": "benchmark-route-0023",
+      "second": "benchmark-route-0024"
+    },
+    {
+      "first": "benchmark-route-0025",
+      "second": "benchmark-route-0026"
+    },
+    {
+      "first": "benchmark-route-0027",
+      "second": "benchmark-route-0028"
+    },
+    {
+      "first": "benchmark-route-0029",
+      "second": "benchmark-route-0030"
+    },
+    {
+      "first": "benchmark-route-0031",
+      "second": "benchmark-route-0032"
+    }
+  ]
+}

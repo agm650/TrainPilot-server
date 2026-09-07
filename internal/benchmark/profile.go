@@ -55,6 +55,7 @@ type Profile struct {
 	Clients          ClientProfile   `yaml:"clients" json:"clients"`
 	Rates            RateProfile     `yaml:"rates" json:"rates"`
 	Behavior         BehaviorProfile `yaml:"behavior" json:"behavior"`
+	Bursts           []BurstProfile  `yaml:"bursts,omitempty" json:"bursts,omitempty"`
 }
 
 type ClientProfile struct {
@@ -81,6 +82,13 @@ type RateProfile struct {
 type BehaviorProfile struct {
 	ReconnectProbability float64 `yaml:"reconnect_probability" json:"reconnectProbability"`
 	SnapshotProbability  float64 `yaml:"snapshot_probability" json:"snapshotProbability"`
+	DropEventProbability float64 `yaml:"drop_event_probability" json:"dropEventProbability"`
+}
+
+type BurstProfile struct {
+	At        Duration `yaml:"at" json:"at"`
+	Operation string   `yaml:"operation" json:"operation"`
+	Count     int      `yaml:"count" json:"count"`
 }
 
 func LoadProfile(path string) (Profile, error) {
@@ -175,24 +183,91 @@ func (p Profile) Validate() error {
 	if p.Behavior.SnapshotProbability < 0 || p.Behavior.SnapshotProbability > 1 {
 		return errors.New("behavior.snapshot_probability must be between 0 and 1")
 	}
-	leaseConsumerRate := p.Rates.LeaseHeartbeatPerSecond + p.Rates.LeaseReleasePerSecond + p.Rates.ThrottlePerSecond + p.Rates.FunctionsPerSecond
-	if leaseConsumerRate > 0 && p.Clients.ActiveLocomotives == 0 && p.Rates.LeaseAcquirePerSecond == 0 {
-		return errors.New("lease-based rates require active_locomotives or lease_acquire_per_second")
+	if p.Behavior.DropEventProbability < 0 || p.Behavior.DropEventProbability > 1 {
+		return errors.New("behavior.drop_event_probability must be between 0 and 1")
 	}
-	if p.Clients.WebSockets == 0 && (p.Behavior.ReconnectProbability > 0 || p.Behavior.SnapshotProbability > 0) {
+	allowedBurstOperations := map[string]bool{
+		"login": true, "refresh": true, "lease_acquire": true, "lease_heartbeat": true,
+		"lease_release": true, "throttle": true, "function": true, "feedback": true,
+		"accessory": true, "route": true, "read": true,
+		"lease_contention": true, "route_contention": true,
+	}
+	for index, burst := range p.Bursts {
+		if burst.At.Duration < 0 || burst.At.Duration >= p.Warmup.Duration+p.Duration.Duration {
+			return fmt.Errorf("bursts[%d].at must be within the warm-up and measured run", index)
+		}
+		if !allowedBurstOperations[burst.Operation] {
+			return fmt.Errorf("bursts[%d].operation %q is unsupported", index, burst.Operation)
+		}
+		if burst.Count <= 0 || burst.Count > 100_000 {
+			return fmt.Errorf("bursts[%d].count must be between 1 and 100000", index)
+		}
+	}
+	leaseConsumerRate := p.Rates.LeaseHeartbeatPerSecond + p.Rates.LeaseReleasePerSecond + p.Rates.ThrottlePerSecond + p.Rates.FunctionsPerSecond
+	leaseProducer := p.Rates.LeaseAcquirePerSecond > 0 || p.Clients.ActiveLocomotives > 0
+	leaseConsumerBurst := false
+	for _, burst := range p.Bursts {
+		switch burst.Operation {
+		case "lease_acquire", "lease_contention":
+			leaseProducer = true
+		case "lease_heartbeat", "lease_release", "throttle", "function":
+			leaseConsumerBurst = true
+		}
+	}
+	if (leaseConsumerRate > 0 || leaseConsumerBurst) && !leaseProducer {
+		return errors.New("lease-consuming operations require active_locomotives or lease acquisition")
+	}
+	if p.Clients.WebSockets == 0 && (p.Behavior.ReconnectProbability > 0 || p.Behavior.SnapshotProbability > 0 || p.Behavior.DropEventProbability > 0) {
 		return errors.New("WebSocket behavior probabilities require clients.websockets")
 	}
 	return nil
 }
 
 func (p Profile) HasActiveOperations() bool {
-	return p.Clients.ActiveLocomotives > 0 ||
+	if p.Clients.ActiveLocomotives > 0 ||
 		p.Rates.LeaseAcquirePerSecond > 0 || p.Rates.LeaseHeartbeatPerSecond > 0 ||
 		p.Rates.LeaseReleasePerSecond > 0 || p.Rates.ThrottlePerSecond > 0 ||
 		p.Rates.FunctionsPerSecond > 0 || p.Rates.AccessoriesPerSecond > 0 ||
-		p.Rates.RouteOperationsPerSecond > 0
+		p.Rates.RouteOperationsPerSecond > 0 {
+		return true
+	}
+	for _, burst := range p.Bursts {
+		switch burst.Operation {
+		case "lease_acquire", "lease_heartbeat", "lease_release", "throttle", "function", "accessory", "route", "lease_contention", "route_contention":
+			return true
+		}
+	}
+	return false
 }
 
 func (p Profile) HasSimulatorOperations() bool {
-	return p.Rates.FeedbackPerSecond > 0
+	if p.Rates.FeedbackPerSecond > 0 {
+		return true
+	}
+	for _, burst := range p.Bursts {
+		if burst.Operation == "feedback" {
+			return true
+		}
+	}
+	return false
+}
+
+func (p Profile) HasOperation(name string) bool {
+	rates := map[string]float64{
+		"login": p.Rates.LoginPerSecond, "refresh": p.Rates.RefreshPerSecond,
+		"lease_acquire": p.Rates.LeaseAcquirePerSecond, "lease_heartbeat": p.Rates.LeaseHeartbeatPerSecond,
+		"lease_release": p.Rates.LeaseReleasePerSecond, "throttle": p.Rates.ThrottlePerSecond,
+		"function": p.Rates.FunctionsPerSecond, "feedback": p.Rates.FeedbackPerSecond,
+		"accessory": p.Rates.AccessoriesPerSecond, "route": p.Rates.RouteOperationsPerSecond,
+		"read": p.Rates.ReadsPerSecond,
+	}
+	if rates[name] > 0 {
+		return true
+	}
+	for _, burst := range p.Bursts {
+		if burst.Operation == name {
+			return true
+		}
+	}
+	return false
 }

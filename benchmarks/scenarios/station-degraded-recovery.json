@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "name": "benchmark-station-degraded-recovery",
+  "initial": {"connectivity": "online", "trackPower": true},
+  "steps": [
+    {"at": "2m", "action": "station.connectivity", "connectivity": "degraded"},
+    {"at": "4m", "action": "station.connectivity", "connectivity": "online"}
+  ]
+}

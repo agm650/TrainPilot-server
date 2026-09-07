@@ -1,0 +1,21 @@
+schema_version: 1
+name: soak-24h-medium
+warmup: 10m
+duration: 24h
+seed: 650
+fixture: ../fixtures/medium/fixture.json
+operation_timeout: 5s
+clients: {users: 15, websockets: 15, active_locomotives: 10, workers: 32}
+rates:
+  login_per_second: 0.01
+  refresh_per_second: 0.02
+  lease_acquire_per_second: 0.1
+  lease_heartbeat_per_second: 3
+  lease_release_per_second: 0.1
+  throttle_per_second: 15
+  functions_per_second: 5
+  feedback_per_second: 20
+  accessories_per_second: 5
+  route_operations_per_second: 2
+  reads_per_second: 5
+behavior: {reconnect_probability: 0.0005, snapshot_probability: 0.0005}

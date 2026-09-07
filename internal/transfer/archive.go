@@ -91,6 +91,29 @@ func (s *Service) ExportRollingStock(ctx context.Context) ([]byte, error) {
 	}
 	return writeArchive(Manifest{Format: FormatID, Version: FormatVersion, PackageType: "rolling-stock", CreatedAt: s.clock.Now()}, "rolling-stock.json", RollingStockDocument{Locomotives: items})
 }
+
+// BuildRollingStockArchive creates an importable archive without requiring a
+// store. It is intended for deterministic offline data-set generators.
+func BuildRollingStockArchive(createdAt time.Time, items []model.Locomotive) ([]byte, error) {
+	if err := validateLocomotives(items); err != nil {
+		return nil, err
+	}
+	return writeArchive(Manifest{
+		Format: FormatID, Version: FormatVersion, PackageType: "rolling-stock", CreatedAt: createdAt,
+	}, "rolling-stock.json", RollingStockDocument{Locomotives: items})
+}
+
+// BuildLayoutArchive creates an importable archive without requiring a store.
+// Runtime turnout state is omitted by LayoutDocument.MarshalJSON.
+func BuildLayoutArchive(createdAt time.Time, layout model.LayoutDefinition) ([]byte, error) {
+	if err := validateLayout(&layout); err != nil {
+		return nil, err
+	}
+	return writeArchive(Manifest{
+		Format: FormatID, Version: FormatVersion, PackageType: "layout", CreatedAt: createdAt,
+	}, "layout.json", LayoutDocument{Layout: layout})
+}
+
 func (s *Service) ExportLayout(ctx context.Context) ([]byte, error) {
 	layout, err := s.store.ExportLayout(ctx)
 	if err != nil {

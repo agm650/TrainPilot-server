@@ -100,6 +100,9 @@ func (e *runEngine) consumeWebSocket(ctx context.Context, client *webSocketClien
 		if message.Sequence == 0 {
 			return fmt.Errorf("event %s has sequence zero", message.Type)
 		}
+		if e.profile.Behavior.DropEventProbability > 0 && random.Float64() < e.profile.Behavior.DropEventProbability {
+			continue
+		}
 		if message.Sequence <= lastSequence {
 			continue
 		}

@@ -180,6 +180,16 @@ func Run(ctx context.Context, options RunOptions) (Report, error) {
 			})
 		}(operation, rate)
 	}
+	if len(engine.profile.Bursts) > 0 {
+		schedulerGroup.Add(1)
+		go func() {
+			defer schedulerGroup.Done()
+			runBurstScheduler(schedulerCtx, engine.profile.Bursts, engine.profile.Seed, jobs, func() {
+				engine.jobDrops.Add(1)
+				engine.recorder.Record("scheduler_drop", 0, errSchedulerBackpressure)
+			})
+		}()
+	}
 
 	runErr := waitContext(ctx, engine.profile.Warmup.Duration)
 	var measurementStarted time.Time
@@ -331,6 +341,18 @@ func (e *runEngine) loadResources(ctx context.Context) error {
 	}); err != nil {
 		return fmt.Errorf("load benchmark resources: %w", err)
 	}
+	if expected := e.options.Fixture.Dataset; expected != nil {
+		actual := FixtureDataset{
+			Locomotives: len(e.locomotives), Blocks: len(e.blocks),
+			Turnouts: len(e.turnouts), Routes: len(e.routes),
+		}
+		if actual.Locomotives != expected.Locomotives || actual.Blocks != expected.Blocks ||
+			actual.Turnouts != expected.Turnouts || actual.Routes != expected.Routes {
+			return fmt.Errorf("fixture dataset %q mismatch: got locomotives=%d blocks=%d turnouts=%d routes=%d; want %d/%d/%d/%d",
+				expected.Preset, actual.Locomotives, actual.Blocks, actual.Turnouts, actual.Routes,
+				expected.Locomotives, expected.Blocks, expected.Turnouts, expected.Routes)
+		}
+	}
 	if len(e.options.Fixture.LocomotiveIDs) > 0 {
 		available := make(map[string]model.Locomotive, len(e.locomotives))
 		for _, locomotive := range e.locomotives {
@@ -360,20 +382,23 @@ func (e *runEngine) validateResourceRequirements() error {
 	if (e.profile.Clients.ActiveLocomotives > 0 || leaseRate > 0) && len(e.locomotives) == 0 {
 		return errors.New("profile requires locomotives, but none are available")
 	}
-	if e.profile.Rates.ThrottlePerSecond > 0 && !e.info.Station.LocomotiveControl {
+	if e.profile.HasOperation("throttle") && !e.info.Station.LocomotiveControl {
 		return errors.New("profile requires throttle commands, but the station does not support locomotive control")
 	}
-	if e.profile.Rates.FunctionsPerSecond > 0 && e.info.Station.Functions == 0 {
+	if e.profile.HasOperation("function") && e.info.Station.Functions == 0 {
 		return errors.New("profile requires function commands, but the station does not support functions")
 	}
-	if e.profile.Rates.AccessoriesPerSecond > 0 && len(e.turnouts) == 0 {
+	if e.profile.HasOperation("accessory") && len(e.turnouts) == 0 {
 		return errors.New("profile requires accessory commands, but no turnouts are available")
 	}
-	if e.profile.Rates.AccessoriesPerSecond > 0 && !e.info.Station.AccessoryControl {
+	if e.profile.HasOperation("accessory") && !e.info.Station.AccessoryControl {
 		return errors.New("profile requires accessory commands, but the station does not support accessories")
 	}
-	if e.profile.Rates.RouteOperationsPerSecond > 0 && len(e.routes) == 0 {
+	if (e.profile.HasOperation("route") || e.profile.HasOperation("route_contention")) && len(e.routes) == 0 {
 		return errors.New("profile requires route operations, but no routes are available")
+	}
+	if e.profile.HasOperation("route_contention") && len(e.options.Fixture.IncompatibleRoutePairs) == 0 {
+		return errors.New("route contention requires fixture.incompatibleRoutePairs")
 	}
 	blocks := make(map[string]struct{}, len(e.blocks))
 	for _, block := range e.blocks {
@@ -509,6 +534,10 @@ func (e *runEngine) perform(ctx context.Context, operation string, random *rand.
 		return e.performAccessory(ctx, random)
 	case "route":
 		return e.performRoute(ctx, random)
+	case "lease_contention":
+		return e.performLeaseContention(ctx, random)
+	case "route_contention":
+		return e.performRouteContention(ctx, random)
 	case "read":
 		return e.performRead(ctx, random)
 	case "health":
@@ -516,6 +545,70 @@ func (e *runEngine) perform(ctx context.Context, operation string, random *rand.
 	default:
 		return fmt.Errorf("unknown benchmark operation %q", operation)
 	}
+}
+
+func (e *runEngine) performLeaseContention(ctx context.Context, random *rand.Rand) error {
+	if len(e.locomotives) == 0 {
+		return errNoOperationTarget
+	}
+	locomotiveID := e.locomotives[0].ID
+	sessionIndex := random.Intn(len(e.sessions))
+	var lease model.ControlLease
+	err := e.sessions[sessionIndex].withClient(ctx, func(c *client.Client) error {
+		var err error
+		lease, err = c.Acquire(ctx, locomotiveID)
+		return err
+	})
+	if hasHTTPStatus(err, http.StatusConflict) {
+		e.invariants.Observe(invariantExclusiveLease)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	e.stateMu.Lock()
+	previous, exists := e.leases[locomotiveID]
+	if !exists {
+		e.leases[locomotiveID] = leaseBinding{lease: lease, sessionIndex: sessionIndex}
+	}
+	e.stateMu.Unlock()
+	if exists && previous.lease.ID != lease.ID {
+		e.invariants.Violate(invariantExclusiveLease, fmt.Sprintf("locomotive %s accepted concurrent contention leases %s and %s", locomotiveID, previous.lease.ID, lease.ID))
+		_ = e.sessions[sessionIndex].withClient(ctx, func(c *client.Client) error { return c.Release(ctx, lease.ID) })
+	} else {
+		e.invariants.Observe(invariantExclusiveLease)
+	}
+	return nil
+}
+
+func (e *runEngine) performRouteContention(ctx context.Context, random *rand.Rand) error {
+	if len(e.options.Fixture.IncompatibleRoutePairs) == 0 {
+		return errNoOperationTarget
+	}
+	pair := e.options.Fixture.IncompatibleRoutePairs[random.Intn(len(e.options.Fixture.IncompatibleRoutePairs))]
+	routeID := pair.First
+	if random.Intn(2) == 1 {
+		routeID = pair.Second
+	}
+	sessionIndex := random.Intn(len(e.sessions))
+	session := e.sessions[sessionIndex]
+	if err := session.withClient(ctx, func(c *client.Client) error { return c.ReserveRoute(ctx, routeID) }); err != nil {
+		if hasHTTPStatus(err, http.StatusConflict) {
+			return nil
+		}
+		return err
+	}
+	if err := session.withClient(ctx, func(c *client.Client) error { return c.ActivateRoute(ctx, routeID) }); err != nil {
+		_ = session.withClient(ctx, func(c *client.Client) error { return c.ReleaseRoute(ctx, routeID) })
+		if hasHTTPStatus(err, http.StatusConflict) {
+			return nil
+		}
+		return err
+	}
+	e.stateMu.Lock()
+	e.routeStates[routeID] = routeBinding{state: "active", sessionIndex: sessionIndex}
+	e.stateMu.Unlock()
+	return nil
 }
 
 func (e *runEngine) performLogin(ctx context.Context, random *rand.Rand) error {
