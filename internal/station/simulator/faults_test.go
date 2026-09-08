@@ -224,6 +224,37 @@ func TestOperationFaultRemainingCountIsExact(t *testing.T) {
 	}
 }
 
+func TestPeriodicOperationFaultFailsEveryNthMatchingCommand(t *testing.T) {
+	ctx := context.Background()
+	sim := New()
+	if err := sim.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	errInjected := errors.New("periodic throttle failure")
+	if err := sim.SetOperationFault(OpThrottle, OperationFault{Error: errInjected, Every: 3, Remaining: 2}); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 1; attempt <= 7; attempt++ {
+		err := sim.SetLocoSpeed(ctx, 3, float64(attempt)/10, station.Forward)
+		shouldFail := attempt == 3 || attempt == 6
+		if shouldFail != errors.Is(err, errInjected) {
+			t.Fatalf("attempt %d error=%v, shouldFail=%t", attempt, err, shouldFail)
+		}
+	}
+	if got := sim.Loco(3).Speed; got != 0.7 {
+		t.Fatalf("speed=%v", got)
+	}
+	if len(sim.Snapshot().OperationFaults) != 0 {
+		t.Fatal("periodic fault remained after its exact failure count")
+	}
+}
+
+func TestOperationFaultRejectsNegativeFrequency(t *testing.T) {
+	if err := New().SetOperationFault(OpThrottle, OperationFault{Error: errors.New("injected"), Every: -1}); err == nil {
+		t.Fatal("expected negative frequency error")
+	}
+}
+
 func TestDelayedOperationCompletesOnlyWhenClockReleasesIt(t *testing.T) {
 	ctx := context.Background()
 	clk := newControlledWaitClock()

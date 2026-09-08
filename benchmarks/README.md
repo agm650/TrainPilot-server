@@ -62,8 +62,9 @@ The `ramp-burst` stage injects 250 simultaneous feedback operations.
 
 ## Simulator failure scenarios
 
-Files under `benchmarks/scenarios/` are simulator scenario v2 documents. Load
-and start one immediately before running `medium`; use real-time mode.
+Files under `benchmarks/scenarios/` are simulator scenario v2 documents. Pass
+the scenario to `trainpilot-bench run --simulator-scenario`; the runner starts
+it at measurement start and advances its manual clock at wall-clock speed.
 
 - `station-latency-recovery`: 100 ms, then 500 ms delays on active operations,
   then nominal behavior. Expected errors are operation timeouts only if the
@@ -75,6 +76,13 @@ and start one immediately before running `medium`; use real-time mode.
 - `feedback-loss-and-resync`: use the matching profile to discard selected WS
   events deterministically while the simulator suppresses one physical update.
   The next sequence exposes the gap. A snapshot must restore coherent state.
+- `station-full-recovery`: applies 100 ms and 500 ms delays, then degraded,
+  offline, and online states under the matching medium profile.
+- `intermittent-fault-recovery`: applies every-N and burst command errors,
+  accessory confirmation faults, a short circuit, bounce, and feedback loss.
+
+Expected errors in the matching profiles are bounded by measured-phase `from`
+and `to` offsets. Errors outside those windows fail the report.
 
 ## Soak profiles
 
@@ -83,3 +91,8 @@ reconnections, snapshots, leases, feedback, routes, and functions. Check RSS,
 Go heap and objects, goroutines, file descriptors, threads, DB/WAL size,
 CPU, p95/p99, errors, and trends. The 24-hour run is manual and must not block
 pull requests.
+
+`restart-recovery-medium` observes one operator-controlled process outage in
+its 3:00-4:00 measured window. It requires `--allow-planned-outage` and never
+restarts the service itself. Full step-by-step procedures are in
+`docs/BENCHMARK-SOAK-FAULT-RECOVERY.md`.

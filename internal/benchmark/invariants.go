@@ -257,6 +257,20 @@ func (m *eventMonitor) markExplicitThrottle(locomotiveID string) {
 	m.mu.Unlock()
 }
 
+func (m *eventMonitor) markUnavailable() {
+	m.mu.Lock()
+	m.recovered = true
+	m.explicitThrottle = make(map[string]int)
+	m.mu.Unlock()
+}
+
+func (m *eventMonitor) markRecovered() {
+	m.mu.Lock()
+	m.recovered = true
+	m.invariants.Observe(invariantNoImplicitRestart)
+	m.mu.Unlock()
+}
+
 func (m *eventMonitor) processSnapshot(payload map[string]any) error {
 	var snapshot struct {
 		Routes []struct {
@@ -320,7 +334,7 @@ func (m *eventMonitor) process(sequence uint64, eventType string, payload map[st
 	case "station.status.changed":
 		connectivity, _ := payload["connectivity"].(string)
 		if connectivity == "offline" {
-			m.recovered = false
+			m.recovered = true
 			m.explicitThrottle = make(map[string]int)
 		}
 		if connectivity == "online" {
@@ -330,8 +344,14 @@ func (m *eventMonitor) process(sequence uint64, eventType string, payload map[st
 	case "locomotive.speed.changed":
 		locomotiveID, _ := payload["locomotiveId"].(string)
 		speed, _ := numericInt(payload["speed"])
-		if m.recovered && speed > 0 && m.explicitThrottle[locomotiveID] == 0 {
-			m.invariants.Violate(invariantNoImplicitRestart, fmt.Sprintf("locomotive %s restarted without an explicit throttle command", locomotiveID))
+		if m.recovered {
+			if m.explicitThrottle[locomotiveID] == 0 && speed > 0 {
+				m.invariants.Violate(invariantNoImplicitRestart, fmt.Sprintf("locomotive %s restarted without an explicit throttle command", locomotiveID))
+			} else if m.explicitThrottle[locomotiveID] == 1 {
+				delete(m.explicitThrottle, locomotiveID)
+			} else if m.explicitThrottle[locomotiveID] > 1 {
+				m.explicitThrottle[locomotiveID]--
+			}
 		}
 		m.expectations.Fulfill(fmt.Sprintf("throttle:%s:%d", locomotiveID, speed))
 	case "locomotive.function.changed":

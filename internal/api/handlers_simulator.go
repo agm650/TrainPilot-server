@@ -36,6 +36,8 @@ type simulatorFaultState struct {
 	Remaining int    `json:"remaining"`
 	Error     string `json:"error,omitempty"`
 	Address   int    `json:"address,omitempty"`
+	Every     int    `json:"every,omitempty"`
+	Seen      int    `json:"seen,omitempty"`
 }
 
 type simulatorAccessoryBehavior struct {
@@ -159,7 +161,7 @@ func (s *Server) testSimulatorState(w http.ResponseWriter, _ *http.Request) {
 	})
 	faults := make(map[string]simulatorFaultState, len(snapshot.OperationFaults))
 	for operation, fault := range snapshot.OperationFaults {
-		faults[string(operation)] = simulatorFaultState{Delay: fault.Delay.String(), Remaining: fault.Remaining, Error: fault.Error, Address: fault.Address}
+		faults[string(operation)] = simulatorFaultState{Delay: fault.Delay.String(), Remaining: fault.Remaining, Error: fault.Error, Address: fault.Address, Every: fault.Every, Seen: fault.Seen}
 	}
 	behaviors := make(map[int]simulatorAccessoryBehavior, len(snapshot.AccessoryBehaviors))
 	for address, behavior := range snapshot.AccessoryBehaviors {
@@ -295,6 +297,7 @@ func (s *Server) testSimulatorFault(w http.ResponseWriter, r *http.Request) {
 		Remaining *int   `json:"remaining,omitempty"`
 		Error     string `json:"error,omitempty"`
 		Address   *int   `json:"address,omitempty"`
+		Every     *int   `json:"every,omitempty"`
 	}
 	if !decodeJSON(w, r, &request) {
 		return
@@ -307,15 +310,19 @@ func (s *Server) testSimulatorFault(w http.ResponseWriter, r *http.Request) {
 	if request.Remaining != nil {
 		remaining = *request.Remaining
 	}
-	if remaining < 0 || (delay == 0 && strings.TrimSpace(request.Error) == "") {
-		writeProblem(w, http.StatusBadRequest, "invalid_simulator_fault", "remaining must be non-negative and a positive delay or error is required")
+	every := 0
+	if request.Every != nil {
+		every = *request.Every
+	}
+	if remaining < 0 || every < 0 || (delay == 0 && strings.TrimSpace(request.Error) == "") {
+		writeProblem(w, http.StatusBadRequest, "invalid_simulator_fault", "remaining and every must be non-negative and a positive delay or error is required")
 		return
 	}
 	address := 0
 	if request.Address != nil {
 		address = *request.Address
 	}
-	fault := simulator.OperationFault{Delay: delay, Remaining: remaining, Address: address}
+	fault := simulator.OperationFault{Delay: delay, Remaining: remaining, Address: address, Every: every}
 	if request.Error != "" {
 		fault.Error = errors.New(request.Error)
 	}

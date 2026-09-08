@@ -32,11 +32,14 @@ Required software is:
 
 ```text
 deploy/monitoring/prometheus/prometheus.example.yml
+deploy/monitoring/prometheus/trainpilot-soak-recording-rules.yml
+deploy/monitoring/prometheus/trainpilot-soak-alerting-rules.yml
 deploy/monitoring/grafana/provisioning/datasources/prometheus.yml
 deploy/monitoring/grafana/provisioning/dashboards/trainpilot.yml
 deploy/monitoring/grafana/dashboards/trainpilot-overview.json
 deploy/monitoring/grafana/dashboards/trainpilot-host.json
 deploy/monitoring/grafana/dashboards/trainpilot-benchmark.json
+deploy/monitoring/grafana/dashboards/trainpilot-soak-recovery.json
 deploy/monitoring/node-exporter/trainpilot-*-textfile.sh
 deploy/monitoring/systemd/trainpilot-textfile@.service
 deploy/monitoring/systemd/trainpilot-textfile@.timer
@@ -156,6 +159,23 @@ Copy `deploy/monitoring/prometheus/prometheus.example.yml` into the existing
 Prometheus configuration directory. Replace both `192.0.2.10` targets with the
 DUT address, then reload Prometheus.
 
+Copy the two soak rule files beside that configuration. The example references
+their relative filenames through `rule_files`. Validate the installed paths
+before reloading:
+
+```bash
+promtool check rules /etc/prometheus/trainpilot-soak-recording-rules.yml
+promtool check rules /etc/prometheus/trainpilot-soak-alerting-rules.yml
+promtool check config /etc/prometheus/prometheus.yml
+```
+
+The recording rules calculate 30-minute averages, hourly linear slopes,
+latency percentiles, error increases, and five-minute availability. The alert
+rules expose sustained threshold breaches through Prometheus `ALERTS` series
+with `severity="warning"`. Their limits are editable starting values, not
+product guarantees. Keep alert limits aligned with the corresponding
+`trainpilot-bench analyze-soak --warn-*` flags.
+
 The example is the short-run profile:
 
 ```text
@@ -190,7 +210,7 @@ url: http://127.0.0.1:9090
 ```
 
 Copy the data source and dashboard provider YAML files into Grafana's
-provisioning directories. Copy the three JSON dashboards into the path declared
+provisioning directories. Copy the four JSON dashboards into the path declared
 by the provider, `/var/lib/grafana/dashboards/trainpilot` by default. Restart or
 reload the existing Grafana instance according to its deployment method.
 
@@ -215,10 +235,30 @@ descriptors, and optional systemd restart data.
 `TrainPilot / Benchmark` shows server-side throughput, latency percentiles,
 errors, feedback, WebSocket delivery, store activity, and SQLite growth.
 
+`TrainPilot / Soak and Recovery` shows 30-minute rolling averages, resource
+slopes, rule-generated warnings, station transitions, availability, and process
+restart evidence. Select the exact absolute measurement interval from the
+benchmark report before interpreting the panels.
+
 The current `trainpilot-bench` process does not expose live Prometheus metrics.
 Consequently, phase annotations, requested versus achieved client load, and
 expected versus unexpected client errors are not fabricated in this dashboard.
 They are tracked by `task/09-benchmark-live-metrics-grafana-annotations.md`.
+
+After a soak, query the recorded series over the report's exact measured
+interval and create the versioned trend companion:
+
+```bash
+trainpilot-bench analyze-soak results/soak-6h-medium.json \
+  --prometheus http://127.0.0.1:9090 \
+  --instance 192.0.2.10:6060 \
+  --scrape-interval 15s \
+  --output results/soak-6h-medium-analysis.json
+```
+
+Grafana helps validate and explain behavior. The benchmark report remains the
+authority for expected-error windows and safety invariants. See
+`docs/BENCHMARK-SOAK-FAULT-RECOVERY.md` for the complete procedures.
 
 ## Measure monitoring overhead
 

@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "name": "benchmark-intermittent-fault-recovery",
+  "initial": {"connectivity": "online", "trackPower": true},
+  "steps": [
+    {"at": "1m", "action": "fault.operation", "operation": "throttle", "error": "periodic_throttle_failure", "every": 10},
+    {"at": "1m", "action": "fault.operation", "operation": "function", "error": "periodic_function_failure", "every": 10},
+    {"at": "1m", "action": "fault.operation", "operation": "accessory", "error": "periodic_accessory_failure", "every": 10},
+    {"at": "2m", "action": "fault.clear"},
+    {"at": "3m", "action": "fault.operation", "operation": "throttle", "error": "burst_throttle_failure", "remaining": 5},
+    {"at": "3m", "action": "fault.operation", "operation": "function", "error": "burst_function_failure", "remaining": 5},
+    {"at": "3m", "action": "fault.operation", "operation": "accessory", "error": "burst_accessory_failure", "remaining": 5},
+    {"at": "3m30s", "action": "fault.clear"},
+    {"at": "4m", "action": "accessory.behavior", "address": 1, "mode": "no_confirmation"},
+    {"at": "5m", "action": "accessory.behavior", "address": 1, "mode": "immediate"},
+    {"at": "5m15s", "action": "accessory.behavior", "address": 2, "mode": "inconsistent", "reportedPosition": "position1"},
+    {"at": "6m", "action": "accessory.behavior", "address": 2, "mode": "immediate"},
+    {"at": "6m30s", "action": "station.electrical", "electrical": {"externalShortCircuit": true, "mainCurrentMilliAmps": 1500}},
+    {"at": "7m", "action": "station.electrical", "electrical": {"externalShortCircuit": false, "mainCurrentMilliAmps": 250}},
+    {"at": "7m30s", "action": "feedback.emit", "source": "simulator", "kind": "occupancy", "address": 1, "active": true},
+    {"at": "7m31s", "action": "feedback.emit", "source": "simulator", "kind": "occupancy", "address": 1, "active": false},
+    {"at": "7m32s", "action": "feedback.emit", "source": "simulator", "kind": "occupancy", "address": 1, "active": true},
+    {"at": "8m", "action": "feedback.set", "source": "simulator", "kind": "occupancy", "address": 2, "active": true, "emit": false},
+    {"at": "8m1s", "action": "feedback.emit", "source": "simulator", "kind": "occupancy", "address": 3, "active": true},
+    {"at": "8m2s", "action": "feedback.emit", "source": "simulator", "kind": "occupancy", "address": 2, "active": true}
+  ]
+}

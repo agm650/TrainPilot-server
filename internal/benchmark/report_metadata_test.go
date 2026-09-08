@@ -32,7 +32,7 @@ func TestDocumentedMetadataExamplesLoad(t *testing.T) {
 func TestPublishedReportRequiresCompleteExternalMetadata(t *testing.T) {
 	report := Report{
 		SchemaVersion: ReportSchemaVersion, RunID: "00000000-0000-4000-8000-000000000001",
-		BenchmarkVersion: "v1", StartedAt: time.Now().UTC(), EndedAt: time.Now().UTC(), Duration: "1m", Warmup: "1s",
+		BenchmarkVersion: "v1", StartedAt: time.Now().UTC(), MeasurementStartedAt: time.Now().UTC(), EndedAt: time.Now().UTC(), Duration: "1m", Warmup: "1s",
 		Profile: Profile{SchemaVersion: ProfileSchemaVersion, Name: "medium"}, ProfileSHA256: strings.Repeat("a", 64),
 		Server: ServerMetadata{URL: "http://example.test", ServerVersion: "v1"}, Operations: map[string]OperationSummary{}, OverallResult: "PASS",
 		ClientHost: ClientHostMetadata{Hostname: "generator", OS: "linux", Arch: "amd64", CPUs: 4, GoVersion: "go1.26"},

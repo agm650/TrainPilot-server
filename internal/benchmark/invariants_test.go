@@ -58,6 +58,32 @@ func TestImplicitRestartRequiresExplicitThrottle(t *testing.T) {
 	}
 }
 
+func TestProcessOutageRequiresNewExplicitThrottle(t *testing.T) {
+	invariants := newInvariantTracker()
+	monitor := newEventMonitor(invariants, newExpectationTracker(invariants), &webSocketMetrics{}, Fixture{})
+	monitor.markUnavailable()
+	monitor.markRecovered()
+	monitor.process(1, "locomotive.speed.changed", map[string]any{"locomotiveId": "loco-1", "speed": float64(30)})
+	_, failed := invariants.Results()
+	if !failed {
+		t.Fatal("expected an implicit restart after a process outage to fail")
+	}
+}
+
+func TestExplicitThrottleIsConsumedByOneSpeedEvent(t *testing.T) {
+	invariants := newInvariantTracker()
+	monitor := newEventMonitor(invariants, newExpectationTracker(invariants), &webSocketMetrics{}, Fixture{})
+	monitor.markUnavailable()
+	monitor.markRecovered()
+	monitor.markExplicitThrottle("loco-1")
+	monitor.process(1, "locomotive.speed.changed", map[string]any{"locomotiveId": "loco-1", "speed": float64(30)})
+	monitor.process(2, "locomotive.speed.changed", map[string]any{"locomotiveId": "loco-1", "speed": float64(40)})
+	_, failed := invariants.Results()
+	if !failed {
+		t.Fatal("expected a second speed event without a new throttle command to fail")
+	}
+}
+
 func TestEventMonitorDetectsExclusiveLeaseAndRouteConflict(t *testing.T) {
 	invariants := newInvariantTracker()
 	expectations := newExpectationTracker(invariants)

@@ -143,7 +143,7 @@ func TestAllVersionOneActionsAreExecutable(t *testing.T) {
     {"at":"0s","action":"feedback.emit","source":"simulator","kind":"occupancy","address":1,"active":true},
     {"at":"0s","action":"accessory.behavior","address":12,"mode":"delayed","delay":"2s"},
     {"at":"0s","action":"accessory.report","address":12,"state":"straight"},
-    {"at":"0s","action":"fault.operation","operation":"throttle","error":"injected","remaining":1},
+    {"at":"0s","action":"fault.operation","operation":"throttle","error":"injected","remaining":1,"every":3},
     {"at":"0s","action":"fault.clear"},
     {"at":"1s","action":"simulator.reset"},
     {"at":"2s","action":"station.connectivity","connectivity":"degraded"}

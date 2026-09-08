@@ -1,0 +1,52 @@
+groups:
+  - name: trainpilot_soak_trends
+    interval: 15s
+    rules:
+      - record: trainpilot:process_rss_bytes:avg_30m
+        expr: avg_over_time(process_resident_memory_bytes{job="trainpilot"}[30m])
+      - record: trainpilot:process_rss_bytes:slope_per_hour_30m
+        expr: deriv(process_resident_memory_bytes{job="trainpilot"}[30m]) * 3600
+      - record: trainpilot:go_heap_alloc_bytes:avg_30m
+        expr: avg_over_time(go_memstats_heap_alloc_bytes{job="trainpilot"}[30m])
+      - record: trainpilot:go_heap_alloc_bytes:slope_per_hour_30m
+        expr: deriv(go_memstats_heap_alloc_bytes{job="trainpilot"}[30m]) * 3600
+      - record: trainpilot:go_heap_objects:avg_30m
+        expr: avg_over_time(go_memstats_heap_objects{job="trainpilot"}[30m])
+      - record: trainpilot:go_heap_objects:slope_per_hour_30m
+        expr: deriv(go_memstats_heap_objects{job="trainpilot"}[30m]) * 3600
+      - record: trainpilot:go_goroutines:avg_30m
+        expr: avg_over_time(go_goroutines{job="trainpilot"}[30m])
+      - record: trainpilot:go_goroutines:slope_per_hour_30m
+        expr: deriv(go_goroutines{job="trainpilot"}[30m]) * 3600
+      - record: trainpilot:go_threads:avg_30m
+        expr: avg_over_time(go_threads{job="trainpilot"}[30m])
+      - record: trainpilot:go_threads:slope_per_hour_30m
+        expr: deriv(go_threads{job="trainpilot"}[30m]) * 3600
+      - record: trainpilot:process_open_fds:avg_30m
+        expr: avg_over_time(process_open_fds{job="trainpilot"}[30m])
+      - record: trainpilot:process_open_fds:slope_per_hour_30m
+        expr: deriv(process_open_fds{job="trainpilot"}[30m]) * 3600
+      - record: trainpilot:sqlite_file_size_bytes:avg_30m
+        expr: sum by (instance) (avg_over_time(trainpilot_sqlite_file_size_bytes{job="trainpilot"}[30m]))
+      - record: trainpilot:sqlite_file_size_bytes:slope_per_hour_30m
+        expr: sum by (instance) (deriv(trainpilot_sqlite_file_size_bytes{job="trainpilot"}[30m]) * 3600)
+      - record: trainpilot:process_cpu_cores:rate_5m
+        expr: rate(process_cpu_seconds_total{job="trainpilot"}[5m])
+      - record: trainpilot:process_cpu_cores:avg_30m
+        expr: avg_over_time(trainpilot:process_cpu_cores:rate_5m[30m])
+      - record: trainpilot:http_request_duration_seconds:p95_5m
+        expr: histogram_quantile(0.95, sum by (instance, le) (rate(trainpilot_http_request_duration_seconds_bucket{job="trainpilot"}[5m])))
+      - record: trainpilot:http_request_duration_seconds:p99_5m
+        expr: histogram_quantile(0.99, sum by (instance, le) (rate(trainpilot_http_request_duration_seconds_bucket{job="trainpilot"}[5m])))
+      - record: trainpilot:http_request_duration_seconds:p95_avg_30m
+        expr: avg_over_time(trainpilot:http_request_duration_seconds:p95_5m[30m])
+      - record: trainpilot:http_request_duration_seconds:p99_avg_30m
+        expr: avg_over_time(trainpilot:http_request_duration_seconds:p99_5m[30m])
+      - record: trainpilot:websocket_queue_overflows:increase_5m
+        expr: increase(trainpilot_websocket_queue_overflows_total{job="trainpilot"}[5m])
+      - record: trainpilot:sqlite_errors:increase_5m
+        expr: (sum by (instance) (increase(trainpilot_store_operations_total{job="trainpilot",result="error"}[5m])) or (0 * max by (instance) (up{job="trainpilot"}))) + (sum by (instance) (increase(trainpilot_store_transactions_total{job="trainpilot",result=~"begin_error|commit_error|panic"}[5m])) or (0 * max by (instance) (up{job="trainpilot"})))
+      - record: trainpilot:availability:ratio_5m
+        expr: avg_over_time(up{job="trainpilot"}[5m])
+      - record: trainpilot:availability:unavailable_seconds_5m
+        expr: (1 - avg_over_time(up{job="trainpilot"}[5m])) * 300

@@ -35,7 +35,7 @@ func newRootCommand() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
-	command.AddCommand(newValidateProfileCommand(), newGenerateFixtureCommand(), newRunCommand(), newEnrichReportCommand(), newValidateReportCommand(), newCompareCommand())
+	command.AddCommand(newValidateProfileCommand(), newGenerateFixtureCommand(), newRunCommand(), newEnrichReportCommand(), newValidateReportCommand(), newCompareCommand(), newAnalyzeSoakCommand())
 	return command
 }
 
@@ -104,6 +104,8 @@ type runFlags struct {
 	allowActive         bool
 	allowSimulatorAPI   bool
 	allowRealHardware   bool
+	allowPlannedOutage  bool
+	simulatorScenario   string
 }
 
 func newRunCommand() *cobra.Command {
@@ -128,6 +130,8 @@ func newRunCommand() *cobra.Command {
 	command.Flags().BoolVar(&flags.allowActive, "allow-active-commands", false, "allow leases, track power, throttle, functions, accessories, and routes")
 	command.Flags().BoolVar(&flags.allowSimulatorAPI, "allow-simulator-api", false, "allow event injection through the simulator test API")
 	command.Flags().BoolVar(&flags.allowRealHardware, "allow-real-hardware", false, "confirm that active commands may target a non-simulator driver")
+	command.Flags().BoolVar(&flags.allowPlannedOutage, "allow-planned-outage", false, "allow a profile to declare a bounded server outage")
+	command.Flags().StringVar(&flags.simulatorScenario, "simulator-scenario", "", "simulator scenario JSON run in wall-clock time during measurement")
 	_ = command.MarkFlagRequired("profile")
 	_ = command.MarkFlagRequired("output")
 	return command
@@ -168,10 +172,22 @@ func executeRun(command *cobra.Command, flags *runFlags) error {
 	if err != nil {
 		return err
 	}
+	var simulatorScenario *bench.SimulatorScenario
+	if flags.simulatorScenario != "" {
+		simulatorScenario, err = bench.LoadSimulatorScenario(flags.simulatorScenario)
+		if err != nil {
+			return err
+		}
+	}
 	report, err := bench.Run(command.Context(), bench.RunOptions{
 		Server: flags.server, Profile: profile, Fixture: fixture, Credentials: credentials,
 		AllowActiveCommands: flags.allowActive, AllowSimulatorAPI: flags.allowSimulatorAPI,
 		AllowRealHardware: flags.allowRealHardware, BenchmarkVersion: version,
+		AllowPlannedOutage: flags.allowPlannedOutage,
+		SimulatorScenario:  simulatorScenario,
+		OnMeasurementStart: func(startedAt time.Time) {
+			fmt.Fprintf(command.ErrOrStderr(), "Measurement started at %s\n", startedAt.Format(time.RFC3339Nano))
+		},
 	})
 	if err != nil {
 		return err
@@ -296,6 +312,54 @@ func newCompareCommand() *cobra.Command {
 	command.Flags().StringArrayVar(&baselinePaths, "baseline", nil, "baseline report path; repeat at least three times")
 	command.Flags().StringArrayVar(&candidatePaths, "candidate", nil, "candidate report path; repeat at least three times")
 	command.Flags().StringVar(&outputPath, "output", "", "optional versioned comparison JSON path")
+	return command
+}
+
+func newAnalyzeSoakCommand() *cobra.Command {
+	thresholds := bench.DefaultSoakThresholds()
+	var prometheusURL string
+	var instance string
+	var output string
+	var scrapeInterval time.Duration
+	command := &cobra.Command{
+		Use:   "analyze-soak <report.json>",
+		Short: "Analyze a soak run using Prometheus recording rules",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			report, err := bench.LoadReport(args[0])
+			if err != nil {
+				return err
+			}
+			analysis, err := bench.AnalyzeSoak(command.Context(), report, bench.SoakAnalysisOptions{
+				PrometheusURL: prometheusURL, Instance: instance, Window: 30 * time.Minute,
+				ScrapeInterval: scrapeInterval, Thresholds: thresholds,
+			})
+			if err != nil {
+				return err
+			}
+			if err := bench.WriteSoakAnalysis(output, analysis); err != nil {
+				return err
+			}
+			fmt.Fprintf(command.OutOrStdout(), "Soak analysis: %s\nResult: %s\n", output, analysis.OverallResult)
+			return nil
+		},
+	}
+	command.Flags().StringVar(&prometheusURL, "prometheus", "http://127.0.0.1:9090", "Prometheus base URL")
+	command.Flags().StringVar(&instance, "instance", "", "TrainPilot Prometheus instance label")
+	command.Flags().StringVar(&output, "output", "", "versioned soak analysis JSON path")
+	command.Flags().DurationVar(&scrapeInterval, "scrape-interval", 15*time.Second, "Prometheus scrape interval used for coverage")
+	command.Flags().Float64Var(&thresholds.RSSBytesPerHour, "warn-rss-bytes-per-hour", thresholds.RSSBytesPerHour, "RSS slope warning threshold")
+	command.Flags().Float64Var(&thresholds.HeapBytesPerHour, "warn-heap-bytes-per-hour", thresholds.HeapBytesPerHour, "Go heap slope warning threshold")
+	command.Flags().Float64Var(&thresholds.HeapObjectsPerHour, "warn-heap-objects-per-hour", thresholds.HeapObjectsPerHour, "heap object slope warning threshold")
+	command.Flags().Float64Var(&thresholds.GoroutinesPerHour, "warn-goroutines-per-hour", thresholds.GoroutinesPerHour, "goroutine slope warning threshold")
+	command.Flags().Float64Var(&thresholds.ThreadsPerHour, "warn-threads-per-hour", thresholds.ThreadsPerHour, "thread slope warning threshold")
+	command.Flags().Float64Var(&thresholds.FileDescriptorsHour, "warn-fds-per-hour", thresholds.FileDescriptorsHour, "file descriptor slope warning threshold")
+	command.Flags().Float64Var(&thresholds.SQLiteBytesPerHour, "warn-sqlite-bytes-per-hour", thresholds.SQLiteBytesPerHour, "SQLite file growth warning threshold")
+	command.Flags().Float64Var(&thresholds.CPUIncreasePct, "warn-cpu-increase-percent", thresholds.CPUIncreasePct, "CPU relative warning threshold")
+	command.Flags().Float64Var(&thresholds.LatencyIncreasePct, "warn-latency-increase-percent", thresholds.LatencyIncreasePct, "p95/p99 relative warning threshold")
+	command.Flags().Float64Var(&thresholds.MinimumCoverageRatio, "minimum-coverage", thresholds.MinimumCoverageRatio, "minimum Prometheus scrape coverage ratio")
+	_ = command.MarkFlagRequired("instance")
+	_ = command.MarkFlagRequired("output")
 	return command
 }
 

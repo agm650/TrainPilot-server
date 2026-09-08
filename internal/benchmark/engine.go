@@ -36,7 +36,10 @@ type RunOptions struct {
 	AllowActiveCommands bool
 	AllowSimulatorAPI   bool
 	AllowRealHardware   bool
+	AllowPlannedOutage  bool
+	SimulatorScenario   *SimulatorScenario
 	BenchmarkVersion    string
+	OnMeasurementStart  func(time.Time)
 }
 
 type benchSession struct {
@@ -69,25 +72,28 @@ type routeBinding struct {
 }
 
 type runEngine struct {
-	options      RunOptions
-	profile      Profile
-	info         client.SystemInfo
-	sessions     []*benchSession
-	locomotives  []model.Locomotive
-	blocks       []model.Block
-	turnouts     []model.Turnout
-	routes       []model.Route
-	recorder     *operationRecorder
-	invariants   *invariantTracker
-	expectations *expectationTracker
-	wsMetrics    *webSocketMetrics
-	monitor      *eventMonitor
-	stateMu      sync.Mutex
-	leases       map[string]leaseBinding
-	routeStates  map[string]routeBinding
-	feedback     map[string]bool
-	initialPower string
-	jobDrops     atomic.Int64
+	options            RunOptions
+	profile            Profile
+	info               client.SystemInfo
+	sessions           []*benchSession
+	locomotives        []model.Locomotive
+	blocks             []model.Block
+	turnouts           []model.Turnout
+	routes             []model.Route
+	recorder           *operationRecorder
+	invariants         *invariantTracker
+	expectations       *expectationTracker
+	wsMetrics          *webSocketMetrics
+	monitor            *eventMonitor
+	stateMu            sync.Mutex
+	leases             map[string]leaseBinding
+	routeStates        map[string]routeBinding
+	feedback           map[string]bool
+	initialPower       string
+	jobDrops           atomic.Int64
+	measurementStarted atomic.Int64
+	serverUnavailable  atomic.Bool
+	availability       availabilityTracker
 }
 
 func Run(ctx context.Context, options RunOptions) (Report, error) {
@@ -99,6 +105,9 @@ func Run(ctx context.Context, options RunOptions) (Report, error) {
 	options.Profile = profile
 	if err := ValidateFixtureForProfile(profile, options.Fixture); err != nil {
 		return Report{}, fmt.Errorf("fixture: %w", err)
+	}
+	if err := validateSimulatorScenario(profile, options.SimulatorScenario); err != nil {
+		return Report{}, err
 	}
 	if len(options.Credentials) == 0 {
 		return Report{}, errors.New("at least one credential is required")
@@ -194,10 +203,23 @@ func Run(ctx context.Context, options RunOptions) (Report, error) {
 	runErr := waitContext(ctx, engine.profile.Warmup.Duration)
 	var measurementStarted time.Time
 	var measuredEnded time.Time
+	var scenarioSummary *ScenarioSummary
 	if runErr == nil {
 		measurementStarted = time.Now().UTC()
+		engine.measurementStarted.Store(measurementStarted.UnixNano())
 		engine.recorder.StartMeasurement(measurementStarted)
-		runErr = waitContext(ctx, engine.profile.Duration.Duration)
+		if options.OnMeasurementStart != nil {
+			options.OnMeasurementStart(measurementStarted)
+		}
+		if engine.options.SimulatorScenario == nil {
+			runErr = waitContext(ctx, engine.profile.Duration.Duration)
+		} else {
+			scenarioDone := make(chan scenarioRunResult, 1)
+			go func() { scenarioDone <- engine.runSimulatorScenario(ctx, measurementStarted) }()
+			var scenarioResult scenarioRunResult
+			scenarioResult, runErr = waitForScenario(ctx, engine.profile.Duration.Duration, scenarioDone)
+			scenarioSummary = &scenarioResult.summary
+		}
 		measuredEnded = time.Now().UTC()
 	}
 	stopSchedulers()
@@ -218,6 +240,15 @@ func Run(ctx context.Context, options RunOptions) (Report, error) {
 	cancelCleanup()
 	cleanupNeeded = false
 
+	availability := engine.availability.Summary(measuredEnded)
+	if engine.profile.HasPlannedOutage() {
+		if availability.ExpectedOutages == 0 {
+			engine.invariants.Violate(invariantServerAvailable, "planned outage was not observed")
+		}
+		if availability.UnrecoveredOutages > 0 {
+			engine.invariants.Violate(invariantServerAvailable, "server did not recover from the planned outage")
+		}
+	}
 	results, invariantFailure := engine.invariants.Results()
 	runID, err := newRunID()
 	if err != nil {
@@ -225,12 +256,13 @@ func Run(ctx context.Context, options RunOptions) (Report, error) {
 	}
 	report := Report{
 		SchemaVersion: ReportSchemaVersion, RunID: runID, BenchmarkVersion: options.BenchmarkVersion,
-		StartedAt: startedAt, EndedAt: measuredEnded, Duration: engine.profile.Duration.String(),
+		StartedAt: startedAt, MeasurementStartedAt: measurementStarted, EndedAt: measuredEnded, Duration: engine.profile.Duration.String(),
 		Warmup: engine.profile.Warmup.String(), Profile: engine.profile,
 		ProfileSHA256: profileHash(engine.profile), FixtureSHA256: fixtureHash(engine.options.Fixture), Seed: engine.profile.Seed,
 		Server: serverMetadata(options.Server, engine.info), ClientHost: currentHostMetadata(),
 		Operations: engine.recorder.Summaries(measuredEnded.Sub(measurementStarted), engine.operationRates(), engine.requestedBursts()),
-		WebSocket:  engine.wsMetrics.summary(), Invariants: results, OverallResult: "PASS",
+		WebSocket:  engine.wsMetrics.summary(), Availability: availability, Scenario: scenarioSummary,
+		Invariants: results, OverallResult: "PASS",
 	}
 	applyReportPolicy(&report, invariantFailure)
 	return report, nil
@@ -260,7 +292,18 @@ func (e *runEngine) preflight(ctx context.Context) error {
 	if e.profile.HasActiveOperations() && info.Station.Driver != "simulator" && !e.options.AllowRealHardware {
 		return fmt.Errorf("active benchmark targets %s hardware; also pass --allow-real-hardware to confirm", info.Station.Driver)
 	}
-	if e.profile.HasSimulatorOperations() {
+	if e.profile.HasPlannedOutage() && !e.options.AllowPlannedOutage {
+		return errors.New("profile declares a planned outage; pass --allow-planned-outage")
+	}
+	if e.options.SimulatorScenario != nil {
+		if !e.options.AllowSimulatorAPI {
+			return errors.New("simulator scenario injection requires --allow-simulator-api")
+		}
+		if info.Station.Driver != "simulator" {
+			return fmt.Errorf("simulator scenario injection requires the simulator driver, got %q", info.Station.Driver)
+		}
+	}
+	if e.profile.HasSimulatorOperations() || e.options.SimulatorScenario != nil {
 		if !e.options.AllowSimulatorAPI {
 			return errors.New("profile injects simulator events; pass --allow-simulator-api")
 		}
@@ -518,7 +561,24 @@ func (e *runEngine) executeJob(parent context.Context, job scheduledJob) {
 		e.recorder.Skip(job.operation)
 		return
 	}
-	if e.isExpectedError(job.operation, err) {
+	expected := e.isExpectedErrorAt(job.operation, err, started)
+	if job.operation == "health" {
+		if e.measurementStarted.Load() != 0 {
+			e.availability.Record(time.Now(), err == nil, expected)
+		}
+		if err == nil {
+			e.invariants.Observe(invariantServerAvailable)
+			if e.serverUnavailable.Swap(false) {
+				e.monitor.markRecovered()
+			}
+		} else if !expected {
+			e.invariants.Violate(invariantServerAvailable, "health endpoint failed")
+		}
+		if err != nil && !e.serverUnavailable.Swap(true) {
+			e.monitor.markUnavailable()
+		}
+	}
+	if expected {
 		err = expectedError(err)
 	}
 	e.recorder.Record(job.operation, time.Since(started), err)
@@ -528,6 +588,10 @@ func (e *runEngine) executeJob(parent context.Context, job scheduledJob) {
 }
 
 func (e *runEngine) isExpectedError(operation string, err error) bool {
+	return e.isExpectedErrorAt(operation, err, time.Now())
+}
+
+func (e *runEngine) isExpectedErrorAt(operation string, err error, occurredAt time.Time) bool {
 	if err == nil {
 		return false
 	}
@@ -535,8 +599,21 @@ func (e *runEngine) isExpectedError(operation string, err error) bool {
 		if rule.Operation != operation {
 			continue
 		}
+		if rule.From != nil {
+			measurementStarted := e.measurementStarted.Load()
+			if measurementStarted == 0 {
+				continue
+			}
+			offset := occurredAt.Sub(time.Unix(0, measurementStarted))
+			if offset < rule.From.Duration || offset >= rule.To.Duration {
+				continue
+			}
+		}
 		for _, kind := range rule.Kinds {
 			if kind == "timeout" && contextCanceledOrDeadline(err) {
+				return true
+			}
+			if kind == "network" && isNetworkError(err) {
 				return true
 			}
 		}
@@ -930,15 +1007,11 @@ func (e *runEngine) performHealth(ctx context.Context) error {
 	}
 	_, err := c.Do(ctx, http.MethodGet, "/healthz", nil, &response)
 	if err != nil || response.Status != "ok" {
-		detail := "health endpoint failed"
 		if err == nil {
-			detail = fmt.Sprintf("health endpoint returned status %q", response.Status)
-			err = errors.New(detail)
+			err = fmt.Errorf("health endpoint returned status %q", response.Status)
 		}
-		e.invariants.Violate(invariantServerAvailable, detail)
 		return err
 	}
-	e.invariants.Observe(invariantServerAvailable)
 	return nil
 }
 

@@ -18,7 +18,7 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/client"
 )
 
-const ReportSchemaVersion = 2
+const ReportSchemaVersion = 3
 
 func newRunID() (string, error) {
 	var value [16]byte
@@ -40,26 +40,29 @@ func validRunID(value string) bool {
 }
 
 type Report struct {
-	SchemaVersion    int                         `json:"schemaVersion"`
-	RunID            string                      `json:"runId"`
-	BenchmarkVersion string                      `json:"benchmarkVersion"`
-	StartedAt        time.Time                   `json:"startedAt"`
-	EndedAt          time.Time                   `json:"endedAt"`
-	Duration         string                      `json:"duration"`
-	Warmup           string                      `json:"warmup"`
-	Profile          Profile                     `json:"profile"`
-	ProfileSHA256    string                      `json:"profileSha256"`
-	FixtureSHA256    string                      `json:"fixtureSha256,omitempty"`
-	Seed             int64                       `json:"seed"`
-	Server           ServerMetadata              `json:"server"`
-	ClientHost       ClientHostMetadata          `json:"clientHost"`
-	Hardware         *HardwareMetadata           `json:"hardware,omitempty"`
-	SystemMetrics    *SystemMetricsSummary       `json:"systemMetrics,omitempty"`
-	Operations       map[string]OperationSummary `json:"operations"`
-	WebSocket        WebSocketSummary            `json:"webSocket"`
-	Invariants       []InvariantResult           `json:"invariants"`
-	Warnings         []ThresholdResult           `json:"warnings,omitempty"`
-	OverallResult    string                      `json:"overallResult"`
+	SchemaVersion        int                         `json:"schemaVersion"`
+	RunID                string                      `json:"runId"`
+	BenchmarkVersion     string                      `json:"benchmarkVersion"`
+	StartedAt            time.Time                   `json:"startedAt"`
+	MeasurementStartedAt time.Time                   `json:"measurementStartedAt"`
+	EndedAt              time.Time                   `json:"endedAt"`
+	Duration             string                      `json:"duration"`
+	Warmup               string                      `json:"warmup"`
+	Profile              Profile                     `json:"profile"`
+	ProfileSHA256        string                      `json:"profileSha256"`
+	FixtureSHA256        string                      `json:"fixtureSha256,omitempty"`
+	Seed                 int64                       `json:"seed"`
+	Server               ServerMetadata              `json:"server"`
+	ClientHost           ClientHostMetadata          `json:"clientHost"`
+	Hardware             *HardwareMetadata           `json:"hardware,omitempty"`
+	SystemMetrics        *SystemMetricsSummary       `json:"systemMetrics,omitempty"`
+	Operations           map[string]OperationSummary `json:"operations"`
+	WebSocket            WebSocketSummary            `json:"webSocket"`
+	Availability         AvailabilitySummary         `json:"availability"`
+	Scenario             *ScenarioSummary            `json:"scenario,omitempty"`
+	Invariants           []InvariantResult           `json:"invariants"`
+	Warnings             []ThresholdResult           `json:"warnings,omitempty"`
+	OverallResult        string                      `json:"overallResult"`
 }
 
 type ServerMetadata struct {
@@ -141,6 +144,15 @@ type WebSocketSummary struct {
 	FeedbackLatency        LatencySummary `json:"feedbackLatency"`
 }
 
+type AvailabilitySummary struct {
+	ExpectedOutages              int64   `json:"expectedOutages"`
+	UnexpectedOutages            int64   `json:"unexpectedOutages"`
+	Recoveries                   int64   `json:"recoveries"`
+	TotalUnavailableMilliseconds float64 `json:"totalUnavailableMilliseconds"`
+	MaxUnavailableMilliseconds   float64 `json:"maxUnavailableMilliseconds"`
+	UnrecoveredOutages           int64   `json:"unrecoveredOutages"`
+}
+
 type ThresholdResult struct {
 	Name   string  `json:"name"`
 	Actual float64 `json:"actual"`
@@ -199,8 +211,8 @@ func LoadReport(path string) (Report, error) {
 	if err := decoder.Decode(&report); err != nil {
 		return Report{}, fmt.Errorf("decode report: %w", err)
 	}
-	if report.SchemaVersion != ReportSchemaVersion {
-		return Report{}, fmt.Errorf("unsupported report schemaVersion %d (want %d)", report.SchemaVersion, ReportSchemaVersion)
+	if report.SchemaVersion != 2 && report.SchemaVersion != ReportSchemaVersion {
+		return Report{}, fmt.Errorf("unsupported report schemaVersion %d (want 2 or %d)", report.SchemaVersion, ReportSchemaVersion)
 	}
 	if !validRunID(report.RunID) {
 		return Report{}, fmt.Errorf("invalid report runId %q", report.RunID)
@@ -212,6 +224,14 @@ func LoadReport(path string) (Report, error) {
 		}
 		return Report{}, fmt.Errorf("decode report: %w", err)
 	}
+	if report.SchemaVersion == 2 {
+		duration, parseErr := time.ParseDuration(report.Duration)
+		if parseErr != nil {
+			return Report{}, fmt.Errorf("invalid legacy report duration %q", report.Duration)
+		}
+		report.SchemaVersion = ReportSchemaVersion
+		report.MeasurementStartedAt = report.EndedAt.Add(-duration)
+	}
 	if err := ValidateReport(report); err != nil {
 		return Report{}, err
 	}
@@ -219,6 +239,12 @@ func LoadReport(path string) (Report, error) {
 }
 
 func ValidateReport(report Report) error {
+	if report.SchemaVersion != ReportSchemaVersion {
+		return fmt.Errorf("unsupported report schemaVersion %d", report.SchemaVersion)
+	}
+	if report.MeasurementStartedAt.IsZero() || report.EndedAt.Before(report.MeasurementStartedAt) {
+		return errors.New("measurement timestamps are invalid")
+	}
 	if report.OverallResult != "PASS" && report.OverallResult != "WARN" && report.OverallResult != "FAIL" {
 		return fmt.Errorf("invalid overallResult %q", report.OverallResult)
 	}
@@ -260,6 +286,15 @@ func ValidateReport(report Report) error {
 	if report.WebSocket.QueueOverflows != nil && *report.WebSocket.QueueOverflows < 0 {
 		return errors.New("WebSocket queueOverflows must not be negative")
 	}
+	if report.Availability.ExpectedOutages < 0 || report.Availability.UnexpectedOutages < 0 ||
+		report.Availability.Recoveries < 0 || report.Availability.TotalUnavailableMilliseconds < 0 ||
+		report.Availability.MaxUnavailableMilliseconds < 0 || report.Availability.UnrecoveredOutages < 0 {
+		return errors.New("availability summary contains a negative value")
+	}
+	outages := report.Availability.ExpectedOutages + report.Availability.UnexpectedOutages
+	if report.Availability.UnrecoveredOutages > 1 || report.Availability.Recoveries+report.Availability.UnrecoveredOutages != outages {
+		return errors.New("availability outage counters are inconsistent")
+	}
 	if report.Hardware != nil && (report.Hardware.Cores < 0 || report.Hardware.RAMBytes < 0) {
 		return errors.New("hardware cores and ramBytes must not be negative")
 	}
@@ -299,6 +334,31 @@ func ValidateReport(report Report) error {
 	for _, warning := range report.Warnings {
 		if warning.Status != "WARN" {
 			return fmt.Errorf("threshold %q has invalid status %q", warning.Name, warning.Status)
+		}
+	}
+	if report.Scenario != nil {
+		if report.Scenario.Name == "" || len(report.Scenario.SHA256) != 64 || report.Scenario.StartedAt.IsZero() || report.Scenario.EndedAt.Before(report.Scenario.StartedAt) {
+			return errors.New("scenario summary is invalid")
+		}
+		if _, err := hex.DecodeString(report.Scenario.SHA256); err != nil {
+			return errors.New("scenario sha256 must contain 64 hexadecimal characters")
+		}
+		if report.Scenario.StartedAt.Before(report.MeasurementStartedAt) || report.Scenario.EndedAt.After(report.EndedAt) {
+			return errors.New("scenario summary is outside the measured interval")
+		}
+		if report.Scenario.Status != "completed" && report.Scenario.Status != "failed" && report.Scenario.Status != "stopped" {
+			return fmt.Errorf("scenario summary has invalid status %q", report.Scenario.Status)
+		}
+		var previous time.Duration
+		for index, step := range report.Scenario.Steps {
+			offset, err := time.ParseDuration(step.At)
+			if err != nil || offset < 0 || (index > 0 && offset < previous) || step.Action == "" || step.AppliedAt.IsZero() {
+				return fmt.Errorf("scenario step %d is invalid", index)
+			}
+			if step.AppliedAt.Before(report.Scenario.StartedAt) || step.AppliedAt.After(report.Scenario.EndedAt) {
+				return fmt.Errorf("scenario step %d timestamp is outside the scenario interval", index)
+			}
+			previous = offset
 		}
 	}
 	return nil
@@ -353,6 +413,12 @@ func WriteConsoleSummary(w io.Writer, report Report) {
 		overflows = fmt.Sprintf("%d", *report.WebSocket.QueueOverflows)
 	}
 	fmt.Fprintf(w, "WebSocket: overflows=%s sequence_gaps=%d unresolved=%d\n", overflows, report.WebSocket.SequenceGaps, report.WebSocket.UnresolvedSequenceGaps)
+	fmt.Fprintf(w, "Availability: expected_outages=%d unexpected_outages=%d recoveries=%d unavailable=%.0fms max=%.0fms unrecovered=%d\n",
+		report.Availability.ExpectedOutages, report.Availability.UnexpectedOutages, report.Availability.Recoveries,
+		report.Availability.TotalUnavailableMilliseconds, report.Availability.MaxUnavailableMilliseconds, report.Availability.UnrecoveredOutages)
+	if report.Scenario != nil {
+		fmt.Fprintf(w, "Scenario: %s status=%s steps=%d\n", report.Scenario.Name, report.Scenario.Status, len(report.Scenario.Steps))
+	}
 	for _, warning := range report.Warnings {
 		fmt.Fprintf(w, "warning %-30s %.3f%s (target < %.3f%s)\n", warning.Name, warning.Actual, warning.Unit, warning.Limit, warning.Unit)
 	}

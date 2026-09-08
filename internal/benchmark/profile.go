@@ -93,10 +93,12 @@ type BurstProfile struct {
 }
 
 type ExpectedErrorRule struct {
-	Operation    string   `yaml:"operation" json:"operation"`
-	HTTPStatuses []int    `yaml:"http_statuses,omitempty" json:"httpStatuses,omitempty"`
-	ProblemCodes []string `yaml:"problem_codes,omitempty" json:"problemCodes,omitempty"`
-	Kinds        []string `yaml:"kinds,omitempty" json:"kinds,omitempty"`
+	Operation    string    `yaml:"operation" json:"operation"`
+	HTTPStatuses []int     `yaml:"http_statuses,omitempty" json:"httpStatuses,omitempty"`
+	ProblemCodes []string  `yaml:"problem_codes,omitempty" json:"problemCodes,omitempty"`
+	Kinds        []string  `yaml:"kinds,omitempty" json:"kinds,omitempty"`
+	From         *Duration `yaml:"from,omitempty" json:"from,omitempty"`
+	To           *Duration `yaml:"to,omitempty" json:"to,omitempty"`
 }
 
 func LoadProfile(path string) (Profile, error) {
@@ -200,6 +202,12 @@ func (p Profile) Validate() error {
 		"accessory": true, "route": true, "read": true,
 		"lease_contention": true, "route_contention": true,
 	}
+	allowedExpectedOperations := make(map[string]bool, len(allowedBurstOperations)+1)
+	for operation := range allowedBurstOperations {
+		allowedExpectedOperations[operation] = true
+	}
+	allowedExpectedOperations["health"] = true
+	allowedExpectedOperations["websocket_connect"] = true
 	for index, burst := range p.Bursts {
 		if burst.At.Duration < 0 || burst.At.Duration >= p.Warmup.Duration+p.Duration.Duration {
 			return fmt.Errorf("bursts[%d].at must be within the warm-up and measured run", index)
@@ -212,7 +220,7 @@ func (p Profile) Validate() error {
 		}
 	}
 	for index, rule := range p.ExpectedErrors {
-		if !allowedBurstOperations[rule.Operation] {
+		if !allowedExpectedOperations[rule.Operation] {
 			return fmt.Errorf("expected_errors[%d].operation %q is unsupported", index, rule.Operation)
 		}
 		if !p.HasOperation(rule.Operation) {
@@ -232,9 +240,23 @@ func (p Profile) Validate() error {
 			}
 		}
 		for _, kind := range rule.Kinds {
-			if kind != "timeout" {
+			if kind != "timeout" && kind != "network" {
 				return fmt.Errorf("expected_errors[%d].kinds contains unsupported value %q", index, kind)
 			}
+		}
+		if (rule.From == nil) != (rule.To == nil) {
+			return fmt.Errorf("expected_errors[%d].from and to must be specified together", index)
+		}
+		if rule.From != nil {
+			if rule.From.Duration < 0 || rule.To.Duration <= rule.From.Duration {
+				return fmt.Errorf("expected_errors[%d] must define a non-negative window with to greater than from", index)
+			}
+			if rule.To.Duration > p.Duration.Duration {
+				return fmt.Errorf("expected_errors[%d].to must be within the measured duration", index)
+			}
+		}
+		if rule.Operation == "health" && rule.From == nil {
+			return fmt.Errorf("expected_errors[%d] health failures require a measured-phase window", index)
 		}
 	}
 	leaseConsumerRate := p.Rates.LeaseHeartbeatPerSecond + p.Rates.LeaseReleasePerSecond + p.Rates.ThrottlePerSecond + p.Rates.FunctionsPerSecond
@@ -287,6 +309,12 @@ func (p Profile) HasSimulatorOperations() bool {
 }
 
 func (p Profile) HasOperation(name string) bool {
+	if name == "health" {
+		return true
+	}
+	if name == "websocket_connect" {
+		return p.Clients.WebSockets > 0
+	}
 	rates := map[string]float64{
 		"login": p.Rates.LoginPerSecond, "refresh": p.Rates.RefreshPerSecond,
 		"lease_acquire": p.Rates.LeaseAcquirePerSecond, "lease_heartbeat": p.Rates.LeaseHeartbeatPerSecond,
@@ -300,6 +328,15 @@ func (p Profile) HasOperation(name string) bool {
 	}
 	for _, burst := range p.Bursts {
 		if burst.Operation == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (p Profile) HasPlannedOutage() bool {
+	for _, rule := range p.ExpectedErrors {
+		if rule.Operation == "health" && rule.From != nil && rule.To != nil {
 			return true
 		}
 	}

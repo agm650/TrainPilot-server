@@ -177,12 +177,34 @@ expected_errors:
     problem_codes: [lease_conflict]
   - operation: throttle
     kinds: [timeout]
+    from: 1m
+    to: 2m
 ```
+
+`from` is inclusive and `to` is exclusive. Both are measured-phase offsets and
+must be supplied together. Expected health failures require a bounded window;
+the profile then also requires `--allow-planned-outage`. Errors outside a
+declared window remain unexpected.
 
 `behavior.drop_event_probability` deterministically discards selected received
 events so the next sequence triggers the normal snapshot resynchronization.
 See `benchmarks/README.md` for the capacity, storm, ramp-up, failure, and soak
 scenario matrix.
+
+A simulator scenario can be synchronized with the measured phase:
+
+```bash
+trainpilot-bench run \
+  --profile benchmarks/profiles/station-full-recovery-medium.yaml \
+  --simulator-scenario benchmarks/scenarios/station-full-recovery.json \
+  --allow-active-commands --allow-simulator-api \
+  --credentials /tmp/benchmark-credentials.json \
+  --output benchmarks/results/station-full-recovery.json
+```
+
+The runner loads and starts the scenario at measurement start. It advances the
+manual simulator clock at wall-clock speed and records each applied step. This
+mode never accelerates soak time.
 
 Validate a profile before use:
 
@@ -227,12 +249,13 @@ deterministic.
 
 ## Report
 
-The JSON report has `schemaVersion: 2`. Its schema is
-`benchmarks/schema/result-v2.json`. It includes:
+The JSON report has `schemaVersion: 3`. Its schema is
+`benchmarks/schema/result-v3.json`. Version 2 reports remain readable and are
+migrated in memory. The report includes:
 
 - a UUID identifying the run;
 - benchmark, server, API, event API, and station-driver versions;
-- start and end timestamps;
+- process start, measurement start, and end timestamps;
 - warm-up and measured durations;
 - the full effective profile and profile/fixture SHA-256 hashes;
 - seed and client host metadata;
@@ -240,6 +263,8 @@ The JSON report has `schemaVersion: 2`. Its schema is
   errors, timeouts, skipped schedules, and latency percentiles per operation;
 - WebSocket connections, reconnects, sequence gaps, snapshots, events, and
   feedback-to-event latency;
+- expected and unexpected availability outages, recoveries, and downtime;
+- synchronized simulator scenario identity, timestamps, status, and steps;
 - invariant observations, informational threshold warnings, and the overall
   `PASS`, `WARN`, or `FAIL` result.
 
@@ -280,8 +305,8 @@ not use these command targets.
 
 ## External metadata and metrics
 
-Prometheus is not accessed by `trainpilot-bench`. An external script may query
-Prometheus or use system tools, then write a summary matching
+Normal benchmark execution does not access Prometheus. An external script may
+query Prometheus or use system tools, then write a summary matching
 `benchmarks/schema/system-metrics-v1.json`. Static DUT and server metadata use
 `benchmarks/schema/run-metadata-v1.json`. Complete examples are available at
 `benchmarks/examples/run-metadata.json` and
@@ -319,6 +344,24 @@ Publication requires run/profile identity, load-generator metadata, hardware
 identity, TrainPilot commit, server Go/OS/arch, relevant configuration, the
 metrics source, database sizes, CPU/RSS, swap, SQLite errors, network drops,
 WebSocket overflows, and thermal-throttling data.
+
+For runs of at least one hour, `analyze-soak` queries the repository's
+30-minute Prometheus recording rules at the exact measured boundaries. It
+compares the first and last windows, evaluates resource slopes and latency
+change, verifies scrape coverage, and writes a secret-free
+`soak-analysis-v1` companion:
+
+```bash
+trainpilot-bench analyze-soak benchmarks/results/soak-6h-medium.json \
+  --prometheus http://127.0.0.1:9090 \
+  --instance 192.0.2.10:6060 \
+  --scrape-interval 15s \
+  --output benchmarks/results/soak-6h-medium-analysis.json
+```
+
+The command produces `PASS` or `WARN`; functional failures remain in the
+benchmark report. See `docs/BENCHMARK-SOAK-FAULT-RECOVERY.md` for full
+procedures, restart gates, evidence, and acceptance checks.
 
 ## Compare repeated runs
 

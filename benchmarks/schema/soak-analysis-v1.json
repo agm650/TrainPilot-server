@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trainpilot.example/schemas/benchmark-soak-analysis-v1.json",
+  "title": "TrainPilot soak analysis v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "source", "prometheusUrl", "instance", "measurementStartedAt", "endedAt", "window", "scrapeInterval", "coverageRatio", "metrics", "overallResult"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "runId": {"type": "string", "format": "uuid"},
+    "source": {"const": "prometheus-recording-rules"},
+    "prometheusUrl": {"type": "string"},
+    "instance": {"type": "string", "minLength": 1},
+    "measurementStartedAt": {"type": "string", "format": "date-time"},
+    "endedAt": {"type": "string", "format": "date-time"},
+    "window": {"type": "string", "minLength": 1},
+    "scrapeInterval": {"type": "string", "minLength": 1},
+    "coverageRatio": {"type": "number", "minimum": 0, "maximum": 1},
+    "metrics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "unit", "firstAverage", "lastAverage", "absoluteChange", "warnLimit", "status"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "unit": {"type": "string", "minLength": 1},
+          "firstAverage": {"type": "number"},
+          "lastAverage": {"type": "number"},
+          "absoluteChange": {"type": "number"},
+          "relativeChangePercent": {"type": "number"},
+          "slopePerHour": {"type": "number"},
+          "warnLimit": {"type": "number", "minimum": 0},
+          "status": {"enum": ["PASS", "WARN"]}
+        }
+      }
+    },
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "overallResult": {"enum": ["PASS", "WARN"]}
+  }
+}

@@ -140,6 +140,7 @@ type faultOperationStep struct {
 	Error     string              `json:"error,omitempty"`
 	Remaining *int                `json:"remaining,omitempty"`
 	Address   *int                `json:"address,omitempty"`
+	Every     *int                `json:"every,omitempty"`
 }
 
 type emptyStep struct {
@@ -385,6 +386,13 @@ func parseStep(data []byte, version int) (Step, error) {
 		if remaining < 0 {
 			return Step{}, fmt.Errorf("remaining must not be negative")
 		}
+		every := 0
+		if raw.Every != nil {
+			every = *raw.Every
+		}
+		if every < 0 {
+			return Step{}, fmt.Errorf("every must not be negative")
+		}
 		if delay == 0 && raw.Error == "" {
 			return Step{}, fmt.Errorf("fault.operation requires a positive delay or an error")
 		}
@@ -400,7 +408,7 @@ func parseStep(data []byte, version int) (Step, error) {
 		}
 		step.payload = faultPayload{
 			Operation: raw.Operation,
-			Fault:     simulator.OperationFault{Delay: delay, Remaining: remaining, Address: address},
+			Fault:     simulator.OperationFault{Delay: delay, Remaining: remaining, Address: address, Every: every},
 			Message:   raw.Error,
 		}
 	case ActionFaultClear, ActionSimulatorReset:

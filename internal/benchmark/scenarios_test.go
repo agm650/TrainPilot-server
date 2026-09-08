@@ -13,7 +13,7 @@ func TestBenchmarkSimulatorScenariosAreValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) != 4 {
+	if len(paths) != 6 {
 		t.Fatalf("scenario count=%d", len(paths))
 	}
 	for _, path := range paths {

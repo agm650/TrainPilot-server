@@ -43,6 +43,7 @@ func TestCompareCommandAcceptsMoreThanThreeReports(t *testing.T) {
 			}
 			report := bench.Report{
 				SchemaVersion: bench.ReportSchemaVersion, RunID: fmt.Sprintf("00000000-0000-4000-8000-%012d", groupIndex*100+index),
+				MeasurementStartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), EndedAt: time.Date(2026, 1, 1, 0, 1, 0, 0, time.UTC),
 				Profile: bench.Profile{Name: "medium"}, ProfileSHA256: strings.Repeat("a", 64), Hardware: hardware,
 				Operations: map[string]bench.OperationSummary{"throttle": {Latency: bench.LatencySummary{
 					P50Milliseconds: latency / 2, P90Milliseconds: latency, P95Milliseconds: latency,
@@ -74,7 +75,7 @@ func TestEnrichAndPublicationValidationCommands(t *testing.T) {
 	output := filepath.Join(directory, "enriched.json")
 	report := bench.Report{
 		SchemaVersion: bench.ReportSchemaVersion, RunID: "00000000-0000-4000-8000-000000000001",
-		BenchmarkVersion: "test", StartedAt: time.Now().UTC(), EndedAt: time.Now().UTC(), Duration: "1m", Warmup: "1s",
+		BenchmarkVersion: "test", StartedAt: time.Now().UTC(), MeasurementStartedAt: time.Now().UTC(), EndedAt: time.Now().UTC(), Duration: "1m", Warmup: "1s",
 		Profile: bench.Profile{SchemaVersion: bench.ProfileSchemaVersion, Name: "medium"}, ProfileSHA256: strings.Repeat("a", 64),
 		Server: bench.ServerMetadata{URL: "http://example.test", ServerVersion: "test"}, Operations: map[string]bench.OperationSummary{},
 		ClientHost:    bench.ClientHostMetadata{Hostname: "generator", OS: "linux", Arch: "amd64", CPUs: 4, GoVersion: "go1.26"},

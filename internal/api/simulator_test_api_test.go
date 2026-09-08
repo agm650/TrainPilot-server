@@ -127,7 +127,7 @@ func TestSimulatorTestAPISnapshotReflectsInjectedStateAndReset(t *testing.T) {
 	assertStatus(t, fixture.server.URL, http.MethodPut, "/test/v1/simulator/feedback", authorization, []byte(`{"source":"simulator","kind":"occupancy","address":12,"active":true,"emit":false}`), http.StatusNoContent)
 	assertStatus(t, fixture.server.URL, http.MethodPut, "/test/v1/simulator/accessories/12/behavior", authorization, []byte(`{"mode":"delayed","delay":"500ms"}`), http.StatusNoContent)
 	assertStatus(t, fixture.server.URL, http.MethodPut, "/test/v1/simulator/accessories/12/reported-position", authorization, []byte(`{"position":"position1","quality":"physical"}`), http.StatusNoContent)
-	assertStatus(t, fixture.server.URL, http.MethodPut, "/test/v1/simulator/faults/throttle", authorization, []byte(`{"delay":"500ms","remaining":2,"error":"injected_failure"}`), http.StatusNoContent)
+	assertStatus(t, fixture.server.URL, http.MethodPut, "/test/v1/simulator/faults/throttle", authorization, []byte(`{"delay":"500ms","remaining":2,"every":3,"error":"injected_failure"}`), http.StatusNoContent)
 
 	var state simulatorStateResponse
 	requestSimulatorAPI(t, fixture, http.MethodGet, "/test/v1/simulator/state", nil, http.StatusOK, &state)
@@ -143,7 +143,7 @@ func TestSimulatorTestAPISnapshotReflectsInjectedStateAndReset(t *testing.T) {
 	if behavior := state.AccessoryBehaviors[12]; behavior.Mode != simulator.AccessoryBehaviorDelayed || behavior.Delay != "500ms" {
 		t.Fatalf("behavior=%+v", behavior)
 	}
-	if fault := state.Faults["throttle"]; fault.Delay != "500ms" || fault.Remaining != 2 || fault.Error != "injected_failure" {
+	if fault := state.Faults["throttle"]; fault.Delay != "500ms" || fault.Remaining != 2 || fault.Every != 3 || fault.Error != "injected_failure" {
 		t.Fatalf("fault=%+v", fault)
 	}
 	if len(state.FeedbackStates) != 1 || state.FeedbackStates[0].Address != 12 || !state.FeedbackStates[0].Active {

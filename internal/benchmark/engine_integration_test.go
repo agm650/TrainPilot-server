@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -73,10 +75,19 @@ func TestRunAgainstSimulatorWithFiftyWebSockets(t *testing.T) {
 		LocomotiveIDs:   []string{"loco-bb26001", "loco-cc72030"},
 		FeedbackTargets: []bench.FeedbackTarget{{Source: "simulator", Kind: "occupancy", Address: 1, BlockID: "block-a"}},
 	}
+	scenarioPath := filepath.Join(t.TempDir(), "recovery.json")
+	if err := os.WriteFile(scenarioPath, []byte(`{"version":2,"name":"integration-recovery","initial":{"connectivity":"online"},"steps":[{"at":"100ms","action":"station.connectivity","connectivity":"degraded"},{"at":"200ms","action":"station.connectivity","connectivity":"online"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scenario, err := bench.LoadSimulatorScenario(scenarioPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	report, err := bench.Run(ctx, bench.RunOptions{
 		Server: server.URL, Profile: profile, Fixture: fixture,
 		Credentials:         []bench.Credential{{Username: "benchmark", Password: password}},
 		AllowActiveCommands: true, AllowSimulatorAPI: true,
+		SimulatorScenario: scenario,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -89,6 +100,9 @@ func TestRunAgainstSimulatorWithFiftyWebSockets(t *testing.T) {
 	}
 	if len(report.Operations) == 0 {
 		t.Fatal("no operation summaries")
+	}
+	if report.Scenario == nil || report.Scenario.Status != "completed" || len(report.Scenario.Steps) != 2 {
+		t.Fatalf("scenario summary=%+v", report.Scenario)
 	}
 	data, err := json.Marshal(report)
 	if err != nil {

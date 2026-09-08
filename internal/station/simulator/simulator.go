@@ -38,6 +38,8 @@ type OperationFault struct {
 	Error     error
 	Remaining int
 	Address   int
+	Every     int
+	Seen      int
 }
 
 type FeedbackKey struct {
@@ -94,6 +96,8 @@ type OperationFaultState struct {
 	Error     string        `json:"error,omitempty"`
 	Remaining int           `json:"remaining"`
 	Address   int           `json:"address,omitempty"`
+	Every     int           `json:"every,omitempty"`
+	Seen      int           `json:"seen,omitempty"`
 }
 
 type scheduledAccessoryReport struct {
@@ -404,6 +408,9 @@ func (s *Simulator) SetOperationFault(operation Operation, fault OperationFault)
 	}
 	if fault.Remaining < 0 {
 		return fmt.Errorf("operation fault remaining count must not be negative")
+	}
+	if fault.Every < 0 {
+		return fmt.Errorf("operation fault frequency must not be negative")
 	}
 	if fault.Address != 0 {
 		if operation != OpAccessory {
@@ -740,7 +747,7 @@ func (s *Simulator) Snapshot() Snapshot {
 		snapshot.FeedbackStates[key] = active
 	}
 	for operation, fault := range s.state.operationFaults {
-		faultState := OperationFaultState{Delay: fault.Delay, Remaining: fault.Remaining, Address: fault.Address}
+		faultState := OperationFaultState{Delay: fault.Delay, Remaining: fault.Remaining, Address: fault.Address, Every: fault.Every, Seen: fault.Seen}
 		if fault.Error != nil {
 			faultState.Error = fault.Error.Error()
 		}
@@ -836,6 +843,11 @@ func (s *Simulator) beforeOperation(ctx context.Context, operation Operation, ac
 	fault, hasFault := s.state.operationFaults[operation]
 	if hasFault && fault.Address != 0 {
 		hasFault = len(addresses) == 1 && addresses[0] == fault.Address
+	}
+	if hasFault && fault.Every > 1 {
+		fault.Seen++
+		hasFault = fault.Seen%fault.Every == 0
+		s.state.operationFaults[operation] = fault
 	}
 	if hasFault && fault.Remaining > 0 {
 		remaining := fault.Remaining - 1

@@ -1,0 +1,74 @@
+groups:
+  - name: trainpilot_soak_warnings
+    interval: 15s
+    rules:
+      - alert: TrainPilotRSSGrowth
+        expr: trainpilot:process_rss_bytes:slope_per_hour_30m > 5242880
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: TrainPilot RSS grows by more than 5 MiB per hour
+      - alert: TrainPilotHeapGrowth
+        expr: trainpilot:go_heap_alloc_bytes:slope_per_hour_30m > 5242880
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: TrainPilot Go heap grows by more than 5 MiB per hour
+      - alert: TrainPilotHeapObjectGrowth
+        expr: trainpilot:go_heap_objects:slope_per_hour_30m > 10000
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: TrainPilot heap objects grow by more than 10000 per hour
+      - alert: TrainPilotGoroutineGrowth
+        expr: trainpilot:go_goroutines:slope_per_hour_30m > 1
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: TrainPilot goroutines show sustained growth
+      - alert: TrainPilotThreadGrowth
+        expr: trainpilot:go_threads:slope_per_hour_30m > 1
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: TrainPilot OS threads show sustained growth
+      - alert: TrainPilotFileDescriptorGrowth
+        expr: trainpilot:process_open_fds:slope_per_hour_30m > 1
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: TrainPilot file descriptors show sustained growth
+      - alert: TrainPilotSQLiteGrowth
+        expr: trainpilot:sqlite_file_size_bytes:slope_per_hour_30m > 1048576
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: TrainPilot database and WAL grow by more than 1 MiB per hour
+      - alert: TrainPilotCPURegression
+        expr: trainpilot:process_cpu_cores:avg_30m > 1.20 * trainpilot:process_cpu_cores:avg_30m offset 30m
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: TrainPilot CPU use increased by more than 20 percent
+      - alert: TrainPilotHTTPP95Regression
+        expr: avg_over_time(trainpilot:http_request_duration_seconds:p95_5m[30m]) > 1.10 * avg_over_time(trainpilot:http_request_duration_seconds:p95_5m[30m] offset 30m)
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: TrainPilot HTTP p95 increased by more than 10 percent
+      - alert: TrainPilotUnexpectedSQLiteError
+        expr: trainpilot:sqlite_errors:increase_5m > 0
+        labels: {severity: warning}
+        annotations:
+          summary: TrainPilot reported an unexpected SQLite error
+      - alert: TrainPilotWebSocketQueueOverflow
+        expr: trainpilot:websocket_queue_overflows:increase_5m > 0
+        labels: {severity: warning}
+        annotations:
+          summary: TrainPilot dropped WebSocket work because a queue overflowed
+      - alert: TrainPilotUnavailable
+        expr: up{job="trainpilot"} == 0
+        for: 30s
+        labels: {severity: warning}
+        annotations:
+          summary: Prometheus cannot scrape TrainPilot

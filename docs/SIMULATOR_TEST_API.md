@@ -160,13 +160,18 @@ Modes : `immediate`, `delayed`, `no_confirmation`, `inconsistent`.
 {
   "delay": "500ms",
   "remaining": 2,
+  "every": 3,
   "error": "injected_failure"
 }
 ```
 
 Opérations : `status`, `track_power`, `emergency_stop`, `throttle`, `function`,
-`accessory`. `remaining: 0` conserve le fault jusqu'à son effacement ou au
-reset. Une durée positive, une erreur, ou les deux sont obligatoires.
+`accessory`. `every: 3` injecte le fault sur chaque troisième opération qui
+correspond au type et à l'adresse. La valeur par défaut `0` applique le fault à
+chaque opération. `remaining` compte les injections réellement appliquées, pas
+les opérations observées. `remaining: 0` conserve le fault jusqu'à son
+effacement ou au reset. Une durée positive, une erreur, ou les deux sont
+obligatoires.
 
 Pour cibler un seul endpoint d'un appareil composé, `address` est accepté
 uniquement avec l'opération `accessory` :

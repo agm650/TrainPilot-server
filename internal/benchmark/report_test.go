@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestReportDoesNotContainCredentialsAndUsesPrivatePermissions(t *testing.T) {
@@ -42,6 +43,43 @@ func TestReportDoesNotContainCredentialsAndUsesPrivatePermissions(t *testing.T) 
 	}
 }
 
+func TestLoadReportMigratesVersionTwoMeasurementStart(t *testing.T) {
+	ended := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
+	document := map[string]any{
+		"schemaVersion":    2,
+		"runId":            "00000000-0000-4000-8000-000000000001",
+		"benchmarkVersion": "legacy",
+		"startedAt":        ended.Add(-70 * time.Minute),
+		"endedAt":          ended,
+		"duration":         "1h",
+		"warmup":           "10m",
+		"profile":          map[string]any{"schemaVersion": 1, "name": "legacy"},
+		"profileSha256":    strings.Repeat("a", 64),
+		"seed":             650,
+		"server":           map[string]any{"url": "http://example.test"},
+		"clientHost":       map[string]any{},
+		"operations":       map[string]any{},
+		"webSocket":        map[string]any{"feedbackLatency": map[string]any{}},
+		"invariants":       []any{},
+		"overallResult":    "PASS",
+	}
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "legacy.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report, err := LoadReport(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.SchemaVersion != ReportSchemaVersion || !report.MeasurementStartedAt.Equal(ended.Add(-time.Hour)) {
+		t.Fatalf("migrated report=%+v", report)
+	}
+}
+
 func TestServerURLIsSanitizedForReports(t *testing.T) {
 	got := sanitizedServerURL("https://user:password@example.test/api?token=secret#fragment")
 	if got != "https://example.test/api" {
@@ -64,7 +102,7 @@ func TestBenchmarkSchemasContainValidJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) != 4 {
+	if len(paths) != 6 {
 		t.Fatalf("schema count=%d", len(paths))
 	}
 	for _, path := range paths {

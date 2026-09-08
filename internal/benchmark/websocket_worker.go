@@ -30,6 +30,9 @@ func (e *runEngine) runWebSocket(ctx context.Context, index int, ready chan<- st
 	for ctx.Err() == nil {
 		started := time.Now()
 		client, err := dialWebSocket(ctx, e.options.Server, session.accessToken(), e.profile.OperationTimeout.Duration)
+		if e.isExpectedErrorAt("websocket_connect", err, started) {
+			err = expectedError(err)
+		}
 		e.recorder.Record("websocket_connect", time.Since(started), err)
 		if err != nil {
 			if !waitRetry(ctx) {

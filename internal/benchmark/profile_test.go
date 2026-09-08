@@ -59,7 +59,19 @@ func TestProfileValidation(t *testing.T) {
 			p.ExpectedErrors = []ExpectedErrorRule{{Operation: "throttle", HTTPStatuses: []int{200}}}
 		}},
 		{"invalid expected kind", func(p *Profile) {
-			p.ExpectedErrors = []ExpectedErrorRule{{Operation: "throttle", Kinds: []string{"network"}}}
+			p.ExpectedErrors = []ExpectedErrorRule{{Operation: "throttle", Kinds: []string{"other"}}}
+		}},
+		{"partial expected window", func(p *Profile) {
+			from := Duration{Duration: time.Second}
+			p.ExpectedErrors = []ExpectedErrorRule{{Operation: "throttle", HTTPStatuses: []int{503}, From: &from}}
+		}},
+		{"expected window outside measurement", func(p *Profile) {
+			from := Duration{Duration: time.Second}
+			to := Duration{Duration: 3 * time.Second}
+			p.ExpectedErrors = []ExpectedErrorRule{{Operation: "throttle", HTTPStatuses: []int{503}, From: &from, To: &to}}
+		}},
+		{"unbounded health error", func(p *Profile) {
+			p.ExpectedErrors = []ExpectedErrorRule{{Operation: "health", HTTPStatuses: []int{503}}}
 		}},
 	}
 	for _, test := range tests {
@@ -70,6 +82,22 @@ func TestProfileValidation(t *testing.T) {
 				t.Fatal("expected validation error")
 			}
 		})
+	}
+}
+
+func TestProfileAcceptsWindowedPlannedOutage(t *testing.T) {
+	profile, err := DecodeProfile(strings.NewReader(validProfileYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := Duration{Duration: 500 * time.Millisecond}
+	to := Duration{Duration: 1500 * time.Millisecond}
+	profile.ExpectedErrors = []ExpectedErrorRule{{Operation: "health", Kinds: []string{"network"}, From: &from, To: &to}}
+	if err := profile.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !profile.HasPlannedOutage() || !profile.HasOperation("health") {
+		t.Fatal("planned outage was not detected")
 	}
 }
 
