@@ -225,7 +225,9 @@ The complete command-line reference for `dccd`, `dccctl`,
 [`docs/COMMANDS.md`](docs/COMMANDS.md).
 
 Benchmark setup, safety controls, profiles, and reports are documented in
-[`docs/BENCHMARKING.md`](docs/BENCHMARKING.md).
+[`docs/BENCHMARKING.md`](docs/BENCHMARKING.md). The reference performance
+methodology and validated hardware matrix are in
+[`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
 
 Start the server:
 
