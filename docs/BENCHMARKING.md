@@ -214,8 +214,25 @@ trainpilot-bench validate-profile benchmarks/profiles/smoke.yaml
 
 ## Run the simulator smoke profile
 
-Start a server with the simulator, `testAPI: true`, and `seedDemo: true`. Then
-run the generator from another machine:
+The `benchmark-smoke` GitHub Actions job runs this profile on Ubuntu for every
+push and pull request. It imports the deterministic `small` fixture, provisions
+benchmark users through the local Unix socket, and runs three phases. The main
+phase uses 5 seconds of warm-up plus 30 measured seconds, a fixed seed, active
+commands, and a feedback burst. A 1 + 15 second phase exercises WebSocket
+reconnection. A final 1 + 10 second phase drops events and exercises snapshot
+resynchronization. Keeping these behaviors sequential avoids hiding their
+individual results. Functional failures, missing reconnects or gaps, unresolved
+gaps, timeouts, crashes, and a failed final health check fail the job. Latency
+and host-resource values never fail this CI job.
+
+On failure, the job retains any reports already produced, benchmark and server
+logs, the secret-free server configuration, Prometheus metrics, and Go heap and
+goroutine profiles. Credentials, tokens, and the temporary database are not
+uploaded.
+
+For a manual run, start a server with the simulator and `testAPI: true`. Import
+the `small` rolling-stock and layout archives, then run the generator from
+another machine:
 
 ```bash
 trainpilot-bench run \
@@ -229,6 +246,12 @@ trainpilot-bench run \
 
 Use `--duration 10s` for a short development check. Use `--seed` to override
 the profile seed.
+
+The CI smoke benchmark detects functional regressions. It is not a performance
+baseline. Run real performance tests manually, through `workflow_dispatch` on
+self-hosted hardware, or on dedicated infrastructure. A future scheduled
+Raspberry Pi 3 B+ `medium` run must remain optional and must not block pull
+request merges.
 
 ## Generated load
 

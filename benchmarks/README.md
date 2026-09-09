@@ -34,6 +34,15 @@ panics, crashes, invalid JSON, and SQLite corruption. Expected contention and
 offline refusals belong to their named scenario operation, not normal traffic.
 Expected HTTP responses are declared with profile `expected_errors` rules.
 
+## CI smoke profiles
+
+The Ubuntu `benchmark-smoke` job imports the `small` data set and runs three
+short, fixed-seed phases. `smoke` covers active operations and a feedback burst,
+`ci-websocket-reconnect` requires an observed reconnect, and
+`ci-websocket-resync` requires an observed and recovered sequence gap. These
+profiles detect functional regressions. They define no runner-dependent latency
+or resource threshold.
+
 ## Storm profiles
 
 - `feedback-storm`: medium baseline plus simultaneous bursts of 50, 100, and

@@ -15,7 +15,7 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          - macos-13
+          - macos-15-intel
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -54,6 +54,47 @@ jobs:
 
       - name: Vet
         run: go vet ./...
+
+  benchmark-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Build smoke benchmark binaries
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p "$RUNNER_TEMP/trainpilot-ci-bin"
+          go build -o "$RUNNER_TEMP/trainpilot-ci-bin/dccd" ./cmd/dccd
+          go build -o "$RUNNER_TEMP/trainpilot-ci-bin/dccctl" ./cmd/dccctl
+          go build -o "$RUNNER_TEMP/trainpilot-ci-bin/trainpilot-bench" ./cmd/trainpilot-bench
+
+      - name: Run simulator smoke benchmark
+        env:
+          DCCD_BIN: ${{ runner.temp }}/trainpilot-ci-bin/dccd
+          DCCCTL_BIN: ${{ runner.temp }}/trainpilot-ci-bin/dccctl
+          TRAINPILOT_BENCH_BIN: ${{ runner.temp }}/trainpilot-ci-bin/trainpilot-bench
+          CI_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/trainpilot-ci-smoke-artifacts
+        run: scripts/benchmark-ci-smoke.sh
+
+      - name: Upload smoke benchmark diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-smoke-diagnostics
+          path: ${{ runner.temp }}/trainpilot-ci-smoke-artifacts
+          if-no-files-found: error
+          retention-days: 14
 
   snapshot:
     runs-on: ubuntu-latest

@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "dataset": {
+    "preset": "small",
+    "locomotives": 50,
+    "blocks": 20,
+    "turnouts": 10,
+    "routes": 10
+  },
+  "locomotiveIds": [
+    "benchmark-loco-0001",
+    "benchmark-loco-0002",
+    "benchmark-loco-0003"
+  ],
+  "feedbackTargets": [
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 6,
+      "blockId": "benchmark-block-0006"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 7,
+      "blockId": "benchmark-block-0007"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 8,
+      "blockId": "benchmark-block-0008"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 9,
+      "blockId": "benchmark-block-0009"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 10,
+      "blockId": "benchmark-block-0010"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 11,
+      "blockId": "benchmark-block-0011"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 12,
+      "blockId": "benchmark-block-0012"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 13,
+      "blockId": "benchmark-block-0013"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 14,
+      "blockId": "benchmark-block-0014"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 15,
+      "blockId": "benchmark-block-0015"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 16,
+      "blockId": "benchmark-block-0016"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 17,
+      "blockId": "benchmark-block-0017"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 18,
+      "blockId": "benchmark-block-0018"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 19,
+      "blockId": "benchmark-block-0019"
+    },
+    {
+      "source": "simulator",
+      "kind": "occupancy",
+      "address": 20,
+      "blockId": "benchmark-block-0020"
+    }
+  ],
+  "incompatibleRoutePairs": [
+    {
+      "first": "benchmark-route-0001",
+      "second": "benchmark-route-0002"
+    },
+    {
+      "first": "benchmark-route-0003",
+      "second": "benchmark-route-0004"
+    },
+    {
+      "first": "benchmark-route-0005",
+      "second": "benchmark-route-0006"
+    },
+    {
+      "first": "benchmark-route-0007",
+      "second": "benchmark-route-0008"
+    },
+    {
+      "first": "benchmark-route-0009",
+      "second": "benchmark-route-0010"
+    }
+  ]
+}

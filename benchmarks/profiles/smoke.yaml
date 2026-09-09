@@ -1,9 +1,9 @@
 schema_version: 1
 name: simulator-smoke
 warmup: 5s
-duration: 60s
+duration: 30s
 seed: 650
-fixture: ../fixtures/simulator-default.json
+fixture: ../fixtures/ci-smoke.json
 operation_timeout: 5s
 
 clients:
@@ -15,16 +15,29 @@ clients:
 rates:
   login_per_second: 0.2
   refresh_per_second: 0.2
-  lease_acquire_per_second: 0.2
+  lease_acquire_per_second: 0
   lease_heartbeat_per_second: 2
-  lease_release_per_second: 0.2
+  lease_release_per_second: 0
   throttle_per_second: 10
   functions_per_second: 3
   feedback_per_second: 10
   accessories_per_second: 2
-  route_operations_per_second: 1
+  route_operations_per_second: 0
   reads_per_second: 5
 
 behavior:
-  reconnect_probability: 0.001
+  reconnect_probability: 0
   snapshot_probability: 0.001
+  drop_event_probability: 0
+
+expected_errors:
+  - operation: route_contention
+    http_statuses: [409]
+
+bursts:
+  - at: 10s
+    operation: feedback
+    count: 25
+  - at: 20s
+    operation: route_contention
+    count: 5

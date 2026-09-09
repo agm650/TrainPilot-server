@@ -1,0 +1,31 @@
+schema_version: 1
+name: ci-websocket-resync
+warmup: 1s
+duration: 10s
+seed: 650
+fixture: ../fixtures/ci-smoke.json
+operation_timeout: 5s
+
+clients:
+  users: 4
+  websockets: 4
+  active_locomotives: 0
+  workers: 8
+
+rates:
+  login_per_second: 0
+  refresh_per_second: 0
+  lease_acquire_per_second: 0
+  lease_heartbeat_per_second: 0
+  lease_release_per_second: 0
+  throttle_per_second: 0
+  functions_per_second: 0
+  feedback_per_second: 10
+  accessories_per_second: 0
+  route_operations_per_second: 0
+  reads_per_second: 2
+
+behavior:
+  reconnect_probability: 0
+  snapshot_probability: 0.001
+  drop_event_probability: 0.02
