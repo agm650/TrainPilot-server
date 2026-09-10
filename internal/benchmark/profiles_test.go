@@ -10,7 +10,7 @@ func TestVersionedProfilesAndFixturesAreValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) != 18 {
+	if len(paths) != 20 {
 		t.Fatalf("profile count=%d", len(paths))
 	}
 	for _, path := range paths {

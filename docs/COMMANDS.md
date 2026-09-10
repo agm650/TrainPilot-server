@@ -470,6 +470,8 @@ Options:
 - `--warmup <duration>`: override the warm-up duration, including `0s`;
 - `--seed <integer>`: override the deterministic seed;
 - `--output <file>`: JSON report path; required;
+- `--metrics-listen <address>`: expose the optional load-generator `/metrics`
+  endpoint, for example `127.0.0.1:6061`; disabled by default;
 - `--allow-active-commands`: allow commands that can affect a railway;
 - `--allow-simulator-api`: allow simulator test-event injection;
 - `--allow-real-hardware`: additionally confirm active commands against a
@@ -481,6 +483,9 @@ commands for `bash`, `fish`, `powershell`, and `zsh`.
 `--credentials` and `--credential` are mutually exclusive. Active profiles are
 rejected unless explicitly enabled. A non-simulator target requires both
 active-command and real-hardware confirmation.
+
+The metrics listener has no authentication. Bind it to a private address and
+follow `docs/BENCHMARK-MONITORING.md` for Prometheus and Grafana configuration.
 
 ## `dcc-api-conformance`
 

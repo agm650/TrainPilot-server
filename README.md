@@ -32,8 +32,10 @@ Included features:
 - versioned rolling-stock and layout import/export using native ZIP archives;
 - `dccctl` diagnostics and transfer CLI;
 - `dcc-api-conformance` conformance tool;
-- `trainpilot-bench` reproducible remote load generator;
-- optional Prometheus and pprof diagnostics on a dedicated listener;
+- `trainpilot-bench` reproducible remote load generator with optional live
+  Prometheus metrics;
+- optional server-side Prometheus and pprof diagnostics on a dedicated
+  listener;
 - unit, concurrency, protocol, and integration tests.
 
 Known MVP limitations:
@@ -69,6 +71,7 @@ benchmarks/                  benchmark profiles, fixtures, and ignored results
 internal/api/                HTTP and WebSocket APIs
 internal/admin/              Unix-socket administration server/client
 internal/auth/               passwords and opaque tokens
+internal/benchmark/          load engine, reports, comparison, and live metrics
 internal/observability/      Prometheus registry and diagnostic mux
 internal/service/            business and safety rules
 internal/station/            command-station abstraction and drivers
@@ -81,7 +84,7 @@ tests/contract/              versioned contract-scenario validation
 tests/integration/           integration tests
 tests/simulator/scenarios/   deterministic virtual test-bench scenarios
 contract-tests/              domain scenarios readable by multiple clients
-deploy/                      systemd unit and Linux configuration example
+deploy/                      systemd and external monitoring configuration
 ```
 
 ## Requirements
@@ -114,6 +117,7 @@ contains:
 bin/dccd
 bin/dccctl
 bin/dcc-api-conformance
+bin/trainpilot-bench
 README.md
 config.json
 api/
@@ -121,7 +125,7 @@ docs/
 deploy/
 ```
 
-To build only the three binaries for the current platform:
+To build only the four binaries for the current platform:
 
 ```bash
 goreleaser build --single-target --snapshot
@@ -228,6 +232,35 @@ Benchmark setup, safety controls, profiles, and reports are documented in
 [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md). The reference performance
 methodology and validated hardware matrix are in
 [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
+
+### Live benchmark metrics
+
+The load generator does not expose metrics by default. Pass
+`--metrics-listen` to open its separate `/metrics` endpoint:
+
+```bash
+trainpilot-bench run \
+  --server http://192.168.1.20:8080 \
+  --profile benchmarks/profiles/smoke.yaml \
+  --credentials /tmp/benchmark-credentials.json \
+  --allow-active-commands \
+  --allow-simulator-api \
+  --metrics-listen 127.0.0.1:6061 \
+  --output benchmarks/results/simulator-smoke.json
+```
+
+The optional registry reports all run phases, requested and executed load,
+skipped operations, result classes, operation latency, and client-observed
+WebSocket events and resynchronizations. Labels use bounded values and contain
+no run, user, session, or resource identifiers. WebSocket queue overflows come
+from the server metric because the client cannot determine why a connection
+was closed.
+
+Bind the listener to a private address for remote scraping. It has no
+authentication and must not be exposed to the Internet. The versioned JSON
+report remains available without Prometheus. External Prometheus configuration,
+Grafana dashboards, phase annotations, and network guidance are documented in
+[`docs/BENCHMARK-MONITORING.md`](docs/BENCHMARK-MONITORING.md).
 
 Start the server:
 
