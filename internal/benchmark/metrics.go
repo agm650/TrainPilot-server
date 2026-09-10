@@ -14,6 +14,7 @@ type operationRecorder struct {
 	mu        sync.Mutex
 	started   time.Time
 	stats     map[string]*operationStats
+	live      *LiveMetrics
 }
 
 type operationStats struct {
@@ -40,8 +41,12 @@ func expectedError(err error) error {
 	return expectedOperationError{err: err}
 }
 
-func newOperationRecorder() *operationRecorder {
-	return &operationRecorder{stats: make(map[string]*operationStats)}
+func newOperationRecorder(live ...*LiveMetrics) *operationRecorder {
+	var metrics *LiveMetrics
+	if len(live) > 0 {
+		metrics = live[0]
+	}
+	return &operationRecorder{stats: make(map[string]*operationStats), live: metrics}
 }
 
 func (r *operationRecorder) StartMeasurement(now time.Time) {
@@ -52,6 +57,7 @@ func (r *operationRecorder) StartMeasurement(now time.Time) {
 }
 
 func (r *operationRecorder) Record(name string, latency time.Duration, err error) {
+	r.live.observeOperation(name, latency, err)
 	if !r.measuring.Load() {
 		return
 	}
@@ -80,6 +86,7 @@ func (r *operationRecorder) Record(name string, latency time.Duration, err error
 }
 
 func (r *operationRecorder) Skip(name string) {
+	r.live.skipOperation(name)
 	if !r.measuring.Load() {
 		return
 	}

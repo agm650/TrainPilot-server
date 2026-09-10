@@ -202,6 +202,11 @@ trainpilot-bench run \
   --output benchmarks/results/station-full-recovery.json
 ```
 
+Add `--metrics-listen 127.0.0.1:6061` to expose optional live generator
+metrics to a Prometheus process on the same host. The option is disabled by
+default. For a remote scrape, bind a private load-generator address and follow
+the network restrictions in `docs/BENCHMARK-MONITORING.md`.
+
 The runner loads and starts the scenario at measurement start. It advances the
 manual simulator clock at wall-clock speed and records each applied step. This
 mode never accelerates soak time.

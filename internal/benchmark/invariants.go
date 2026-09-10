@@ -190,6 +190,7 @@ func (t *expectationTracker) Pending() int {
 }
 
 type webSocketMetrics struct {
+	live             *LiveMetrics
 	connections      atomic.Int64
 	disconnections   atomic.Int64
 	reconnects       atomic.Int64
@@ -201,6 +202,64 @@ type webSocketMetrics struct {
 	invalidMessages  atomic.Int64
 	feedbackMu       sync.Mutex
 	feedbackLatency  []time.Duration
+}
+
+func newWebSocketMetrics(live *LiveMetrics) *webSocketMetrics {
+	return &webSocketMetrics{live: live}
+}
+
+func (m *webSocketMetrics) connected() {
+	m.connections.Add(1)
+	m.live.observeWebSocket("connections")
+}
+
+func (m *webSocketMetrics) disconnected() {
+	m.disconnections.Add(1)
+	m.live.observeWebSocket("disconnections")
+}
+
+func (m *webSocketMetrics) reconnected() {
+	m.reconnects.Add(1)
+	m.live.observeWebSocket("reconnects")
+}
+
+func (m *webSocketMetrics) sequenceGap() {
+	m.sequenceGaps.Add(1)
+	m.unresolvedGaps.Add(1)
+	m.live.observeWebSocket("sequence_gaps")
+	m.live.startWebSocketResync()
+}
+
+func (m *webSocketMetrics) resynchronized() {
+	m.unresolvedGaps.Add(-1)
+	m.live.completeWebSocketResync()
+}
+
+func (m *webSocketMetrics) snapshot() {
+	m.snapshots.Add(1)
+	m.live.observeWebSocket("snapshots")
+}
+
+func (m *webSocketMetrics) snapshotRequest() {
+	m.snapshotRequests.Add(1)
+	m.live.observeWebSocket("snapshot_requests")
+}
+
+func (m *webSocketMetrics) eventReceived() {
+	m.eventsReceived.Add(1)
+	m.live.observeWebSocket("events_received")
+}
+
+func (m *webSocketMetrics) invalidMessage() {
+	m.invalidMessages.Add(1)
+	m.live.observeWebSocket("invalid_messages")
+}
+
+func (m *webSocketMetrics) observeFeedbackLatency(latency time.Duration) {
+	m.feedbackMu.Lock()
+	m.feedbackLatency = append(m.feedbackLatency, latency)
+	m.feedbackMu.Unlock()
+	m.live.observeWebSocketFeedback(latency)
 }
 
 func (m *webSocketMetrics) summary() WebSocketSummary {
@@ -370,9 +429,7 @@ func (m *eventMonitor) process(sequence uint64, eventType string, payload map[st
 		blockID, _ := payload["blockId"].(string)
 		occupied, _ := payload["occupied"].(bool)
 		if latency, ok := m.expectations.Fulfill(fmt.Sprintf("feedback:%s:%t", blockID, occupied)); ok {
-			m.webSocket.feedbackMu.Lock()
-			m.webSocket.feedbackLatency = append(m.webSocket.feedbackLatency, latency)
-			m.webSocket.feedbackMu.Unlock()
+			m.webSocket.observeFeedbackLatency(latency)
 		}
 	case "route.reserved":
 		routeID, _ := payload["routeId"].(string)

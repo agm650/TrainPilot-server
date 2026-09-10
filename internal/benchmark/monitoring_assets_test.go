@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -33,6 +34,29 @@ func TestMonitoringDashboardsContainValidJSON(t *testing.T) {
 		if dashboard.Title == "" || dashboard.SchemaVersion != 39 || len(dashboard.Panels) == 0 {
 			t.Fatalf("%s: incomplete dashboard", path)
 		}
+	}
+}
+
+func TestBenchmarkDashboardUsesLiveGeneratorMetrics(t *testing.T) {
+	path := filepath.Join("..", "..", "deploy", "monitoring", "grafana", "dashboards", "trainpilot-benchmark.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range [][]byte{
+		[]byte(`trainpilot_benchmark_phase_started_timestamp_seconds`),
+		[]byte(`trainpilot_benchmark_requested_rate_per_second`),
+		[]byte(`trainpilot_benchmark_operations_total`),
+		[]byte(`trainpilot_benchmark_operation_duration_seconds_bucket`),
+		[]byte(`trainpilot_benchmark_websocket_resynchronizations_total`),
+		[]byte(`trainpilot_websocket_queue_overflows_total`),
+	} {
+		if !bytes.Contains(data, expected) {
+			t.Errorf("benchmark dashboard is missing %q", expected)
+		}
+	}
+	if bytes.Contains(data, []byte(`trainpilot_benchmark_websocket_queue_overflows`)) {
+		t.Fatal("benchmark dashboard invents a client-side WebSocket overflow metric")
 	}
 }
 
@@ -103,4 +127,26 @@ func TestPrometheusExampleLoadsSoakRules(t *testing.T) {
 			t.Fatalf("missing rule file %q", name)
 		}
 	}
+}
+
+func TestPrometheusExampleScrapesBenchmarkGenerator(t *testing.T) {
+	path := filepath.Join("..", "..", "deploy", "monitoring", "prometheus", "prometheus.example.yml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var configuration struct {
+		ScrapeConfigs []struct {
+			JobName string `yaml:"job_name"`
+		} `yaml:"scrape_configs"`
+	}
+	if err := yaml.Unmarshal(data, &configuration); err != nil {
+		t.Fatal(err)
+	}
+	for _, scrape := range configuration.ScrapeConfigs {
+		if scrape.JobName == "trainpilot-bench" {
+			return
+		}
+	}
+	t.Fatal("missing trainpilot-bench scrape job")
 }

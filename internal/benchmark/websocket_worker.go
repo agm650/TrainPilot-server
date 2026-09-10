@@ -40,9 +40,9 @@ func (e *runEngine) runWebSocket(ctx context.Context, index int, ready chan<- st
 			}
 			continue
 		}
-		e.wsMetrics.connections.Add(1)
+		e.wsMetrics.connected()
 		if !firstConnection {
-			e.wsMetrics.reconnects.Add(1)
+			e.wsMetrics.reconnected()
 		}
 		firstConnection = false
 		closed := make(chan struct{})
@@ -58,12 +58,12 @@ func (e *runEngine) runWebSocket(ctx context.Context, index int, ready chan<- st
 		close(heartbeatDone)
 		close(closed)
 		_ = client.Close()
-		e.wsMetrics.disconnections.Add(1)
+		e.wsMetrics.disconnected()
 		if ctx.Err() != nil {
 			break
 		}
 		if err != nil && !errors.Is(err, errPlannedReconnect) && !errors.Is(err, io.EOF) && !isNetworkError(err) {
-			e.wsMetrics.invalidMessages.Add(1)
+			e.wsMetrics.invalidMessage()
 			e.invariants.Violate(invariantValidJSON, fmt.Sprintf("WebSocket %d: %v", index, err))
 		}
 		if !waitRetry(ctx) {
@@ -90,17 +90,17 @@ func (e *runEngine) consumeWebSocket(ctx context.Context, client *webSocketClien
 			if err := e.monitor.processSnapshot(message.Payload); err != nil {
 				return fmt.Errorf("decode system snapshot: %w", err)
 			}
-			e.wsMetrics.snapshots.Add(1)
+			e.wsMetrics.snapshot()
 			lastSequence = message.Sequence
 			if *awaitingResync {
 				e.invariants.Observe(invariantWebSocketResync)
-				e.wsMetrics.unresolvedGaps.Add(-1)
+				e.wsMetrics.resynchronized()
 				*awaitingResync = false
 			}
 			ready()
 			continue
 		}
-		e.wsMetrics.eventsReceived.Add(1)
+		e.wsMetrics.eventReceived()
 		if message.Sequence == 0 {
 			return fmt.Errorf("event %s has sequence zero", message.Type)
 		}
@@ -111,13 +111,12 @@ func (e *runEngine) consumeWebSocket(ctx context.Context, client *webSocketClien
 			continue
 		}
 		if !*awaitingResync && lastSequence > 0 && message.Sequence > lastSequence+1 {
-			e.wsMetrics.sequenceGaps.Add(1)
-			e.wsMetrics.unresolvedGaps.Add(1)
+			e.wsMetrics.sequenceGap()
 			*awaitingResync = true
 			if err := client.WriteJSON(map[string]any{"type": "client.snapshot_request", "lastSequence": lastSequence}, e.profile.OperationTimeout.Duration); err != nil {
 				return err
 			}
-			e.wsMetrics.snapshotRequests.Add(1)
+			e.wsMetrics.snapshotRequest()
 		}
 		if !*awaitingResync && message.Sequence > lastSequence {
 			lastSequence = message.Sequence
@@ -130,7 +129,7 @@ func (e *runEngine) consumeWebSocket(ctx context.Context, client *webSocketClien
 			if err := client.WriteJSON(map[string]any{"type": "client.snapshot_request", "lastSequence": lastSequence}, e.profile.OperationTimeout.Duration); err != nil {
 				return err
 			}
-			e.wsMetrics.snapshotRequests.Add(1)
+			e.wsMetrics.snapshotRequest()
 		}
 		if e.profile.Behavior.ReconnectProbability > 0 && random.Float64() < e.profile.Behavior.ReconnectProbability {
 			return errPlannedReconnect

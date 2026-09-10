@@ -73,6 +73,50 @@ curl --fail http://192.0.2.10:6060/metrics
 curl --fail http://192.0.2.10:9100/metrics
 ```
 
+## Expose load-generator metrics
+
+`trainpilot-bench` does not open a metrics listener by default. Pass an explicit
+address to expose its isolated registry:
+
+```bash
+trainpilot-bench run \
+  --profile benchmarks/profiles/medium.yaml \
+  --credentials /run/secrets/benchmark-credentials.json \
+  --output benchmarks/results/medium.json \
+  --metrics-listen 192.0.2.20:6061
+```
+
+The listener serves only `/metrics`. It has no authentication. Bind it to a
+private address, restrict port `6061` to the Prometheus host, and never expose
+it directly to the Internet. Use `127.0.0.1:6061` when Prometheus runs on the
+load-generator host. On completion, the command keeps the listener available
+for three seconds so a two-second scrape can collect the terminal phases.
+
+The example Prometheus configuration contains a separate `trainpilot-bench`
+job. Replace `192.0.2.20:6061` with the load generator address, then check it
+from the Prometheus host:
+
+```bash
+curl --fail http://192.0.2.20:6061/metrics
+```
+
+The live registry exposes:
+
+- one-hot `trainpilot_benchmark_phase` and bounded phase transitions for
+  `setup`, `warmup`, `measurement`, `stopping`, `cleanup`, and `finished`;
+- the requested rate and requested burst count for each bounded operation;
+- executed and skipped operations by phase, with `success`, `expected_error`,
+  and `unexpected_error` results and operation latency histograms;
+- client-observed WebSocket connections, events, gaps, snapshots,
+  resynchronizations, invalid messages, and feedback latency.
+
+Live operation series cover every phase. The versioned JSON report retains its
+existing contract, including measurement-only operation summaries. A
+benchmark client cannot identify why the server closed a WebSocket. Therefore,
+the dashboard uses the existing server-side
+`trainpilot_websocket_queue_overflows_total` metric for overflow evidence and
+does not infer client-side overflows.
+
 ## Configure node_exporter
 
 Use the node_exporter service supplied by the DUT operating system. The Host
@@ -233,17 +277,19 @@ filesystem capacity, temperatures, frequency, Raspberry Pi flags, `dccd` file
 descriptors, and optional systemd restart data.
 
 `TrainPilot / Benchmark` shows server-side throughput, latency percentiles,
-errors, feedback, WebSocket delivery, store activity, and SQLite growth.
+errors, feedback, WebSocket delivery, store activity, and SQLite growth. When
+the `trainpilot-bench` scrape job is enabled, it also shows all generator
+phases, requested versus executed load, skipped operations, outcome rates,
+client latency, and WebSocket resynchronizations. Dashboard annotations mark
+each observed phase transition.
 
 `TrainPilot / Soak and Recovery` shows 30-minute rolling averages, resource
 slopes, rule-generated warnings, station transitions, availability, and process
 restart evidence. Select the exact absolute measurement interval from the
 benchmark report before interpreting the panels.
 
-The current `trainpilot-bench` process does not expose live Prometheus metrics.
-Consequently, phase annotations, requested versus achieved client load, and
-expected versus unexpected client errors are not fabricated in this dashboard.
-They are tracked by `task/09-benchmark-live-metrics-grafana-annotations.md`.
+If the optional generator listener is disabled, the generator panels and phase
+annotations remain empty. Server and host panels continue to work.
 
 After a soak, query the recorded series over the report's exact measured
 interval and create the versioned trend companion:

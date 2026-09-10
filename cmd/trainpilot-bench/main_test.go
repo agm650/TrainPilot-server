@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,6 +114,48 @@ func TestRunCommandRequiresCredentials(t *testing.T) {
 	err := command.Execute()
 	if err == nil || !strings.Contains(err.Error(), "--credentials or at least one --credential is required") {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestRunMetricsAreDisabledByDefault(t *testing.T) {
+	command := newRunCommand()
+	flag := command.Flags().Lookup("metrics-listen")
+	if flag == nil || flag.DefValue != "" {
+		t.Fatalf("metrics-listen default=%v", flag)
+	}
+	server, err := startBenchmarkMetricsServer("", bench.NewLiveMetrics().Handler())
+	if err != nil || server != nil {
+		t.Fatalf("disabled metrics server=%v error=%v", server, err)
+	}
+}
+
+func TestBenchmarkMetricsServerExposesOnlyMetricsEndpoint(t *testing.T) {
+	server, err := startBenchmarkMetricsServer("127.0.0.1:0", bench.NewLiveMetrics().Handler())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.close()
+
+	response, err := http.Get("http://" + server.address() + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, readErr := io.ReadAll(response.Body)
+	response.Body.Close()
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if response.StatusCode != http.StatusOK || !strings.Contains(string(body), "trainpilot_benchmark_phase") {
+		t.Fatalf("status=%d body=%q", response.StatusCode, body)
+	}
+
+	response, err = http.Get("http://" + server.address() + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("root status=%d", response.StatusCode)
 	}
 }
 

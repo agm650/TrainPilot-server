@@ -40,6 +40,7 @@ type RunOptions struct {
 	SimulatorScenario   *SimulatorScenario
 	BenchmarkVersion    string
 	OnMeasurementStart  func(time.Time)
+	LiveMetrics         *LiveMetrics
 }
 
 type benchSession struct {
@@ -121,11 +122,13 @@ func Run(ctx context.Context, options RunOptions) (Report, error) {
 		options.BenchmarkVersion = executableVersion()
 	}
 	engine := &runEngine{
-		options: options, profile: profile, recorder: newOperationRecorder(),
-		invariants: newInvariantTracker(), wsMetrics: &webSocketMetrics{},
+		options: options, profile: profile, recorder: newOperationRecorder(options.LiveMetrics),
+		invariants: newInvariantTracker(), wsMetrics: newWebSocketMetrics(options.LiveMetrics),
 		leases: make(map[string]leaseBinding), routeStates: make(map[string]routeBinding),
 		feedback: make(map[string]bool),
 	}
+	engine.options.LiveMetrics.configure(engine.operationRates(), engine.profile.Bursts, engine.profile.Warmup.Duration)
+	defer engine.finishLiveMetrics()
 	engine.expectations = newExpectationTracker(engine.invariants)
 	engine.monitor = newEventMonitor(engine.invariants, engine.expectations, engine.wsMetrics, options.Fixture)
 	if err := engine.preflight(ctx); err != nil {
@@ -138,6 +141,8 @@ func Run(ctx context.Context, options RunOptions) (Report, error) {
 	cleanupNeeded := true
 	defer func() {
 		if cleanupNeeded {
+			engine.options.LiveMetrics.setPhase(phaseStopping)
+			engine.options.LiveMetrics.setPhase(phaseCleanup)
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			engine.cleanup(cleanupCtx)
@@ -163,6 +168,7 @@ func Run(ctx context.Context, options RunOptions) (Report, error) {
 	if err := engine.prepareActiveState(ctx); err != nil {
 		return Report{}, err
 	}
+	engine.options.LiveMetrics.setPhase(phaseWarmup)
 
 	jobs := make(chan scheduledJob, max(1024, engine.profile.Clients.Workers*16))
 	var workerGroup sync.WaitGroup
@@ -208,6 +214,7 @@ func Run(ctx context.Context, options RunOptions) (Report, error) {
 		measurementStarted = time.Now().UTC()
 		engine.measurementStarted.Store(measurementStarted.UnixNano())
 		engine.recorder.StartMeasurement(measurementStarted)
+		engine.options.LiveMetrics.setPhase(phaseMeasurement)
 		if options.OnMeasurementStart != nil {
 			options.OnMeasurementStart(measurementStarted)
 		}
@@ -222,6 +229,7 @@ func Run(ctx context.Context, options RunOptions) (Report, error) {
 		}
 		measuredEnded = time.Now().UTC()
 	}
+	engine.options.LiveMetrics.setPhase(phaseStopping)
 	stopSchedulers()
 	schedulerGroup.Wait()
 	close(jobs)
@@ -235,6 +243,7 @@ func Run(ctx context.Context, options RunOptions) (Report, error) {
 	if runErr != nil {
 		return Report{}, runErr
 	}
+	engine.options.LiveMetrics.setPhase(phaseCleanup)
 	cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 10*time.Second)
 	engine.cleanup(cleanupCtx)
 	cancelCleanup()
@@ -265,7 +274,24 @@ func Run(ctx context.Context, options RunOptions) (Report, error) {
 		Invariants: results, OverallResult: "PASS",
 	}
 	applyReportPolicy(&report, invariantFailure)
+	engine.options.LiveMetrics.setPhase(phaseFinished)
 	return report, nil
+}
+
+func (e *runEngine) finishLiveMetrics() {
+	if e == nil || e.options.LiveMetrics == nil {
+		return
+	}
+	switch e.options.LiveMetrics.phaseName() {
+	case phaseSetup, phaseWarmup, phaseMeasurement:
+		e.options.LiveMetrics.setPhase(phaseStopping)
+		fallthrough
+	case phaseStopping:
+		e.options.LiveMetrics.setPhase(phaseCleanup)
+		fallthrough
+	case phaseCleanup:
+		e.options.LiveMetrics.setPhase(phaseFinished)
+	}
 }
 
 func (e *runEngine) requestedBursts() map[string]int64 {

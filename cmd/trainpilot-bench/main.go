@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -15,6 +17,8 @@ import (
 )
 
 var version = "dev"
+
+const benchmarkMetricsFinalScrapeWait = 3 * time.Second
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -106,6 +110,7 @@ type runFlags struct {
 	allowRealHardware   bool
 	allowPlannedOutage  bool
 	simulatorScenario   string
+	metricsListen       string
 }
 
 func newRunCommand() *cobra.Command {
@@ -132,6 +137,7 @@ func newRunCommand() *cobra.Command {
 	command.Flags().BoolVar(&flags.allowRealHardware, "allow-real-hardware", false, "confirm that active commands may target a non-simulator driver")
 	command.Flags().BoolVar(&flags.allowPlannedOutage, "allow-planned-outage", false, "allow a profile to declare a bounded server outage")
 	command.Flags().StringVar(&flags.simulatorScenario, "simulator-scenario", "", "simulator scenario JSON run in wall-clock time during measurement")
+	command.Flags().StringVar(&flags.metricsListen, "metrics-listen", "", "expose optional benchmark metrics on this address")
 	_ = command.MarkFlagRequired("profile")
 	_ = command.MarkFlagRequired("output")
 	return command
@@ -179,12 +185,24 @@ func executeRun(command *cobra.Command, flags *runFlags) error {
 			return err
 		}
 	}
+	var liveMetrics *bench.LiveMetrics
+	var metricsServer *benchmarkMetricsServer
+	if flags.metricsListen != "" {
+		liveMetrics = bench.NewLiveMetrics()
+		metricsServer, err = startBenchmarkMetricsServer(flags.metricsListen, liveMetrics.Handler())
+		if err != nil {
+			return err
+		}
+		defer metricsServer.closeAfter(command.Context(), benchmarkMetricsFinalScrapeWait)
+		fmt.Fprintf(command.ErrOrStderr(), "Benchmark metrics listening on http://%s/metrics\n", metricsServer.address())
+	}
 	report, err := bench.Run(command.Context(), bench.RunOptions{
 		Server: flags.server, Profile: profile, Fixture: fixture, Credentials: credentials,
 		AllowActiveCommands: flags.allowActive, AllowSimulatorAPI: flags.allowSimulatorAPI,
 		AllowRealHardware: flags.allowRealHardware, BenchmarkVersion: version,
 		AllowPlannedOutage: flags.allowPlannedOutage,
 		SimulatorScenario:  simulatorScenario,
+		LiveMetrics:        liveMetrics,
 		OnMeasurementStart: func(startedAt time.Time) {
 			fmt.Fprintf(command.ErrOrStderr(), "Measurement started at %s\n", startedAt.Format(time.RFC3339Nano))
 		},
@@ -201,6 +219,62 @@ func executeRun(command *cobra.Command, flags *runFlags) error {
 		return errors.New("benchmark functional failure")
 	}
 	return nil
+}
+
+type benchmarkMetricsServer struct {
+	listener net.Listener
+	server   *http.Server
+	done     chan error
+}
+
+func startBenchmarkMetricsServer(address string, handler http.Handler) (*benchmarkMetricsServer, error) {
+	if address == "" {
+		return nil, nil
+	}
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return nil, fmt.Errorf("listen for benchmark metrics: %w", err)
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", handler)
+	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	result := &benchmarkMetricsServer{listener: listener, server: server, done: make(chan error, 1)}
+	go func() {
+		err := server.Serve(listener)
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
+		}
+		result.done <- err
+		close(result.done)
+	}()
+	return result, nil
+}
+
+func (s *benchmarkMetricsServer) address() string {
+	if s == nil {
+		return ""
+	}
+	return s.listener.Addr().String()
+}
+
+func (s *benchmarkMetricsServer) close() error {
+	if s == nil {
+		return nil
+	}
+	return errors.Join(s.server.Close(), <-s.done)
+}
+
+func (s *benchmarkMetricsServer) closeAfter(ctx context.Context, delay time.Duration) error {
+	if s == nil {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+	return s.close()
 }
 
 func newEnrichReportCommand() *cobra.Command {

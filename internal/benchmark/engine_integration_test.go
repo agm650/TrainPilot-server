@@ -83,11 +83,12 @@ func TestRunAgainstSimulatorWithFiftyWebSockets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	liveMetrics := bench.NewLiveMetrics()
 	report, err := bench.Run(ctx, bench.RunOptions{
 		Server: server.URL, Profile: profile, Fixture: fixture,
 		Credentials:         []bench.Credential{{Username: "benchmark", Password: password}},
 		AllowActiveCommands: true, AllowSimulatorAPI: true,
-		SimulatorScenario: scenario,
+		SimulatorScenario: scenario, LiveMetrics: liveMetrics,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -110,5 +111,18 @@ func TestRunAgainstSimulatorWithFiftyWebSockets(t *testing.T) {
 	}
 	if strings.Contains(string(data), password) {
 		t.Fatal("credential leaked into report")
+	}
+	metricsResponse := httptest.NewRecorder()
+	liveMetrics.Handler().ServeHTTP(metricsResponse, httptest.NewRequest("GET", "/metrics", nil))
+	for _, transition := range []string{
+		`from="setup",to="warmup"`,
+		`from="warmup",to="measurement"`,
+		`from="measurement",to="stopping"`,
+		`from="stopping",to="cleanup"`,
+		`from="cleanup",to="finished"`,
+	} {
+		if !strings.Contains(metricsResponse.Body.String(), transition) {
+			t.Errorf("missing phase transition %s", transition)
+		}
 	}
 }
