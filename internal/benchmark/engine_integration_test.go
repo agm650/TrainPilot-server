@@ -3,6 +3,7 @@ package benchmark_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -59,8 +60,8 @@ func TestRunAgainstSimulatorWithFiftyWebSockets(t *testing.T) {
 	profile := bench.Profile{
 		SchemaVersion:    bench.ProfileSchemaVersion,
 		Name:             "integration",
-		Warmup:           bench.Duration{Duration: 50 * time.Millisecond},
-		Duration:         bench.Duration{Duration: 500 * time.Millisecond},
+		Warmup:           bench.Duration{Duration: time.Duration(raceTimeScale) * 50 * time.Millisecond},
+		Duration:         bench.Duration{Duration: time.Duration(raceTimeScale) * 500 * time.Millisecond},
 		Seed:             650,
 		OperationTimeout: bench.Duration{Duration: 3 * time.Second},
 		Clients:          bench.ClientProfile{Users: 2, WebSockets: 50, ActiveLocomotives: 1, Workers: 8},
@@ -76,7 +77,13 @@ func TestRunAgainstSimulatorWithFiftyWebSockets(t *testing.T) {
 		FeedbackTargets: []bench.FeedbackTarget{{Source: "simulator", Kind: "occupancy", Address: 1, BlockID: "block-a"}},
 	}
 	scenarioPath := filepath.Join(t.TempDir(), "recovery.json")
-	if err := os.WriteFile(scenarioPath, []byte(`{"version":2,"name":"integration-recovery","initial":{"connectivity":"online"},"steps":[{"at":"100ms","action":"station.connectivity","connectivity":"degraded"},{"at":"200ms","action":"station.connectivity","connectivity":"online"}]}`), 0o600); err != nil {
+	step1 := time.Duration(raceTimeScale) * 100 * time.Millisecond
+	step2 := time.Duration(raceTimeScale) * 200 * time.Millisecond
+	scenarioJSON := fmt.Sprintf(
+		`{"version":2,"name":"integration-recovery","initial":{"connectivity":"online"},"steps":[{"at":%q,"action":"station.connectivity","connectivity":"degraded"},{"at":%q,"action":"station.connectivity","connectivity":"online"}]}`,
+		step1.String(), step2.String(),
+	)
+	if err := os.WriteFile(scenarioPath, []byte(scenarioJSON), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	scenario, err := bench.LoadSimulatorScenario(scenarioPath)
