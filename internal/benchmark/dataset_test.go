@@ -1,9 +1,11 @@
 package benchmark
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -145,21 +147,76 @@ func TestCommittedDatasetsMatchGenerator(t *testing.T) {
 				t.Fatal(err)
 			}
 			fixture = append(fixture, '\n')
-			generated := map[string][]byte{
-				"rolling-stock.dcclib": rollingStock,
-				"layout.dcclayout":     layout,
-				"fixture.json":         fixture,
+			generated := []struct {
+				filename string
+				data     []byte
+				archive  bool
+			}{
+				{"rolling-stock.dcclib", rollingStock, true},
+				{"layout.dcclayout", layout, true},
+				{"fixture.json", fixture, false},
 			}
-			for filename, want := range generated {
-				path := filepath.Join("..", "..", "benchmarks", "fixtures", name, filename)
+			for _, file := range generated {
+				path := filepath.Join("..", "..", "benchmarks", "fixtures", name, file.filename)
 				got, err := os.ReadFile(path)
 				if err != nil {
 					t.Fatal(err)
 				}
-				if !bytes.Equal(got, want) {
+				if file.archive {
+					assertZIPContentsEqual(t, path, got, file.data)
+					continue
+				}
+				if !bytes.Equal(got, file.data) {
 					t.Fatalf("%s does not match deterministic generator", path)
 				}
 			}
 		})
 	}
+}
+
+type zipEntry struct {
+	name string
+	data []byte
+}
+
+func assertZIPContentsEqual(t *testing.T, path string, got, want []byte) {
+	t.Helper()
+	gotEntries := readZIPEntries(t, path, got)
+	wantEntries := readZIPEntries(t, "generated "+path, want)
+	if len(gotEntries) != len(wantEntries) {
+		t.Fatalf("%s contains %d entries; generator produced %d", path, len(gotEntries), len(wantEntries))
+	}
+	for index := range wantEntries {
+		if gotEntries[index].name != wantEntries[index].name {
+			t.Fatalf("%s entry %d is %q; generator produced %q", path, index, gotEntries[index].name, wantEntries[index].name)
+		}
+		if !bytes.Equal(gotEntries[index].data, wantEntries[index].data) {
+			t.Fatalf("%s entry %q does not match deterministic generator", path, gotEntries[index].name)
+		}
+	}
+}
+
+func readZIPEntries(t *testing.T, archiveName string, data []byte) []zipEntry {
+	t.Helper()
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("open %s: %v", archiveName, err)
+	}
+	entries := make([]zipEntry, 0, len(reader.File))
+	for _, file := range reader.File {
+		entryReader, err := file.Open()
+		if err != nil {
+			t.Fatalf("open %s entry %q: %v", archiveName, file.Name, err)
+		}
+		contents, readErr := io.ReadAll(entryReader)
+		closeErr := entryReader.Close()
+		if readErr != nil {
+			t.Fatalf("read %s entry %q: %v", archiveName, file.Name, readErr)
+		}
+		if closeErr != nil {
+			t.Fatalf("close %s entry %q: %v", archiveName, file.Name, closeErr)
+		}
+		entries = append(entries, zipEntry{name: file.Name, data: contents})
+	}
+	return entries
 }
