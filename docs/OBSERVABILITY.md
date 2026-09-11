@@ -66,7 +66,9 @@ l'URL réelle.
 - `trainpilot_websocket_snapshot_generation_duration_seconds`
 - `trainpilot_websocket_snapshot_size_bytes`
 
-Un overflow ferme la connexion afin de forcer une resynchronisation complète.
+Un overflow évince le plus ancien événement en attente et conserve le plus
+récent. La connexion reste ouverte afin que le client détecte le trou de
+séquence et demande une resynchronisation complète.
 Le serveur ne maintient pas d'identité de connexion durable. Une reconnexion ne
 peut donc pas être distinguée sûrement d'une nouvelle connexion. Le compteur
 `trainpilot_websocket_connections_total` fournit le nombre total accepté.

@@ -61,7 +61,7 @@ func TestSlowSubscriberDoesNotBlockPublisher(t *testing.T) {
 	}
 }
 
-func TestSlowSubscriberReceivesCoalescedOverflowSignal(t *testing.T) {
+func TestSlowSubscriberKeepsNewestEventAndReceivesCoalescedOverflowSignal(t *testing.T) {
 	bus := New()
 	events, overflow, unsubscribe := bus.SubscribeWithOverflow(1)
 	defer unsubscribe()
@@ -80,8 +80,8 @@ func TestSlowSubscriberReceivesCoalescedOverflowSignal(t *testing.T) {
 		t.Fatal("overflow signals were not coalesced")
 	default:
 	}
-	if got := <-events; got.Type != "queued" {
-		t.Fatalf("queued event=%+v", got)
+	if got := <-events; got.Type != "dropped-2" {
+		t.Fatalf("newest event=%+v", got)
 	}
 }
 

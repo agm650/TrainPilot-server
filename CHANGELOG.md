@@ -6,7 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- N/A
+- WebSocket queue overflows now preserve the newest event and allow clients to
+  request a live snapshot after detecting the sequence gap.
 
 ### Added
 
@@ -14,7 +15,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- N/A
+- The AsyncAPI contract is now version `1.9.1`.
 
 ## Unreleased
 

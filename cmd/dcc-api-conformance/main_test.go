@@ -95,7 +95,7 @@ func TestCompoundTurnoutContractsAreDocumented(t *testing.T) {
 		}
 	}
 	for _, fragment := range []string{
-		"version: 1.9.0",
+		"version: 1.9.1",
 		"name: turnout.commanded",
 		"name: turnout.state.changed",
 		"name: turnout.command.failed",

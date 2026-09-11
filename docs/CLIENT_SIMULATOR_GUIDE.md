@@ -6,7 +6,7 @@ Versions du contrat au moment de cette validation :
 
 - serveur : `0.2.0` ;
 - API HTTP : `1.7.0` ;
-- API événementielle : `1.9.0` ;
+- API événementielle : `1.9.1` ;
 - format des scénarios du simulateur : `1`.
 
 Ce guide explique comment utiliser TrainPilot-server comme banc virtuel pour
@@ -258,7 +258,7 @@ Exemple :
   "serverVersion": "0.2.0",
   "apiVersion": "1.7.0",
   "minimumClientApiVersion": "1.0.0",
-  "eventApiVersion": "1.9.0",
+  "eventApiVersion": "1.9.1",
   "minimumClientEventApiVersion": "1.3.0",
   "station": {
     "driver": "simulator",
@@ -540,8 +540,9 @@ Client -> Client : remplacer tout l'état\nlastSequence=105
 ```
 
 Le serveur ne conserve aucun replay. Une file de 64 événements est associée à
-chaque connexion. Un débordement ou une écriture dépassant cinq secondes ferme
-la connexion afin d'imposer une resynchronisation complète.
+chaque connexion. En cas de débordement, le plus ancien événement en attente
+est remplacé par le plus récent. Le trou de séquence permet une resynchronisation
+sur la même connexion. Une écriture dépassant cinq secondes ferme la connexion.
 
 ### 6.4 Événements à prendre en charge
 

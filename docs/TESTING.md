@@ -52,7 +52,7 @@
 - le bus attribue des séquences monotones, expose sa séquence courante et ne bloque pas sur un abonné lent ;
 - le WebSocket fournit un snapshot complet, permet la resynchronisation après un trou de séquence, supporte la reconnexion et ferme la connexion à l'expiration du jeton ou à la révocation de la session ;
 - les événements anciens ou dupliqués sont filtrés, et un événement publié pendant un snapshot est transmis ensuite sans perte ;
-- un client WebSocket trop lent est déconnecté lorsque sa file déborde ou que l'écriture expire ;
+- un débordement WebSocket conserve l'événement le plus récent et permet une resynchronisation sans déconnexion, tandis qu'une écriture expirée ferme la connexion ;
 - une déconnexion WebSocket ne libère pas le lease, qui reste soumis à son heartbeat et à son expiration normale ;
 - le refresh fait tourner les deux jetons, invalide immédiatement les anciens et le logout révoque la session ;
 - la conformité opt-in distingue un access token expiré avec refresh encore valide d'un refresh token naturellement expiré ;

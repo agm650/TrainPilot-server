@@ -634,10 +634,11 @@ connected sessions. The old session must immediately stop its heartbeats and
 commands. The new session receives the same `leaseId` with a new expiry. The
 server neither retains nor restores the previous speed.
 
-Each connection has a 64-event queue. If it overflows, or a WebSocket write
-takes more than five seconds, the server closes the connection rather than let
-the client continue with incomplete state. The client then reconnects and
-starts from a new complete snapshot.
+Each connection has a 64-event queue. If it overflows, the oldest queued event
+is replaced by the newest one. The resulting sequence gap lets the client
+request a complete snapshot on the same connection. A WebSocket write taking
+more than five seconds still closes the connection; the client then reconnects
+and starts from a new complete snapshot.
 
 Closing a WebSocket does not immediately release leases. A brief network outage
 must not cause loss of control. Leases remain valid until explicit release or

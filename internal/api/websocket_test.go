@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -628,20 +627,43 @@ func TestWebSocketClosesAfterSessionRevocation(t *testing.T) {
 	}
 }
 
-func TestSlowWebSocketClientIsDisconnectedOnOverflow(t *testing.T) {
-	fixture := newWebsocketFixture(t)
+func TestWebSocketOverflowKeepsConnectionOpenForLiveResynchronization(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	fixture := newWebsocketFixtureWithStation(t, 15*time.Minute, func(sim *simulator.Simulator) station.CommandStation {
+		return &snapshotBlockingStation{Simulator: sim, entered: entered, release: release}
+	})
 	fixture.api.eventBuffer = 1
-	fixture.api.eventWriteTimeout = 200 * time.Millisecond
 	client := dialTestWebSocket(t, fixture.server.URL, fixture.accessToken)
 	defer client.close()
-	readTestSnapshot(t, client)
 
-	payload := map[string]any{"data": strings.Repeat("x", 700<<10)}
-	for i := 0; i < 100; i++ {
-		fixture.bus.Publish("test.slow-client", payload)
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("snapshot did not reach the station-state read")
 	}
-	if err := client.waitForClosure(3 * time.Second); err != nil {
-		t.Fatal(err)
+	fixture.bus.Publish("test.evicted", nil)
+	latest := fixture.bus.Publish("test.latest", nil)
+	close(release)
+
+	initial := readTestSnapshot(t, client)
+	var gap events.Event
+	client.readJSON(t, &gap)
+	if gap.Type != latest.Type || gap.Sequence != latest.Sequence || gap.Sequence <= initial.Sequence+1 {
+		t.Fatalf("gap event=%+v initial sequence=%d latest=%+v", gap, initial.Sequence, latest)
+	}
+
+	client.writeJSON(t, map[string]any{"type": "client.snapshot_request", "lastSequence": initial.Sequence})
+	resynchronized := readTestSnapshot(t, client)
+	if resynchronized.Sequence < gap.Sequence {
+		t.Fatalf("resynchronized sequence=%d gap sequence=%d", resynchronized.Sequence, gap.Sequence)
+	}
+
+	after := fixture.bus.Publish("test.after-resynchronization", nil)
+	var delivered events.Event
+	client.readJSON(t, &delivered)
+	if delivered.Type != after.Type || delivered.Sequence != after.Sequence {
+		t.Fatalf("event after live resynchronization=%+v want=%+v", delivered, after)
 	}
 }
 

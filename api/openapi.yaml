@@ -528,8 +528,10 @@ paths:
         Upgrades to WebSocket. The first message is a complete system.snapshot.
         Clients ignore events whose sequence is less than or equal to the latest
         snapshot sequence and request another snapshot after a gap. The connection
-        closes when its access token expires, its session is revoked, its 64-event
-        queue overflows, or a write exceeds 5 seconds. Reconnection starts with a
+        closes when its access token expires, its session is revoked, or a write
+        exceeds 5 seconds. If its 64-event queue overflows, the oldest queued event
+        is replaced by the newest one; the resulting sequence gap lets the client
+        request a snapshot on the same connection. Reconnection starts with a
         complete snapshot. Event schemas are defined in asyncapi.yaml.
       responses:
         '101': { description: WebSocket established. }

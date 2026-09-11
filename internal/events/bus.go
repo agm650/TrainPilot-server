@@ -23,6 +23,7 @@ type Bus struct {
 }
 
 type subscription struct {
+	mu       sync.Mutex
 	events   chan Event
 	overflow chan struct{}
 }
@@ -40,9 +41,26 @@ func (b *Bus) Publish(eventType string, payload any) Event {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	for sub := range b.subs {
+		sub.mu.Lock()
+		dropped := false
 		select {
 		case sub.events <- e:
 		default:
+			// Keep the newest state change available to the subscriber. This
+			// makes the lost sequence observable as soon as it catches up.
+			select {
+			case <-sub.events:
+				dropped = true
+			default:
+			}
+			select {
+			case sub.events <- e:
+			default:
+				dropped = true
+			}
+		}
+		sub.mu.Unlock()
+		if dropped {
 			b.metrics.WebSocketQueueDrop(e.Type)
 			select {
 			case sub.overflow <- struct{}{}:
@@ -58,10 +76,11 @@ func (b *Bus) Subscribe(buffer int) (<-chan Event, func()) {
 	return events, unsubscribe
 }
 
-// SubscribeWithOverflow reports when at least one event cannot be queued for
-// the subscriber. The overflow signal is coalesced and never blocks Publish.
-// Consumers that require a complete ordered stream must stop using the
-// subscription after this signal and resynchronize or disconnect.
+// SubscribeWithOverflow reports when at least one event is dropped for the
+// subscriber. A full buffered subscription evicts its oldest event and keeps
+// the newest one. The overflow signal is coalesced and never blocks Publish.
+// Consumers that require a complete ordered stream must resynchronize or
+// disconnect after this signal.
 func (b *Bus) SubscribeWithOverflow(buffer int) (<-chan Event, <-chan struct{}, func()) {
 	sub := &subscription{events: make(chan Event, buffer), overflow: make(chan struct{}, 1)}
 	b.mu.Lock()

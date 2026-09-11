@@ -207,10 +207,9 @@ func (s *Server) eventsWebSocket(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case <-overflow:
-			// At least one sequence was lost for this subscriber. Closing the
-			// connection forces a complete snapshot on reconnect and prevents a
-			// client from continuing with a silently incomplete state.
-			return
+			// The bus keeps the newest queued event. Its sequence exposes the
+			// gap so the client can request a snapshot on this connection.
+			continue
 		case <-snapshotRequests:
 			sequence, err := s.writeSystemSnapshot(conn, r)
 			if err != nil {
