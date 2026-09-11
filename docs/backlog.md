@@ -1,6 +1,6 @@
 # Backlog restant — TrainPilot-server
 
-Dernière mise à jour : 2 septembre 2026.
+Dernière mise à jour : 11 septembre 2026.
 
 Ce document ne contient que les travaux restant à réaliser. Les fonctionnalités
 terminées et leur historique restent consignés dans `DCC_BACKLOG.md`. Avant de
@@ -20,7 +20,9 @@ Priorités :
 
 Ordre suggéré parmi les tâches P0 détaillées ci-dessous :
 
-1. vérifier que le scénario de conflit de réservation reste exécuté avec deux sessions distinctes.
+1. revalider l'occupation et les conflits juste avant l'activation d'un
+   itinéraire, avant toute commande d'aiguillage ;
+2. ajouter les codes publics et les tests de course correspondants.
 
 ## P0 — Fiabilité du socle
 
@@ -28,9 +30,14 @@ Ordre suggéré parmi les tâches P0 détaillées ci-dessous :
 
 - [ ] Vérifier les reconnexions répétées et les réponses z21 intermittentes. **En attente d'une z21 disponible ; conserver la tâche ouverte.**
 
-### Conformité
+### Itinéraires
 
-- [ ] Vérifier que le scénario de conflit de réservation reste exécuté avec deux sessions distinctes.
+- [ ] Revalider l'occupation des cantons immédiatement avant `Activate`, avant
+  toute commande d'aiguillage.
+- [ ] Revalider les conflits au même point et laisser l'itinéraire `reserved`
+  en cas de refus.
+- [ ] Ajouter des codes publics stables distinguant occupation et conflit,
+  puis tester qu'aucune commande accessoire n'est émise dans ces deux cas.
 
 ## P1 — Compléter le MVP serveur
 
@@ -58,25 +65,18 @@ dans ce backlog.
 
 ### Accessoires
 
-- [x] Refondre le modèle des aiguillages simples et composés avec endpoints, positions explicites, migration SQLite et archives compatibles (`AIG-001`).
-- [x] Typer l'interface station pour les sorties d'accessoires binaires et leurs retours qualifiés (`AIG-002`).
-- [x] Adapter le simulateur aux endpoints binaires, retours qualifiés, appareils composés, faults ciblés et scénarios de référence (`AIG-003`).
-- [x] Implémenter les commandes et retours d'état binaires z21, avec impulsion configurable, corrélation et broadcasts (`AIG-004`).
-- [x] Aligner DCC-EX sur l'adresse linéaire canonique, les positions binaires et les retours honnêtes `assumed` (`AIG-005`).
-- [x] Sérialiser les transitions multi-endpoints, confirmer chaque étape, agréger la qualité et gérer erreurs partielles et timeouts (`AIG-006`).
-- [x] Stabiliser REST, WebSocket, `dccctl` et les archives v3 pour les appareils composés (`AIG-007`).
-- [x] Exécuter une conformité accessoire commune sur Simulator, z21 et DCC-EX, avec fixtures composées, pannes, concurrence et option `--check-turnouts` (`AIG-008`).
-- [x] Préparer la campagne matérielle reproductible, le script sécurisé et les fiches z21/DCC-EX (`AIG-009`, outillage).
-- [x] Revoir les cas particuliers, verrouiller les reconfigurations `pending`, interdire le partage d'adresse entre turnouts et figer les limites du modèle (`AIG-010`).
+Le lot AIG-001 à AIG-010 est implémenté et couvert sans matériel. Les tâches
+restantes sont les validations physiques et la préparation de la signalisation.
+
 - [ ] Valider sur z21 réelle l'adressage des accessoires, la durée d'impulsion et la différence entre état de fonction rapporté et position physique.
 - [ ] Exécuter AIG-009 sur les bancs z21 et DCC-EX, ajouter les fiches datées et documenter les observations réelles.
-- [x] Gérer les délais, échecs et incohérences entre position demandée et position confirmée (`AIG-006`).
 - [ ] Préparer les sorties nécessaires au pilotage futur des signaux.
 
 ## P2 — Itinéraires et conduite sécurisée
 
 - [ ] Réserver atomiquement les cantons nécessaires à un itinéraire.
-- [ ] Confirmer physiquement les aiguillages et prévoir un rollback après succès partiel.
+- [ ] Définir quand une confirmation physique est obligatoire et une stratégie
+  de récupération après succès partiel, sans rollback matériel aveugle.
 - [ ] Définir et implémenter la libération progressive ou totale d'un itinéraire.
 - [ ] Ajouter un mode de conduite assistée avant l'automatisation complète.
 - [ ] Définir les règles de repli en cas de perte de détection ou de centrale.
@@ -90,12 +90,6 @@ dans ce backlog.
 - [ ] Valider un montage minimal avec z21, Roco 10819 et Lectix LEC000043.
 - [ ] Documenter le câblage et les limites électriques avant les essais matériels.
 
-## P2 — Parité DCC-EX
-
-- [x] Définir et maintenir une matrice de capacités Simulator/z21/DCC-EX (`AIG-008`).
-- [x] Exécuter pour DCC-EX les mêmes tests contractuels que pour les capacités communes de z21 (`AIG-008`).
-- [x] Documenter les différences de pilotes sans les propager dans l'API publique (`AIG-008`).
-
 ## P2 — Import, export et sauvegarde
 
 - [ ] Ajouter une prévisualisation des imports et définir la stratégie de résolution des conflits.
@@ -107,6 +101,10 @@ dans ce backlog.
 - [ ] Documenter et tester la sauvegarde et la restauration de SQLite.
 - [ ] Injecter les informations de version, commit et date dans `dccd`, `dccctl` et `dcc-api-conformance`.
 - [ ] Définir une politique de rotation des journaux.
+- [ ] Valider les règles de monitoring avec `promtool` et importer les
+  dashboards dans une instance Grafana réelle.
+- [ ] Publier une première plateforme validée après trois répétitions, un soak
+  de six heures et la conservation des preuves décrites dans `PERFORMANCE.md`.
 
 ## Différé — Clients natifs
 
@@ -133,7 +131,8 @@ restent volontairement dans le backlog sans bloquer les travaux serveur.
 ## P3 — Extensions
 
 - [ ] Automatiser complètement la circulation après stabilisation des itinéraires et de la sécurité.
-- [ ] Ajouter historique et métriques d'exploitation.
+- [ ] Ajouter un historique durable des événements d'exploitation ; les
+  métriques instantanées Prometheus sont déjà disponibles.
 - [ ] Supporter de nouvelles centrales derrière l'abstraction existante.
 - [ ] Fournir des outils graphiques de diagnostic des événements et séquences.
 - [ ] Étudier la conversion ou l'import de plans AnyRail/Raily dans un projet séparé si nécessaire.

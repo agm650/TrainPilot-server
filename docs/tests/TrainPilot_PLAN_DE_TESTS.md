@@ -1,6 +1,6 @@
 # TrainPilot-server — Plan de tests et de validation
 
-**État de référence : branche `main`, revue le 2 septembre 2026**
+**État de référence : branche `main`, revue le 11 septembre 2026**
 
 Dépôt : https://github.com/agm650/TrainPilot-server
 
@@ -36,7 +36,9 @@ Les fonctionnalités encore non développées — topologie complète, localisat
 - [ ] `AUTO` `goreleaser check`
 - [ ] `AUTO` `goreleaser release --snapshot --clean --skip=publish`
 
-Attendu : aucune erreur, aucune data race, les trois binaires `dccd`, `dccctl`, `dcc-api-conformance` présents dans les livrables et aucune régression manifeste de couverture.
+Attendu : aucune erreur, aucune data race, les quatre binaires `dccd`, `dccctl`,
+`dcc-api-conformance`, `trainpilot-bench` présents dans les livrables et aucune
+régression manifeste de couverture.
 
 ---
 
@@ -781,13 +783,17 @@ La sécurisation complète des itinéraires reste un futur chantier. Les capacit
 - [ ] `AUTO/SIM` Conflit explicite → réservation refusée.
 - [ ] `AUTO/SIM` Activation avec station offline → échec.
 - [ ] `AUTO/SIM` Échec d'un aiguillage → pas de faux succès global.
+- [ ] `AUTO/SIM` Réserver, occuper ensuite un canton, puis activer → refus avant
+  toute commande d'aiguillage et route toujours `reserved`.
+- [ ] `AUTO/SIM` Réserver, introduire ensuite un conflit, puis activer → refus
+  avant toute commande d'aiguillage et route toujours `reserved`.
 
 Ne pas interpréter ces tests comme validation d'un interlocking complet. Restent à développer/tester ultérieurement :
 
 ```text
 réservation atomique
 confirmation physique obligatoire selon politique
-rollback sûr
+récupération après activation partielle sans rollback matériel aveugle
 libération progressive
 conduite assistée
 règles de repli
@@ -844,6 +850,16 @@ Faire tourner plusieurs heures avec WebSocket, heartbeats, throttle, feedbacks, 
 - [ ] `AUTO/SIM` Feedback simultané.
 - [ ] `AUTO/SIM` Commande sécurité pendant commandes ordinaires.
 - [ ] `AUTO/SIM` Takeover pendant charge.
+
+Les profils, fixtures, rapports, comparaisons et analyses de soak sont couverts
+par les tests de `internal/benchmark`. Le job CI `benchmark-smoke` exerce un
+serveur Simulator réel avec la petite fixture.
+
+- [ ] `AUTO/SIM` Smoke benchmark CI sans erreur inattendue ni invariant violé.
+- [ ] `MANUAL` Trois répétitions cohérentes avant toute publication de baseline.
+- [ ] `MANUAL` Soak de six heures et analyse Prometheus `PASS` avant de déclarer
+  une plateforme validée.
+- [ ] `MANUAL` Validation `promtool` et import réel des dashboards Grafana.
 
 ## 21.3 Redémarrages
 
@@ -965,6 +981,7 @@ Dès qu'une centrale est disponible :
 | R-BUS | ✅ parser | ✅ feedback | à valider | N/A | à valider |
 | Import/export | ✅ | ✅ | N/A | N/A | N/A |
 | Itinéraire MVP | ✅ | ✅ | partiel | partiel | partiel |
+| Benchmark fonctionnel | ✅ | ✅ smoke | N/A | N/A | N/A |
 | Topologie complète | pas encore | pas encore | N/A | N/A | N/A |
 | Localisation train | pas encore | pas encore | N/A | N/A | futur |
 | Signalisation | pas encore | pas encore | futur | futur | futur |

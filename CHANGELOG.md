@@ -6,21 +6,6 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- WebSocket queue overflows now preserve the newest event and allow clients to
-  request a live snapshot after detecting the sequence gap.
-
-### Added
-
-- N/A
-
-### Changed
-
-- The AsyncAPI contract is now version `1.9.1`.
-
-## Unreleased
-
-### Fixed
-
 - WebSocket snapshots now use the current event bus sequence instead of a constant value.
 - Client WebSocket heartbeats no longer consume server event sequence numbers.
 - Emergency stops, track power cuts, and zero-speed commands now preempt queued throttle or function commands.
@@ -28,12 +13,18 @@ All notable changes to this project will be documented in this file.
 - A lease heartbeat sent exactly at its expiration time can no longer reactivate an expired lease.
 - Revoked tokens are distinguished from naturally expired tokens without exposing internal details.
 - Old or duplicate WebSocket events are filtered without losing events published while a snapshot is being generated.
-- Slow WebSocket clients are disconnected when their queue overflows or a write deadline expires.
+- WebSocket queue overflows now evict the oldest queued event and preserve the
+  newest one, allowing resynchronization on the same connection. A write
+  deadline still closes the connection.
 - Layout imports now atomically reject changes to or deletion of a `pending` turnout, as well as sharing one accessory address across multiple turnouts.
 - The Unix-socket administration integration test now uses a short temporary path compatible with the macOS socket path limit.
 - Late accessory feedback can no longer restore a stale `pending` command state after a turnout command has failed or timed out.
 - Accessory feedback now loads only the turnout associated with its address, avoiding quadratic SQLite work under concurrent reports.
 - Multi-driver accessory contract tests now use a load-tolerant confirmation deadline on CI runners.
+- Deterministic fixture tests now compare logical ZIP entries instead of
+  platform-dependent compressed bytes.
+- The 50-WebSocket benchmark integration test now scales its scenario windows
+  and operation timeout under the race detector.
 
 ### Added
 
@@ -67,7 +58,9 @@ All notable changes to this project will be documented in this file.
 - Injectable simulator electrical telemetry covering currents, voltages, temperature, programming mode, power loss, overheating, and short circuits.
 - Deterministic injection of `online/degraded/offline` connectivity, context-aware delays, and operation-specific errors with occurrence limits in the simulator.
 - Simulated feedback with observable physical state, repeated events, deterministic bouncing, intentional event loss, explicit saturation, and multi-block integration.
-- Strict and deterministic JSON v1 scenario engine with manual advancement without real sleeps, cancelable real-time execution, observable control state, and versioned reference scenarios.
+- Strict and deterministic JSON v2 scenario engine, with backward-compatible
+  v1 loading, manual advancement without real sleeps, cancelable real-time
+  execution, observable control state, and versioned reference scenarios.
 - Authenticated simulator test API for snapshots, reset, connectivity, telemetry, feedback, accessories, faults, and scenarios, entirely absent with hardware drivers or when `testAPI=false`.
 - Twelve reference simulator scenarios executed in logical time by the HTTP/WebSocket integration suite and CI, covering no replay after an outage, telemetry, feedback, and accessory confirmation.
 - Generic publication of simulator-injected status changes through `station.StatusEventProvider`.
@@ -77,19 +70,41 @@ All notable changes to this project will be documented in this file.
 - Common accessory conformance suite for Simulator, z21, and DCC-EX, with simple and compound fixtures, a capability matrix, and opt-in external control through `--check-turnouts`.
 - Reproducible AIG-009 hardware campaign with a protected interactive script, dry-run mode, reconnection tests without replay, and z21/DCC-EX report templates.
 - AIG-010 review of motor types, compound devices, confirmations, unknown state after restart, and explicitly unsupported equipment, with representability tests.
+- Optional private Prometheus metrics and Go `pprof` diagnostics on a listener
+  separate from the public API, disabled by default and using bounded labels.
+- Safety-gated `trainpilot-bench` load generator with versioned YAML profiles,
+  deterministic scheduling, HTTP/WebSocket workers, invariants, and atomic
+  secret-free reports.
+- Deterministic `small`, `medium`, `large`, and `xlarge` benchmark fixtures,
+  contention, ramp, reconnect, resynchronization, and soak profiles.
+- Versioned report enrichment, publication validation, median comparison of
+  repeated runs, and PASS/WARN/FAIL policies.
+- Prometheus and Grafana configuration, dashboards, host textfile collectors,
+  and systemd collector units for external monitoring.
+- Fault and recovery orchestration, planned-outage handling, report schema v3,
+  Prometheus recording and alerting rules, and `analyze-soak` output.
+- Ubuntu simulator smoke benchmark in CI with separate active, reconnect, and
+  resynchronization phases.
+- Optional phase-aware live Prometheus metrics from `trainpilot-bench`, exposed
+  by `--metrics-listen` on a dedicated listener.
 
 ### Changed
 
 - Drivers now receive `position1` or `position2` through `SetBasicAccessory`, without geometric `straight`/`diverging` strings.
-- The OpenAPI contract is now version `1.7.0` and AsyncAPI is now `1.9.0`. Turnouts expose `reportQuality`, use `position` for commands, and retain the `turnout.commanded`, `turnout.state.changed`, and `turnout.command.failed` events.
+- The OpenAPI contract is now version `1.7.0` and AsyncAPI is now `1.9.1`.
+  Turnouts expose `reportQuality`, use `position` for commands, and retain the
+  `turnout.commanded`, `turnout.state.changed`, and
+  `turnout.command.failed` events.
 - Layout archives are now version 3 and separate turnout configuration from runtime state.
 - SQLite now uses the pure-Go `modernc.org/sqlite` driver.
 - A valid throttle or function command now renews the control lease.
 - The WebSocket snapshot now includes command-station capabilities and current status.
-- The OpenAPI contract is now version `1.4.0` and documents the takeover endpoint and stable error codes.
-- The AsyncAPI contract is now version `1.6.0` and describes every event payload, complete resynchronization, ownership in `system.snapshot`, and `locomotive.control.transferred`.
 - Command-station capabilities now expose `maxFunctionNumber`; `functions` remains the number of functions for compatibility.
 - A WebSocket connection now expires with the access token used to open it and closes after session revocation; closing it does not automatically release leases.
+- Benchmark reports now use schema v3. Schema v2 reports remain readable and
+  are migrated in memory.
+- GoReleaser now packages `trainpilot-bench`, benchmark profiles, fixtures, and
+  operational monitoring resources with the existing binaries and docs.
 
 ## v0.0.1
 

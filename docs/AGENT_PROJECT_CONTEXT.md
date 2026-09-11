@@ -249,6 +249,11 @@ If a client detects a sequence gap, it may request a new snapshot using:
 
     client.snapshot_request
 
+Each WebSocket has a 64-event queue. An overflow evicts the oldest queued
+event and keeps the newest one. The resulting gap lets the client request a
+snapshot on the same connection. A write taking more than five seconds still
+closes the connection. The server provides no intermediate-event replay.
+
 This mechanism is part of the current AsyncAPI contract.
 
 Command-station events must allow clients to distinguish at least:
@@ -302,6 +307,7 @@ platforms, including:
 - server;
 - CLI;
 - conformance tooling.
+- benchmark and soak-analysis tooling.
 
 # Documentation and Local Data
 
@@ -333,6 +339,7 @@ Contains:
 - persistence;
 - CLI;
 - conformance tests;
+- benchmark and private observability tooling;
 - command-station integrations.
 
 ## TrainPilot macOS Client

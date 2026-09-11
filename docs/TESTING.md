@@ -7,6 +7,8 @@
 - **Intégration** : serveur HTTP réel via `httptest`, SQLite réelle, centrale simulée et authentification réelle.
 - **Scénarios contractuels** : les fichiers de `contract-tests/scenarios/` sont validés et décrivent les comportements partageables avec les clients natifs.
 - **Conformité externe** : `dcc-api-conformance` s’exécute contre un processus actif.
+- **Benchmark** : `trainpilot-bench` valide les profils et rapports, puis le
+  smoke CI exerce un serveur Simulator par HTTP et WebSocket.
 - **Matériel** : à ajouter pour z21 blanche, Z21 noire et DCC-EX.
 
 ## Invariants couverts
@@ -79,7 +81,10 @@ go tool cover -html=coverage.out
 Le workflow CI exécute `go test ./...` et `go test -race ./...` sur Linux et
 macOS. Sur Linux, il rejoue aussi toute la suite avec `CGO_ENABLED=0`; les tests
 de référence du simulateur appartiennent au package `internal/api` et sont donc
-obligatoires dans chaque `go test ./...`.
+obligatoires dans chaque `go test ./...`. Le job Ubuntu `benchmark-smoke`
+construit `dccd`, `dccctl` et `trainpilot-bench`, puis exécute séparément les
+phases actives, de reconnexion et de resynchronisation sur une fixture réduite.
+Il ne constitue ni un test de charge capacitaire ni une validation matérielle.
 
 La conformité HTTP passive, sans commande de voie, s'exécute contre un serveur
 déjà démarré avec :

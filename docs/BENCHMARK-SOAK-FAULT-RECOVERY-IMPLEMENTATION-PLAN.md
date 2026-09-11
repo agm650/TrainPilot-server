@@ -1,5 +1,13 @@
 # Soak, Fault, and Recovery Benchmark Implementation Plan
 
+Status: implemented in the current branch as of 11 September 2026.
+
+The Go suite validates report logic and the structure of the Prometheus and
+Grafana assets. A real `promtool` validation, live Grafana import, 6-hour or
+24-hour run, and hardware campaign remain external acceptance work. The items
+below record the implemented design; they are not evidence that those external
+checks have run.
+
 ## Decision
 
 Prometheus recording rules will calculate continuous trends. Alerting rules

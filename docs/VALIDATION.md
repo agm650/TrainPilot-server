@@ -31,7 +31,8 @@ La validation contractuelle inclut également :
 - le snapshot complet, la resynchronisation après trou de séquence et la
   reconnexion ;
 - le filtrage des séquences anciennes ou dupliquées, la livraison des événements
-  concurrents avec un snapshot et la déconnexion des clients trop lents ;
+  concurrents avec un snapshot, la conservation de l'événement le plus récent
+  lors d'un overflow et la fermeture sur expiration d'écriture ;
 - les catégories/codes d'erreur stables et le masquage des erreurs internes ;
 - les bornes de fonctions propres aux capacités du simulateur, de z21 et de
   DCC-EX.
@@ -46,4 +47,11 @@ Sur macOS, les sockets Unix ont une longueur de chemin limitée. Si `TestUserAdm
 TMPDIR=/tmp go test ./...
 ```
 
-La CI exécute formatage, tests, détecteur de concurrence et `go vet` sur Linux et macOS. Un job Linux supplémentaire construit une release snapshot GoReleaser pour valider les trois binaires et le contenu des archives.
+La CI exécute formatage, tests, détecteur de concurrence et `go vet` sur Linux
+et macOS. Un job Ubuntu exécute aussi un smoke benchmark fonctionnel sur le
+simulateur. Un autre job Linux construit une release snapshot GoReleaser pour
+valider les quatre binaires et le contenu des archives.
+
+Les tests Go vérifient structurellement les profils, rapports, dashboards JSON
+et règles YAML. Ils ne prouvent pas un import Grafana, une validation
+`promtool`, un soak réel de 6 ou 24 heures, ni un résultat matériel.

@@ -1,7 +1,7 @@
 # TrainPilot-server — Procédures détaillées de test
 
 **Document complémentaire à `TrainPilot_PLAN_DE_TESTS.md`**  
-**Référence : branche `main`, 2 septembre 2026**
+**Référence : branche `main`, 11 septembre 2026**
 
 Ce document répond à la question : **« Que dois-je lancer exactement, que dois-je observer, et quand puis-je cocher la case ? »**
 
@@ -231,12 +231,13 @@ Puis :
 find dist -type f | sort
 ```
 
-Vérifier la présence des trois binaires dans les artefacts :
+Vérifier la présence des quatre binaires dans les artefacts :
 
 ```text
 dccd
 dccctl
 dcc-api-conformance
+trainpilot-bench
 ```
 
 ---
@@ -1558,7 +1559,10 @@ si aucune confirmation physique n'existe.
 go test ./internal/service
 ```
 
-Les tests couvrent notamment occupation/conflits et activation offline.
+Les tests couvrent l'occupation et les conflits lors de `Reserve`, ainsi que
+l'activation offline. Ils ne couvrent pas encore une occupation ou un conflit
+apparu entre `Reserve` et `Activate`. Cette course reste un chantier P0 et ne
+doit pas être présentée comme sécurisée.
 
 ## Diagnostic manuel Simulator
 
@@ -1632,39 +1636,45 @@ Si la base est sauvegardée **à chaud**, ne pas utiliser une simple copie de fi
 
 # 21. Robustesse longue durée
 
-Il n'existe pas encore un unique binaire benchmark couvrant toute cette recette.
+`trainpilot-bench` couvre la charge reproductible, les invariants visibles par
+le client, les rapports, les comparaisons et l'analyse de soak. Les procédures
+complètes sont dans `../BENCHMARKING.md`, `../PERFORMANCE.md` et
+`../BENCHMARK-SOAK-FAULT-RECOVERY.md`.
 
-## Minimum pratique
+## Smoke fonctionnel court
 
-Pendant une session longue :
-
-```bash
-ps -o pid,rss,vsz,etime,command -p "$(pgrep -n dccd)"
-```
-
-Goroutines si un endpoint pprof est ajouté un jour : non disponible par défaut, ne pas l'inventer.
-
-Sous Linux :
+Sur une instance Simulator jetable préparée avec les utilisateurs de benchmark :
 
 ```bash
-top -p "$(pgrep -n dccd)"
+trainpilot-bench validate-profile benchmarks/profiles/smoke.yaml
+trainpilot-bench run \
+  --server http://127.0.0.1:8080 \
+  --profile benchmarks/profiles/smoke.yaml \
+  --credentials /chemin/protege/benchmark-credentials.json \
+  --allow-active-commands \
+  --allow-simulator-api \
+  --output /tmp/trainpilot-smoke.json
 ```
 
-ou :
+Un `PASS` prouve seulement ce smoke. Il ne valide pas une capacité matérielle.
+
+## Soak et diagnostics
+
+Activer temporairement le listener privé de diagnostic. Il est désactivé par
+défaut. Exposer uniquement `/metrics`, ou `pprof` pendant une capture contrôlée.
+Après un run d'au moins une heure :
 
 ```bash
-pidstat -p "$(pgrep -n dccd)" 5
+trainpilot-bench analyze-soak /tmp/trainpilot-soak.json \
+  --prometheus http://127.0.0.1:9090 \
+  --instance 127.0.0.1:6060 \
+  --output /tmp/trainpilot-soak-analysis.json
 ```
 
-En parallèle :
-
-- clients WebSocket ;
-- commandes simulator ;
-- feedbacks ;
-- turnouts ;
-- heartbeats.
-
-Attendu : pas de croissance continue mémoire/goroutines observable, pas de blocage.
+Une plateforme n'est validée qu'après trois répétitions cohérentes, un soak de
+six heures, les deux verdicts `PASS` et la conservation des preuves décrites
+dans `../PERFORMANCE.md`. Le smoke CI, un dashboard ou un profil `pprof` ne
+remplacent pas cette preuve.
 
 ---
 
@@ -1778,6 +1788,9 @@ PASS → case cochée.
 | WebSocket manuel | `websocat -H="Authorization: Bearer ..." ws://.../api/v1/events` |
 | Blocs / R-BUS | `GET /api/v1/blocks` + WebSocket |
 | Routes MVP | `GET /api/v1/routes`, POST reserve/activate/release |
+| Profil benchmark | `trainpilot-bench validate-profile ...` |
+| Smoke benchmark | `trainpilot-bench run ...` |
+| Analyse de soak | `trainpilot-bench analyze-soak ...` |
 
 ---
 

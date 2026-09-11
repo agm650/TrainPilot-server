@@ -472,6 +472,9 @@ Options:
 - `--output <file>`: JSON report path; required;
 - `--metrics-listen <address>`: expose the optional load-generator `/metrics`
   endpoint, for example `127.0.0.1:6061`; disabled by default;
+- `--simulator-scenario <file>`: execute a wall-clock simulator scenario during
+  the measured phase;
+- `--allow-planned-outage`: allow a profile to declare a bounded server outage;
 - `--allow-active-commands`: allow commands that can affect a railway;
 - `--allow-simulator-api`: allow simulator test-event injection;
 - `--allow-real-hardware`: additionally confirm active commands against a
@@ -486,6 +489,56 @@ active-command and real-hardware confirmation.
 
 The metrics listener has no authentication. Bind it to a private address and
 follow `docs/BENCHMARK-MONITORING.md` for Prometheus and Grafana configuration.
+
+### `trainpilot-bench enrich-report`
+
+Attaches versioned hardware metadata and external system metrics to an existing
+report. Without `--output`, the input is replaced atomically.
+
+```bash
+trainpilot-bench enrich-report results/run.json \
+  --metadata run-metadata.json \
+  --metrics system-metrics.json
+```
+
+At least one of `--metadata` or `--metrics` is required.
+
+### `trainpilot-bench validate-report`
+
+Validates a report schema. `--publication` also requires the metadata and
+evidence needed for a published baseline.
+
+```bash
+trainpilot-bench validate-report --publication results/run.json
+```
+
+### `trainpilot-bench compare`
+
+Compares medians from two coherent groups. Each option must be repeated at
+least three times.
+
+```bash
+trainpilot-bench compare \
+  --baseline baseline-1.json --baseline baseline-2.json --baseline baseline-3.json \
+  --candidate candidate-1.json --candidate candidate-2.json --candidate candidate-3.json \
+  --output comparison.json
+```
+
+### `trainpilot-bench analyze-soak`
+
+Queries the repository's Prometheus recording rules over the report's exact
+measurement interval and writes a versioned soak analysis.
+
+```bash
+trainpilot-bench analyze-soak results/soak-6h-medium.json \
+  --prometheus http://127.0.0.1:9090 \
+  --instance 192.168.1.20:6060 \
+  --output results/soak-6h-medium-analysis.json
+```
+
+`--instance` and `--output` are required. The scrape interval defaults to
+`15s`. Warning thresholds can be overridden with the `--warn-*` flags listed
+by `trainpilot-bench analyze-soak --help`.
 
 ## `dcc-api-conformance`
 
