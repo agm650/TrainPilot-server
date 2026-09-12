@@ -30,9 +30,11 @@ phase. The runner checks the exact resource counts before starting.
 | `xlarge` | Deliberate limit search | 2 min + 10 min | throughput ceiling and recovery |
 
 All capacity profiles require zero unexpected errors, invariant violations,
-panics, crashes, invalid JSON, and SQLite corruption. Expected contention and
-offline refusals belong to their named scenario operation, not normal traffic.
-Expected HTTP responses are declared with profile `expected_errors` rules.
+panics, crashes, invalid JSON, and SQLite corruption. Normal mixed traffic may
+receive HTTP 409 while a released lease is stopping, a block is occupied, or a
+route conflicts. Those safety refusals are declared with profile
+`expected_errors` rules. Dedicated contention profiles still exercise and
+verify deliberate collisions separately.
 
 ## CI smoke profiles
 

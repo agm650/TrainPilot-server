@@ -14,5 +14,7 @@ rates:
   route_operations_per_second: 10
   reads_per_second: 40
 behavior: {reconnect_probability: 0.001, snapshot_probability: 0.001}
+expected_errors:
+  - {operation: route, http_statuses: [409]}
 bursts:
   - {at: 1m, operation: feedback, count: 250}

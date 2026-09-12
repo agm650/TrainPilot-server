@@ -19,3 +19,6 @@ rates:
   route_operations_per_second: 0.5
   reads_per_second: 3
 behavior: {reconnect_probability: 0.001, snapshot_probability: 0.001}
+expected_errors:
+  - {operation: lease_acquire, http_statuses: [409]}
+  - {operation: route, http_statuses: [409]}

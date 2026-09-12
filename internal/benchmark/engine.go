@@ -88,6 +88,7 @@ type runEngine struct {
 	monitor            *eventMonitor
 	stateMu            sync.Mutex
 	leases             map[string]leaseBinding
+	leaseAcquisitions  map[string]struct{}
 	routeStates        map[string]routeBinding
 	feedback           map[string]bool
 	initialPower       string
@@ -124,8 +125,9 @@ func Run(ctx context.Context, options RunOptions) (Report, error) {
 	engine := &runEngine{
 		options: options, profile: profile, recorder: newOperationRecorder(options.LiveMetrics),
 		invariants: newInvariantTracker(), wsMetrics: newWebSocketMetrics(options.LiveMetrics),
-		leases: make(map[string]leaseBinding), routeStates: make(map[string]routeBinding),
-		feedback: make(map[string]bool),
+		leases: make(map[string]leaseBinding), leaseAcquisitions: make(map[string]struct{}),
+		routeStates: make(map[string]routeBinding),
+		feedback:    make(map[string]bool),
 	}
 	engine.options.LiveMetrics.configure(engine.operationRates(), engine.profile.Bursts, engine.profile.Warmup.Duration)
 	defer engine.finishLiveMetrics()
@@ -784,31 +786,40 @@ func (e *runEngine) performAcquire(ctx context.Context, random *rand.Rand) error
 		return errNoOperationTarget
 	}
 	e.stateMu.Lock()
-	defer e.stateMu.Unlock()
 	free := make([]model.Locomotive, 0, len(e.locomotives))
 	for _, locomotive := range e.locomotives {
-		if _, exists := e.leases[locomotive.ID]; !exists {
+		_, leased := e.leases[locomotive.ID]
+		_, acquiring := e.leaseAcquisitions[locomotive.ID]
+		if !leased && !acquiring {
 			free = append(free, locomotive)
 		}
 	}
 	if len(free) == 0 {
+		e.stateMu.Unlock()
 		return errNoOperationTarget
 	}
 	locomotive := free[random.Intn(len(free))]
 	sessionIndex := random.Intn(len(e.sessions))
+	e.leaseAcquisitions[locomotive.ID] = struct{}{}
+	e.stateMu.Unlock()
+
 	var lease model.ControlLease
 	err := e.sessions[sessionIndex].withClient(ctx, func(c *client.Client) error {
 		var err error
 		lease, err = c.Acquire(ctx, locomotive.ID)
 		return err
 	})
+	e.stateMu.Lock()
+	delete(e.leaseAcquisitions, locomotive.ID)
 	if err != nil {
+		e.stateMu.Unlock()
 		return err
 	}
 	if previous, exists := e.leases[locomotive.ID]; exists && previous.lease.ID != lease.ID {
 		e.invariants.Violate(invariantExclusiveLease, fmt.Sprintf("locomotive %s acquired twice", locomotive.ID))
 	}
 	e.leases[locomotive.ID] = leaseBinding{lease: lease, sessionIndex: sessionIndex}
+	e.stateMu.Unlock()
 	e.invariants.Observe(invariantExclusiveLease)
 	return nil
 }
@@ -828,13 +839,27 @@ func (e *runEngine) randomLease(random *rand.Rand) (string, leaseBinding, bool) 
 	return id, e.leases[id], true
 }
 
+func (e *runEngine) withCurrentLease(ctx context.Context, locomotiveID string, binding leaseBinding, operation func(*client.Client) error) error {
+	session := e.sessions[binding.sessionIndex]
+	return session.withClient(ctx, func(c *client.Client) error {
+		e.stateMu.Lock()
+		current, exists := e.leases[locomotiveID]
+		isCurrent := exists && current.lease.ID == binding.lease.ID && current.sessionIndex == binding.sessionIndex
+		e.stateMu.Unlock()
+		if !isCurrent {
+			return errNoOperationTarget
+		}
+		return operation(c)
+	})
+}
+
 func (e *runEngine) performHeartbeat(ctx context.Context, random *rand.Rand) error {
 	locomotiveID, binding, ok := e.randomLease(random)
 	if !ok {
 		return errNoOperationTarget
 	}
 	var renewed model.ControlLease
-	err := e.sessions[binding.sessionIndex].withClient(ctx, func(c *client.Client) error {
+	err := e.withCurrentLease(ctx, locomotiveID, binding, func(c *client.Client) error {
 		var err error
 		renewed, err = c.Heartbeat(ctx, binding.lease.ID)
 		return err
@@ -855,17 +880,17 @@ func (e *runEngine) performRelease(ctx context.Context, random *rand.Rand) error
 	if !ok {
 		return errNoOperationTarget
 	}
-	err := e.sessions[binding.sessionIndex].withClient(ctx, func(c *client.Client) error {
-		return c.Release(ctx, binding.lease.ID)
-	})
-	if err == nil {
+	return e.withCurrentLease(ctx, locomotiveID, binding, func(c *client.Client) error {
+		if err := c.Release(ctx, binding.lease.ID); err != nil {
+			return err
+		}
 		e.stateMu.Lock()
 		if current, exists := e.leases[locomotiveID]; exists && current.lease.ID == binding.lease.ID {
 			delete(e.leases, locomotiveID)
 		}
 		e.stateMu.Unlock()
-	}
-	return err
+		return nil
+	})
 }
 
 func (e *runEngine) performThrottle(ctx context.Context, random *rand.Rand) error {
@@ -884,7 +909,7 @@ func (e *runEngine) performThrottle(ctx context.Context, random *rand.Rand) erro
 	if e.profile.Clients.WebSockets > 0 {
 		expectation = e.expectations.Begin(key, e.profile.OperationTimeout.Duration)
 	}
-	err := e.sessions[binding.sessionIndex].withClient(ctx, func(c *client.Client) error {
+	err := e.withCurrentLease(ctx, locomotiveID, binding, func(c *client.Client) error {
 		return c.Throttle(ctx, locomotiveID, binding.lease.ID, speed, direction)
 	})
 	if err != nil {
@@ -912,7 +937,7 @@ func (e *runEngine) performFunction(ctx context.Context, random *rand.Rand) erro
 	if e.profile.Clients.WebSockets > 0 {
 		expectation = e.expectations.Begin(key, e.profile.OperationTimeout.Duration)
 	}
-	err := e.sessions[binding.sessionIndex].withClient(ctx, func(c *client.Client) error {
+	err := e.withCurrentLease(ctx, locomotiveID, binding, func(c *client.Client) error {
 		return c.Function(ctx, locomotiveID, binding.lease.ID, function, enabled)
 	})
 	if err != nil && expectation != 0 {
