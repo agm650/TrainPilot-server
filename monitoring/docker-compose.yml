@@ -1,0 +1,43 @@
+---
+name: monitoring
+
+services:
+  prometheus:
+    image: docker.io/prom/prometheus:latest
+    # Apple Container creates named volumes owned by root and does not copy
+    # ownership from the image when they are first mounted.
+    user: "0:0"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../deploy/monitoring/prometheus/trainpilot-soak-recording-rules.yml:/etc/prometheus/trainpilot-soak-recording-rules.yml:ro
+      - ../deploy/monitoring/prometheus/trainpilot-soak-alerting-rules.yml:/etc/prometheus/trainpilot-soak-alerting-rules.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - monitoring
+
+  grafana:
+    image: docker.io/grafana/grafana:latest
+    user: "0:0"
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ../deploy/monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ../deploy/monitoring/grafana/dashboards:/var/lib/grafana/dashboards/trainpilot:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - monitoring
+
+volumes:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  monitoring:
