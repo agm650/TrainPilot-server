@@ -52,6 +52,20 @@ func TestThrottleAndStationErrorMetrics(t *testing.T) {
 	}
 }
 
+func TestRouteMetricResultDistinguishesLateInvalidation(t *testing.T) {
+	for _, test := range []struct {
+		err  error
+		want string
+	}{
+		{err: ErrRouteOccupied, want: "occupied"},
+		{err: ErrRouteConflict, want: "conflict"},
+	} {
+		if got := routeMetricResult(test.err); got != test.want {
+			t.Errorf("routeMetricResult(%v)=%q want %q", test.err, got, test.want)
+		}
+	}
+}
+
 func TestSimulatorFeedbackMetrics(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

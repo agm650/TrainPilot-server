@@ -47,6 +47,43 @@ func (s *Store) RouteHasActiveConflict(ctx context.Context, id string) (bool, er
 	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM route_conflicts rc JOIN routes r ON r.id=rc.conflict_route_id WHERE rc.route_id=? AND r.state IN ('reserved','active')`, id).Scan(&count)
 	return count > 0, err
 }
+func (s *Store) ValidateRouteActivation(ctx context.Context, id, sessionID string) error {
+	var state, reservedBySession string
+	var occupied, conflict int
+	err := s.DB.QueryRowContext(ctx, `
+		SELECT r.state,
+		       r.reserved_by_session,
+		       EXISTS (
+		           SELECT 1
+		           FROM route_blocks rb
+		           JOIN blocks b ON b.id=rb.block_id
+		           WHERE rb.route_id=r.id AND b.occupied=1
+		       ),
+		       EXISTS (
+		           SELECT 1
+		           FROM route_conflicts rc
+		           JOIN routes conflicting ON conflicting.id=rc.conflict_route_id
+		           WHERE rc.route_id=r.id AND conflicting.state IN ('reserved','active')
+		       )
+		FROM routes r
+		WHERE r.id=?`, id).Scan(&state, &reservedBySession, &occupied, &conflict)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if state != "reserved" || reservedBySession != sessionID {
+		return ErrNotFound
+	}
+	if occupied != 0 {
+		return ErrRouteOccupied
+	}
+	if conflict != 0 {
+		return ErrRouteConflict
+	}
+	return nil
+}
 func (s *Store) ReserveRoute(ctx context.Context, id, sessionID string) (err error) {
 	started := time.Now()
 	defer func() { s.observe("reserve_route", started, err) }()

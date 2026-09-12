@@ -449,7 +449,21 @@ paths:
       responses:
         '204': { description: Required turnouts commanded and route activated. }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409':
+          description: >-
+            Route activation refused before any turnout command. The stable problem
+            code is `route_occupied` when a route block is occupied or
+            `route_conflict` when another conflicting route is reserved or active.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/Problem' }
+                  - type: object
+                    properties:
+                      status: { type: integer, enum: [409] }
+                      category: { type: string, enum: [conflict] }
+                      code: { type: string, enum: [route_occupied, route_conflict] }
   /api/v1/routes/{routeId}/release:
     parameters: [{ $ref: '#/components/parameters/RouteId' }]
     post:

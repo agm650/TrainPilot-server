@@ -76,6 +76,10 @@ func writeOperationProblem(w http.ResponseWriter, err error, code string) {
 		code = "lease_takeover_conflict"
 	case errors.Is(err, service.ErrPermissionDenied):
 		code = "permission_denied"
+	case errors.Is(err, service.ErrRouteOccupied):
+		code = "route_occupied"
+	case errors.Is(err, service.ErrRouteConflict):
+		code = "route_conflict"
 	case errors.Is(err, service.ErrValidation):
 		code = "validation_failed"
 	case errors.Is(err, service.ErrTurnoutConfirmationTimeout):
@@ -209,6 +213,8 @@ func statusFor(err error) int {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound
+	case errors.Is(err, service.ErrRouteOccupied), errors.Is(err, service.ErrRouteConflict):
+		return http.StatusConflict
 	case errors.Is(err, store.ErrConflict):
 		return http.StatusConflict
 	case errors.Is(err, service.ErrPermissionDenied):

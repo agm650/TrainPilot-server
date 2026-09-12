@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -132,6 +133,8 @@ func TestOperationProblemsUseStableCodes(t *testing.T) {
 		{"lease other user", service.ErrLeaseOwnedByOtherUser, http.StatusConflict, "lease_owned_by_other_user", "conflict"},
 		{"takeover conflict", service.ErrLeaseTakeoverConflict, http.StatusConflict, "lease_takeover_conflict", "conflict"},
 		{"permission", service.ErrPermissionDenied, http.StatusForbidden, "permission_denied", "authorization"},
+		{"route occupied", service.ErrRouteOccupied, http.StatusConflict, "route_occupied", "conflict"},
+		{"route conflict", service.ErrRouteConflict, http.StatusConflict, "route_conflict", "conflict"},
 		{"validation", service.ErrValidation, http.StatusBadRequest, "validation_failed", "validation"},
 		{"pending turnout configuration", store.ErrTurnoutConfigurationPending, http.StatusConflict, "turnout_configuration_pending", "conflict"},
 		{"accessory address conflict", store.ErrAccessoryAddressConflict, http.StatusConflict, "accessory_address_conflict", "conflict"},
@@ -345,6 +348,7 @@ type detailedHTTPFixture struct {
 	viewer     *client.Client
 	db         *store.Store
 	simulator  *simulator.Simulator
+	bus        *events.Bus
 }
 
 func newDetailedHTTPFixture(t *testing.T) detailedHTTPFixture {
@@ -392,7 +396,92 @@ func newDetailedHTTPFixture(t *testing.T) detailedHTTPFixture {
 	if _, err := viewer.Login(ctx, "viewer", "correct-horse-1", "viewer-client"); err != nil {
 		t.Fatal(err)
 	}
-	return detailedHTTPFixture{server: server, dispatcher: dispatcher, viewer: viewer, db: db, simulator: sim}
+	return detailedHTTPFixture{server: server, dispatcher: dispatcher, viewer: viewer, db: db, simulator: sim, bus: bus}
+}
+
+func TestRouteActivationHTTPRejectsLateInvalidation(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		mutate   func(context.Context, *store.Store) error
+		wantCode string
+	}{
+		{
+			name: "occupied",
+			mutate: func(ctx context.Context, db *store.Store) error {
+				return db.SetBlockOccupied(ctx, "block-a", true)
+			},
+			wantCode: "route_occupied",
+		},
+		{
+			name: "conflict",
+			mutate: func(ctx context.Context, db *store.Store) error {
+				if _, err := db.DB.ExecContext(ctx, `INSERT INTO routes(id,name,state,reserved_by_session) VALUES('route-conflict','Conflict','active','other')`); err != nil {
+					return err
+				}
+				_, err := db.DB.ExecContext(ctx, `INSERT INTO route_conflicts(route_id,conflict_route_id) VALUES('route-a-b','route-conflict')`)
+				return err
+			},
+			wantCode: "route_conflict",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newDetailedHTTPFixture(t)
+			ctx := context.Background()
+			if _, err := fixture.db.DB.ExecContext(ctx, `UPDATE route_turnouts SET required_state='diverging' WHERE route_id='route-a-b'`); err != nil {
+				t.Fatal(err)
+			}
+			if err := fixture.dispatcher.ReserveRoute(ctx, "route-a-b"); err != nil {
+				t.Fatal(err)
+			}
+			reservedRoute, err := fixture.db.GetRoute(ctx, "route-a-b")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := test.mutate(ctx, fixture.db); err != nil {
+				t.Fatal(err)
+			}
+			ch, unsubscribe := fixture.bus.Subscribe(8)
+			defer unsubscribe()
+			beforeAccessories := fixture.simulator.Snapshot().Accessories
+
+			req, err := http.NewRequest(http.MethodPost, fixture.server.URL+"/api/v1/routes/route-a-b/activate", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Authorization", "Bearer "+fixture.dispatcher.AccessToken)
+			response, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			var got problem
+			if err := json.NewDecoder(response.Body).Decode(&got); err != nil {
+				t.Fatal(err)
+			}
+			if response.StatusCode != http.StatusConflict || response.Header.Get("Content-Type") != "application/problem+json" || got.Category != "conflict" || got.Code != test.wantCode {
+				t.Fatalf("response status=%d content-type=%q problem=%+v", response.StatusCode, response.Header.Get("Content-Type"), got)
+			}
+
+			afterRoute, err := fixture.db.GetRoute(ctx, "route-a-b")
+			if err != nil || afterRoute != reservedRoute {
+				t.Fatalf("route changed: before=%+v after=%+v err=%v", reservedRoute, afterRoute, err)
+			}
+			afterAccessories := fixture.simulator.Snapshot().Accessories
+			if !reflect.DeepEqual(beforeAccessories, afterAccessories) {
+				t.Fatalf("accessories changed: before=%+v after=%+v", beforeAccessories, afterAccessories)
+			}
+			for {
+				select {
+				case event := <-ch:
+					if event.Type == "route.activated" {
+						t.Fatalf("unexpected route.activated event: %+v", event)
+					}
+				default:
+					return
+				}
+			}
+		})
+	}
 }
 
 func TestTurnoutHTTPContractSupportsCompoundPositionsAndStableErrors(t *testing.T) {

@@ -52,6 +52,10 @@ func routeMetricResult(err error) string {
 		return "success"
 	case errors.Is(err, ErrPermissionDenied):
 		return "denied"
+	case errors.Is(err, ErrRouteOccupied):
+		return "occupied"
+	case errors.Is(err, ErrRouteConflict):
+		return "conflict"
 	case errors.Is(err, store.ErrConflict):
 		return "conflict"
 	default:

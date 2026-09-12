@@ -28,6 +28,8 @@
 - les transitions `online`, `degraded`, `offline` et le retour à `online` sont couvertes au niveau du suivi de santé ;
 - un capteur mappé modifie le canton correspondant ;
 - un itinéraire occupé ou en conflit ne peut pas être réservé et une activation hors ligne échoue ;
+- après réservation, une occupation tardive refuse l'activation avec `route_occupied`, sans commande d'aiguillage ni événement `route.activated` ;
+- après réservation, un conflit tardif `reserved` ou `active` refuse l'activation avec `route_conflict`, sans commande d'aiguillage ni événement `route.activated` ;
 - la création d’utilisateur n’existe pas dans l’API publique ;
 - le socket Unix d’administration permet la création, la liste et la désactivation ;
 - les paquets de puissance et de statut Z21 ont la forme attendue et les réponses d’état sont décodées ;

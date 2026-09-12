@@ -17,6 +17,9 @@ type RouteService struct {
 	metrics *observability.Metrics
 }
 
+var ErrRouteOccupied = store.ErrRouteOccupied
+var ErrRouteConflict = store.ErrRouteConflict
+
 func (r *RouteService) SetMetrics(metrics *observability.Metrics) { r.metrics = metrics }
 
 func NewRouteService(s *store.Store, r *RailwayService, b *events.Bus) *RouteService {
@@ -62,6 +65,9 @@ func (r *RouteService) Activate(ctx context.Context, user model.User, sess model
 	defer func() { r.metrics.ObserveRoute("activate", routeMetricResult(err)) }()
 	if !Allowed(user.Role, PermissionDispatch) {
 		return ErrPermissionDenied
+	}
+	if err := r.store.ValidateRouteActivation(ctx, id, sess.ID); err != nil {
+		return err
 	}
 	requirements, err := r.store.RouteTurnoutRequirements(ctx, id)
 	if err != nil {

@@ -1,6 +1,6 @@
 # Backlog restant — TrainPilot-server
 
-Dernière mise à jour : 11 septembre 2026.
+Dernière mise à jour : 12 septembre 2026.
 
 Ce document ne contient que les travaux restant à réaliser. Les fonctionnalités
 terminées et leur historique restent consignés dans `DCC_BACKLOG.md`. Avant de
@@ -16,28 +16,11 @@ Priorités :
 - **P3** : amélioration à plus long terme ;
 - **Différé** : volontairement conservé hors du développement actuel.
 
-## Prochain lot recommandé sans matériel
-
-Ordre suggéré parmi les tâches P0 détaillées ci-dessous :
-
-1. revalider l'occupation et les conflits juste avant l'activation d'un
-   itinéraire, avant toute commande d'aiguillage ;
-2. ajouter les codes publics et les tests de course correspondants.
-
 ## P0 — Fiabilité du socle
 
 ### Centrales
 
 - [ ] Vérifier les reconnexions répétées et les réponses z21 intermittentes. **En attente d'une z21 disponible ; conserver la tâche ouverte.**
-
-### Itinéraires
-
-- [ ] Revalider l'occupation des cantons immédiatement avant `Activate`, avant
-  toute commande d'aiguillage.
-- [ ] Revalider les conflits au même point et laisser l'itinéraire `reserved`
-  en cas de refus.
-- [ ] Ajouter des codes publics stables distinguant occupation et conflit,
-  puis tester qu'aucune commande accessoire n'est émise dans ces deux cas.
 
 ## P1 — Compléter le MVP serveur
 

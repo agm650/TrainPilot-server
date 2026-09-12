@@ -53,8 +53,9 @@ Known MVP limitations:
   and validation on real hardware remain incomplete;
 - physical confirmation that a locomotive has stopped is unavailable on some
   command stations. A safety delay is used instead;
-- route occupancy and conflicts are checked when reserving a route, but are not
-  yet revalidated immediately before activation starts commanding its turnouts;
+- route occupancy and conflicts are revalidated immediately before activation
+  starts commanding its turnouts. Full atomic resource locking is not yet
+  implemented, so state can still change while turnout commands are running;
 - one server process controls one command station;
 - CV programming is not included;
 - passwords currently use PBKDF2-HMAC-SHA256 with 600,000 iterations. The
@@ -598,8 +599,9 @@ Core rules:
 6. Safety commands preempt queued driving commands. Recovery after emergency
    stop is never implicit.
 7. Route reservation is rejected when a block is occupied or an incompatible
-   route is reserved or active. The current activation path does not repeat
-   these checks before commanding turnouts.
+   route is reserved or active. Activation repeats these checks immediately
+   before commanding turnouts, without yet locking resources for the entire
+   turnout command sequence.
 8. WebSocket events have a monotonic sequence during the process lifetime.
 9. User accounts can be administered only through the operating system's local
    socket.
