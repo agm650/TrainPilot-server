@@ -7,9 +7,3 @@
 *.sock
 .DS_Store
 coverage.out
-AGENTS.md
-RTK.md
-docs/DCC_CONTEXT.md
-docs/DCC_ARCHITECTURE.md
-docs/DCC_BACKLOG.md
-

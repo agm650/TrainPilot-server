@@ -93,14 +93,9 @@ Les adresses des capteurs ne sont jamais des labels.
 - `trainpilot_route_operations_total`
 - `trainpilot_turnout_commands_total`
 - `trainpilot_turnout_confirmations_total`
-- `trainpilot_turnout_command_duration_seconds`
-- `trainpilot_turnout_command_phase_duration_seconds`
-- `trainpilot_turnout_confirmation_detail_duration_seconds`
 
 Les résultats possibles sont bornés. Ils distinguent notamment les succès,
 refus, conflits, timeouts et erreurs.
-Les histogrammes de durée détaillent l'attente de confirmation et son
-traitement. Leurs labels sont bornés et n'exposent aucun identifiant d'aiguille.
 
 ### Centrale
 
