@@ -99,6 +99,67 @@ func TestCompoundTurnoutPersistenceRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGetTurnoutRuntimeStateMatchesFullTurnout(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	turnout := model.NewSimpleTurnout("runtime-state", "Runtime state", 12, "straight", "straight")
+	if err := db.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{turnout}}, false); err != nil {
+		t.Fatal(err)
+	}
+	check := func() {
+		t.Helper()
+		full, err := db.GetTurnout(ctx, turnout.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := db.GetTurnoutRuntimeState(ctx, turnout.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := TurnoutRuntimeState{
+			ID:               full.ID,
+			DesiredPosition:  full.DesiredPosition,
+			ReportedPosition: full.ReportedPosition,
+			Pending:          full.Pending,
+			ReportedStatus:   full.ReportedStatus,
+			Quality:          full.Quality,
+			CommandStatus:    full.CommandStatus,
+		}
+		if got != want {
+			t.Fatalf("runtime state=%+v, full turnout state=%+v", got, want)
+		}
+	}
+	check()
+	if err := db.SetTurnoutDesiredPosition(ctx, turnout.ID, "diverging", true); err != nil {
+		t.Fatal(err)
+	}
+	check()
+	if err := db.SetTurnoutObservation(ctx, turnout.ID, "diverging", station.AccessoryReportKnown, station.AccessoryReportPhysical); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTurnoutCommandResult(ctx, turnout.ID, false, model.TurnoutCommandSucceeded); err != nil {
+		t.Fatal(err)
+	}
+	check()
+	if _, err := db.DB.ExecContext(ctx, `UPDATE turnouts SET reported_status='unknown',quality='',command_status='' WHERE id=?`, turnout.ID); err != nil {
+		t.Fatal(err)
+	}
+	check()
+	if _, err := db.DB.ExecContext(ctx, `UPDATE turnouts SET reported_status='bogus' WHERE id=?`, turnout.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.GetTurnoutRuntimeState(ctx, turnout.ID); !errors.Is(err, model.ErrInvalidTurnout) {
+		t.Fatalf("invalid runtime status error=%v", err)
+	}
+	if _, err := db.GetTurnoutRuntimeState(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing turnout error=%v", err)
+	}
+}
+
 func TestTurnoutObservationDoesNotOverwriteTerminalCommandState(t *testing.T) {
 	ctx := context.Background()
 	store, err := Open(":memory:")

@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDiagnosticHandlerFeatureGates(t *testing.T) {
@@ -74,6 +75,28 @@ func TestStationReconnectMetric(t *testing.T) {
 	body := scrape(t, metrics)
 	if !strings.Contains(body, "trainpilot_station_reconnections_total 1") {
 		t.Fatalf("reconnection metric missing:\n%s", body)
+	}
+}
+
+func TestTurnoutDurationMetricsBoundLabels(t *testing.T) {
+	metrics := New(":memory:")
+	metrics.ObserveTurnoutCommandDuration("secret-result", time.Millisecond)
+	metrics.ObserveTurnoutPhaseDuration("secret-turnout-id", time.Millisecond)
+	metrics.ObserveTurnoutConfirmationDetail("secret-stage", time.Millisecond)
+	metrics.ObserveStoreOperation("get_turnout_state", nil, time.Millisecond)
+	body := scrape(t, metrics)
+	for _, sample := range []string{
+		`trainpilot_turnout_command_duration_seconds_count{result="other"} 1`,
+		`trainpilot_turnout_command_phase_duration_seconds_count{phase="other"} 1`,
+		`trainpilot_turnout_confirmation_detail_duration_seconds_count{stage="other"} 1`,
+		`trainpilot_store_operation_duration_seconds_count{operation="get_turnout_state",result="success"} 1`,
+	} {
+		if !strings.Contains(body, sample) {
+			t.Fatalf("missing metric sample %q", sample)
+		}
+	}
+	if strings.Contains(body, "secret-") {
+		t.Fatal("unbounded label leaked into turnout duration metrics")
 	}
 }
 

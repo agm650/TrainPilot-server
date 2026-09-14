@@ -46,14 +46,17 @@ type Metrics struct {
 	feedbackMappingErrors *prometheus.CounterVec
 	feedbackOccupancy     *prometheus.CounterVec
 
-	activeLeases      prometheus.Gauge
-	leaseOperations   *prometheus.CounterVec
-	controlCommands   *prometheus.CounterVec
-	leaseStopDuration *prometheus.HistogramVec
-	safetyStops       *prometheus.CounterVec
-	routeOperations   *prometheus.CounterVec
-	turnoutCommands   *prometheus.CounterVec
-	turnoutConfirms   *prometheus.CounterVec
+	activeLeases         prometheus.Gauge
+	leaseOperations      *prometheus.CounterVec
+	controlCommands      *prometheus.CounterVec
+	leaseStopDuration    *prometheus.HistogramVec
+	safetyStops          *prometheus.CounterVec
+	routeOperations      *prometheus.CounterVec
+	turnoutCommands      *prometheus.CounterVec
+	turnoutConfirms      *prometheus.CounterVec
+	turnoutDuration      *prometheus.HistogramVec
+	turnoutPhaseTime     *prometheus.HistogramVec
+	turnoutConfirmDetail *prometheus.HistogramVec
 
 	stationState       *prometheus.GaugeVec
 	stationTransitions *prometheus.CounterVec
@@ -71,6 +74,7 @@ type Metrics struct {
 
 func New(databasePath string) *Metrics {
 	registry := prometheus.NewRegistry()
+	turnoutDurationBuckets := prometheus.ExponentialBuckets(0.0005, 2, 15)
 	m := &Metrics{
 		registry: registry,
 		httpRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -180,6 +184,21 @@ func New(databasePath string) *Metrics {
 			Name: "trainpilot_turnout_confirmations_total",
 			Help: "Turnout confirmations grouped by result.",
 		}, []string{"result"}),
+		turnoutDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "trainpilot_turnout_command_duration_seconds",
+			Help:    "End-to-end logical turnout command duration, including lock and confirmation waits.",
+			Buckets: turnoutDurationBuckets,
+		}, []string{"result"}),
+		turnoutPhaseTime: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "trainpilot_turnout_command_phase_duration_seconds",
+			Help:    "Duration of bounded logical turnout command phases.",
+			Buckets: turnoutDurationBuckets,
+		}, []string{"phase"}),
+		turnoutConfirmDetail: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "trainpilot_turnout_confirmation_detail_duration_seconds",
+			Help:    "Duration of bounded turnout confirmation wait and accessory event processing stages.",
+			Buckets: turnoutDurationBuckets,
+		}, []string{"stage"}),
 		stationState: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "trainpilot_station_state",
 			Help: "Current command-station connectivity state as a one-hot gauge.",
@@ -224,7 +243,7 @@ func New(databasePath string) *Metrics {
 		m.wsSnapshotRequest, m.wsSnapshotTime, m.wsSnapshotSize,
 		m.feedbackEvents, m.feedbackDuration, m.feedbackMappingErrors, m.feedbackOccupancy,
 		m.activeLeases, m.leaseOperations, m.controlCommands, m.leaseStopDuration, m.safetyStops,
-		m.routeOperations, m.turnoutCommands, m.turnoutConfirms,
+		m.routeOperations, m.turnoutCommands, m.turnoutConfirms, m.turnoutDuration, m.turnoutPhaseTime, m.turnoutConfirmDetail,
 		m.stationState, m.stationTransitions, m.stationReconnects, m.stationCommands, m.stationDuration,
 		m.storeOperations, m.storeDuration, m.storeTransactions,
 	)
@@ -418,6 +437,24 @@ func (m *Metrics) ObserveTurnoutConfirmation(result string) {
 	}
 }
 
+func (m *Metrics) ObserveTurnoutCommandDuration(result string, duration time.Duration) {
+	if m != nil {
+		m.turnoutDuration.WithLabelValues(boundedTurnoutResult(result)).Observe(duration.Seconds())
+	}
+}
+
+func (m *Metrics) ObserveTurnoutPhaseDuration(phase string, duration time.Duration) {
+	if m != nil {
+		m.turnoutPhaseTime.WithLabelValues(bounded(phase, "lock_wait", "prepare", "station", "confirmation", "finalize")).Observe(duration.Seconds())
+	}
+}
+
+func (m *Metrics) ObserveTurnoutConfirmationDetail(stage string, duration time.Duration) {
+	if m != nil {
+		m.turnoutConfirmDetail.WithLabelValues(bounded(stage, "event_delivery", "event_handler", "event_lookup", "event_persist", "event_publish", "wait_read", "wait_update")).Observe(duration.Seconds())
+	}
+}
+
 func (m *Metrics) SetStationState(state string) {
 	if m == nil {
 		return
@@ -606,7 +643,7 @@ func boundedStoreOperation(operation string) string {
 	return bounded(operation,
 		"get_locomotive", "list_locomotives", "get_lease", "create_lease", "heartbeat_lease",
 		"renew_lease", "list_live_leases", "release_lease", "map_feedback", "update_block",
-		"get_turnout", "list_turnouts", "update_turnout", "list_routes", "reserve_route",
+		"get_turnout", "get_turnout_state", "list_turnouts", "update_turnout", "list_routes", "reserve_route",
 		"activate_route", "release_route", "get_session", "touch_session")
 }
 

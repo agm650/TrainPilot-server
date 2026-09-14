@@ -177,6 +177,60 @@ func (s *Store) GetTurnout(ctx context.Context, id string) (x model.Turnout, err
 	return normalized, nil
 }
 
+// TurnoutRuntimeState contains the persisted fields needed to confirm a
+// command and publish a state event, without reloading the static definition.
+// Callers must load the full turnout when they need to validate its geometry.
+type TurnoutRuntimeState struct {
+	ID               string
+	DesiredPosition  string
+	ReportedPosition string
+	Pending          bool
+	ReportedStatus   station.AccessoryReportState
+	Quality          station.AccessoryReportQuality
+	CommandStatus    model.TurnoutCommandStatus
+}
+
+func (s *Store) GetTurnoutRuntimeState(ctx context.Context, id string) (state TurnoutRuntimeState, err error) {
+	started := time.Now()
+	defer func() { s.observe("get_turnout_state", started, err) }()
+	var pending int
+	err = s.DB.QueryRowContext(ctx, `SELECT id,desired_position,reported_position,pending,reported_status,quality,command_status FROM turnouts WHERE id=?`, id).
+		Scan(&state.ID, &state.DesiredPosition, &state.ReportedPosition, &pending, &state.ReportedStatus, &state.Quality, &state.CommandStatus)
+	if errors.Is(err, sql.ErrNoRows) {
+		return state, ErrNotFound
+	}
+	if err != nil {
+		return state, err
+	}
+	state.Pending = pending != 0
+	// Match the runtime defaults applied by model.NormalizeTurnout. Migrations
+	// populate these fields, but older databases may still contain empty values.
+	if state.ReportedStatus == "" || (state.ReportedStatus == station.AccessoryReportUnknown && state.ReportedPosition != "") {
+		if state.ReportedPosition == "" {
+			state.ReportedStatus = station.AccessoryReportUnknown
+		} else {
+			state.ReportedStatus = station.AccessoryReportKnown
+		}
+	}
+	if state.Quality == "" && state.ReportedPosition != "" {
+		state.Quality = station.AccessoryReportAssumed
+	}
+	if state.CommandStatus == "" {
+		switch {
+		case state.Pending:
+			state.CommandStatus = model.TurnoutCommandPending
+		case state.DesiredPosition != "" && state.DesiredPosition == state.ReportedPosition:
+			state.CommandStatus = model.TurnoutCommandSucceeded
+		default:
+			state.CommandStatus = model.TurnoutCommandIdle
+		}
+	}
+	if !state.ReportedStatus.Valid() || (state.Quality != "" && !state.Quality.Valid()) || !state.CommandStatus.Valid() {
+		return TurnoutRuntimeState{}, fmt.Errorf("%w: turnout %q has invalid runtime state", model.ErrInvalidTurnout, id)
+	}
+	return state, nil
+}
+
 func (s *Store) ListTurnoutsByAccessoryAddress(ctx context.Context, address int) ([]model.Turnout, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT turnout_id FROM turnout_endpoints WHERE linear_address=? ORDER BY turnout_id`, address)
 	if err != nil {
