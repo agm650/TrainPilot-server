@@ -75,7 +75,7 @@ position in which that connection is possible.
 
 The static graph is the union of all declared turnout positions. It describes
 every physically possible connection, not the connections enabled by the
-current reported state. Active-turnout filtering belongs to TOP-004.
+current reported state.
 
 Nodes, sections, turnout topologies, and incident edges have direct indexes.
 All public graph enumerations are deterministic. `ConnectedComponents`
@@ -91,6 +91,29 @@ The builder applies these structural constraints:
 
 Layouts needing several connections at a boundary must model an explicit
 internal `joint` and connect that joint to the boundary with one section.
+
+## Static graph vs active graph
+
+`Graph.ActiveView` creates an immutable snapshot without changing the static
+graph. Fixed track-section edges are always present. A turnout edge is present
+only when all these conditions hold:
+
+- `Pending` is false;
+- `ReportedStatus` is `known`;
+- `ReportedPosition` names a position that enables the edge.
+
+`DesiredPosition` is never used for connectivity. If desired and reported
+positions differ, the active graph follows the reported position. A turnout
+whose reported position is unknown, invalid, missing, or inconsistent with its
+topology provides no confirmed internal connection.
+
+The report quality (`assumed`, `station`, or `physical`) does not block a known
+position in topology V1. It remains attached to each active turnout edge so a
+future safety policy can distinguish its evidence source.
+
+Active views are computed directly from the supplied turnout states. There is
+no shared cache or event-driven invalidation. A new reported state is visible
+on the next `ActiveView` call, while an existing view remains unchanged.
 
 ## Scope of topology V1
 
