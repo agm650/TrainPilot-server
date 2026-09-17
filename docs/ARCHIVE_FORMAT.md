@@ -1,6 +1,6 @@
 # Format des archives DCC Control
 
-Version actuelle : **3**. Les archives versions 1 et 2 restent importables.
+Version actuelle : **4**. Les archives versions 1 à 3 restent importables.
 
 Les extensions recommandées sont :
 
@@ -15,7 +15,7 @@ Chaque archive contient obligatoirement `manifest.json` :
 ```json
 {
   "format": "org.dcc-control.package",
-  "version": 3,
+  "version": 4,
   "packageType": "rolling-stock",
   "createdAt": "2026-07-29T20:00:00Z"
 }
@@ -55,6 +55,45 @@ Une archive de type `layout` contient `layout.json` :
 ```json
 {
   "layout": {
+    "nodes": [
+      { "id": "boundary-west", "kind": "boundary" },
+      { "id": "turnout-stem", "kind": "joint" },
+      { "id": "turnout-straight", "kind": "joint" },
+      { "id": "turnout-diverging", "kind": "joint" }
+    ],
+    "trackSections": [
+      {
+        "id": "approach-west",
+        "name": "Approche ouest",
+        "nodeAId": "boundary-west",
+        "nodeBId": "turnout-stem",
+        "lengthMm": 1200
+      }
+    ],
+    "turnoutTopologies": [
+      {
+        "turnoutId": "turnout-1",
+        "ports": [
+          { "id": "stem", "nodeId": "turnout-stem" },
+          { "id": "straight", "nodeId": "turnout-straight" },
+          { "id": "diverging", "nodeId": "turnout-diverging" }
+        ],
+        "positions": [
+          {
+            "positionId": "straight",
+            "connections": [
+              { "portAId": "stem", "portBId": "straight" }
+            ]
+          },
+          {
+            "positionId": "diverging",
+            "connections": [
+              { "portAId": "stem", "portBId": "diverging" }
+            ]
+          }
+        ]
+      }
+    ],
     "blocks": [
       { "id": "block-a", "name": "Gare voie 1", "occupied": false }
     ],
@@ -94,11 +133,17 @@ Une archive de type `layout` contient `layout.json` :
 }
 ```
 
-L’import vérifie toutes les références avant d’ouvrir la transaction d’écriture : cantons d’itinéraire, aiguillages, positions logiques, conflits et mappings de rétrosignalisation.
+L’import vérifie toutes les références avant d’ouvrir la transaction d’écriture :
+nœuds, sections, ports, connexions, cantons d’itinéraire, aiguillages,
+positions logiques, conflits et mappings de rétrosignalisation.
 
-Les exports version 3 séparent configuration et état opérationnel. Ils ne
+Les exports version 4 séparent configuration et état opérationnel. Ils ne
 contiennent pas `desiredPosition`, `reportedPosition`, `pending`,
 `reportedStatus`, `reportQuality` ni `commandStatus`.
+
+Les archives versions 1 à 3 ne contiennent aucune topologie. Leur import crée
+une topologie vide. TrainPilot ne déduit jamais des connexions physiques depuis
+les cantons ou les itinéraires, car ces informations sont insuffisantes.
 
 Les champs `dccAddress`, `desiredState` et `reportedState` des anciennes
 archives sont acceptés. Ils sont dépréciés. Une archive version 1 est convertie
@@ -123,4 +168,4 @@ Le modèle complet des appareils composés est décrit dans
 - import autorisé uniquement au rôle applicatif `administrator` ;
 - les imports réussis publient `rolling-stock.imported` ou `layout.imported` sur le WebSocket.
 
-Les ressources graphiques et images ne sont pas encore définies dans la version 3.
+Les ressources graphiques et images ne sont pas encore définies dans la version 4.

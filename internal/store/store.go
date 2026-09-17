@@ -161,6 +161,50 @@ func (s *Store) Migrate(ctx context.Context) error {
 			FOREIGN KEY(turnout_id, position_id) REFERENCES turnout_positions(turnout_id, position_id) ON DELETE CASCADE,
 			FOREIGN KEY(turnout_id, endpoint_id) REFERENCES turnout_endpoints(turnout_id, endpoint_id) ON DELETE CASCADE
 		)`,
+		`CREATE TABLE IF NOT EXISTS topology_nodes (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL DEFAULT '',
+			kind TEXT NOT NULL CHECK(kind IN ('joint','buffer','boundary'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS track_sections (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL DEFAULT '',
+			node_a_id TEXT NOT NULL REFERENCES topology_nodes(id),
+			node_b_id TEXT NOT NULL REFERENCES topology_nodes(id),
+			length_mm INTEGER NOT NULL DEFAULT 0 CHECK(length_mm >= 0),
+			CHECK(node_a_id <> node_b_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS turnout_topologies (
+			turnout_id TEXT PRIMARY KEY REFERENCES turnouts(id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS turnout_topology_ports (
+			turnout_id TEXT NOT NULL REFERENCES turnout_topologies(turnout_id) ON DELETE CASCADE,
+			port_id TEXT NOT NULL,
+			node_id TEXT NOT NULL REFERENCES topology_nodes(id),
+			ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+			PRIMARY KEY(turnout_id, port_id),
+			UNIQUE(turnout_id, ordinal)
+		)`,
+		`CREATE TABLE IF NOT EXISTS turnout_topology_positions (
+			turnout_id TEXT NOT NULL REFERENCES turnout_topologies(turnout_id) ON DELETE CASCADE,
+			position_id TEXT NOT NULL,
+			ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+			PRIMARY KEY(turnout_id, position_id),
+			UNIQUE(turnout_id, ordinal)
+		)`,
+		`CREATE TABLE IF NOT EXISTS turnout_topology_connections (
+			turnout_id TEXT NOT NULL,
+			position_id TEXT NOT NULL,
+			port_a_id TEXT NOT NULL,
+			port_b_id TEXT NOT NULL,
+			ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+			PRIMARY KEY(turnout_id, position_id, port_a_id, port_b_id),
+			UNIQUE(turnout_id, position_id, ordinal),
+			CHECK(port_a_id <> port_b_id),
+			FOREIGN KEY(turnout_id, position_id) REFERENCES turnout_topology_positions(turnout_id, position_id) ON DELETE CASCADE,
+			FOREIGN KEY(turnout_id, port_a_id) REFERENCES turnout_topology_ports(turnout_id, port_id) ON DELETE CASCADE,
+			FOREIGN KEY(turnout_id, port_b_id) REFERENCES turnout_topology_ports(turnout_id, port_id) ON DELETE CASCADE
+		)`,
 		`CREATE TABLE IF NOT EXISTS routes (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,

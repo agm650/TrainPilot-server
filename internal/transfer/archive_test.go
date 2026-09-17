@@ -1,8 +1,11 @@
 package transfer
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"reflect"
 	"testing"
 	"time"
@@ -10,6 +13,7 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/clock"
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
+	"github.com/agm650/TrainPilot-server/internal/model/topologyfixture"
 	"github.com/agm650/TrainPilot-server/internal/store"
 )
 
@@ -76,6 +80,84 @@ func TestLayoutArchiveRoundTrip(t *testing.T) {
 	}
 	if len(layout.Blocks) != 3 || len(layout.Routes) != 1 {
 		t.Fatalf("blocks=%d routes=%d", len(layout.Blocks), len(layout.Routes))
+	}
+}
+
+func TestTopologyLayoutArchiveRoundTripIsDeterministic(t *testing.T) {
+	ctx := context.Background()
+	source, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	if err := source.ImportLayout(ctx, topologyfixture.DoubleSlip(), false); err != nil {
+		t.Fatal(err)
+	}
+	createdAt := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	first, err := New(source, events.New(), clock.NewFake(createdAt)).ExportLayout(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertTopologyArchiveFields(t, first)
+
+	target, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	admin := model.User{ID: "admin", Role: model.RoleAdministrator}
+	if err := New(target, events.New(), clock.Real{}).ImportLayout(ctx, admin, first, true); err != nil {
+		t.Fatal(err)
+	}
+	want, err := source.GetTopologyDefinition(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := target.GetTopologyDefinition(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("topology archive round trip mismatch:\n got: %#v\nwant: %#v", got, want)
+	}
+	second, err := New(target, events.New(), clock.NewFake(createdAt)).ExportLayout(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(second, first) {
+		t.Fatal("topology archive changed after import and export")
+	}
+}
+
+func TestVersionThreeLayoutArchiveImportsEmptyTopology(t *testing.T) {
+	ctx := context.Background()
+	legacyDocument := map[string]any{
+		"layout": map[string]any{
+			"blocks":           []any{},
+			"turnouts":         []any{},
+			"routes":           []any{},
+			"feedbackMappings": []any{},
+		},
+	}
+	data, err := writeArchive(Manifest{Format: FormatID, Version: 3, PackageType: "layout", CreatedAt: time.Now()}, "layout.json", legacyDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	admin := model.User{ID: "admin", Role: model.RoleAdministrator}
+	if err := New(target, events.New(), clock.Real{}).ImportLayout(ctx, admin, data, true); err != nil {
+		t.Fatal(err)
+	}
+	topology, err := target.GetTopologyDefinition(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(topology.TopologyNodes) != 0 || len(topology.TrackSections) != 0 || len(topology.TurnoutTopologies) != 0 {
+		t.Fatalf("version 3 archive invented topology: %#v", topology)
 	}
 }
 
@@ -295,4 +377,39 @@ func archiveThreeWayTurnout() model.Turnout {
 		},
 		DesiredPosition: "straight",
 	}
+}
+
+func assertTopologyArchiveFields(t *testing.T, data []byte) {
+	t.Helper()
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range reader.File {
+		if file.Name != "layout.json" {
+			continue
+		}
+		entry, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		contents, err := io.ReadAll(entry)
+		entry.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var document struct {
+			Layout map[string]json.RawMessage `json:"layout"`
+		}
+		if err := json.Unmarshal(contents, &document); err != nil {
+			t.Fatal(err)
+		}
+		for _, field := range []string{"nodes", "trackSections", "turnoutTopologies"} {
+			if _, exists := document.Layout[field]; !exists {
+				t.Fatalf("layout archive does not contain %q", field)
+			}
+		}
+		return
+	}
+	t.Fatal("layout.json not found")
 }

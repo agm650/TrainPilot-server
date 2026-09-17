@@ -51,6 +51,20 @@ one topology definition. Unknown positions, ports, nodes, duplicate undirected
 connections, and incomplete position tables are rejected by
 `ValidateTopologyDefinition`.
 
+## Persistence and layout archives
+
+SQLite stores nodes, track sections, turnout ports, positions, and connections
+in normalized tables. Export order is deterministic: resources are ordered by
+ID, while ports, positions, and connections preserve their declared order.
+Referenced nodes and turnouts cannot be deleted implicitly. A complete layout
+replacement removes their topology explicitly within the same transaction.
+
+Layout archive version 4 stores `nodes`, `trackSections`, and
+`turnoutTopologies` alongside blocks, turnouts, routes, and feedback mappings.
+Versions 1 through 3 remain importable. They produce an empty topology because
+their block and route data cannot reconstruct physical connectivity safely.
+TrainPilot never invents topology during database or archive migration.
+
 ## Scope of topology V1
 
 Topology V1 stores logical connectivity only. It has no screen coordinates,

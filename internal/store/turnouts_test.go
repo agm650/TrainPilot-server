@@ -18,6 +18,16 @@ func TestMigrateLegacyTurnoutSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if _, err := db.ExecContext(ctx, `CREATE TABLE blocks (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		occupied INTEGER NOT NULL DEFAULT 0
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO blocks(id,name,occupied) VALUES('legacy-block','Legacy block',1)`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.ExecContext(ctx, `CREATE TABLE turnouts (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
@@ -53,13 +63,26 @@ func TestMigrateLegacyTurnoutSchema(t *testing.T) {
 	if err := store.Migrate(ctx); err != nil {
 		t.Fatalf("second migration: %v", err)
 	}
+	var block model.Block
+	if err := db.QueryRowContext(ctx, `SELECT id,name,occupied FROM blocks WHERE id='legacy-block'`).Scan(&block.ID, &block.Name, &block.Occupied); err != nil {
+		t.Fatal(err)
+	}
+	if block.Name != "Legacy block" || !block.Occupied {
+		t.Fatalf("legacy block changed during migration: %+v", block)
+	}
 	for table, want := range map[string]int{
-		"turnout_endpoints":          1,
-		"turnout_positions":          2,
-		"turnout_position_endpoints": 2,
+		"turnout_endpoints":            1,
+		"turnout_positions":            2,
+		"turnout_position_endpoints":   2,
+		"topology_nodes":               0,
+		"track_sections":               0,
+		"turnout_topologies":           0,
+		"turnout_topology_ports":       0,
+		"turnout_topology_positions":   0,
+		"turnout_topology_connections": 0,
 	} {
 		var got int
-		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table+` WHERE turnout_id='legacy-12'`).Scan(&got); err != nil {
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&got); err != nil {
 			t.Fatal(err)
 		}
 		if got != want {

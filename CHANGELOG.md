@@ -28,6 +28,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Physical railway topology with validated nodes, track sections, conditional
+  turnout connections, normalized SQLite persistence, and deterministic export.
 - Typed station contract for binary DCC accessories, portable linear-address range validation, and a generic provider for qualified feedback.
 - z21 `LAN_X_SET_TURNOUT` accessory commands, configurable pulse and safe deactivation, correlated `LAN_X_GET_TURNOUT_INFO` queries, and state broadcasts without invented positions.
 - DCC-EX accessories aligned with `<a linear 0|1>`, including portable-range validation, `assumed` feedback, concurrent TCP tests, and no replay after reconnection.
@@ -95,7 +97,8 @@ All notable changes to this project will be documented in this file.
   Turnouts expose `reportQuality`, use `position` for commands, and retain the
   `turnout.commanded`, `turnout.state.changed`, and
   `turnout.command.failed` events.
-- Layout archives are now version 3 and separate turnout configuration from runtime state.
+- Layout archives are now version 4, retain physical topology, and separate
+  turnout configuration from runtime state. Versions 1 through 3 remain importable.
 - SQLite now uses the pure-Go `modernc.org/sqlite` driver.
 - A valid throttle or function command now renews the control lease.
 - The WebSocket snapshot now includes command-station capabilities and current status.

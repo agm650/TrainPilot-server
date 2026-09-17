@@ -20,7 +20,7 @@ import (
 
 const (
 	FormatID       = "org.dcc-control.package"
-	FormatVersion  = 3
+	FormatVersion  = 4
 	OldestVersion  = 1
 	MaxArchiveSize = 25 << 20
 	MaxEntrySize   = 10 << 20
@@ -42,36 +42,72 @@ type LayoutDocument struct {
 	Layout model.LayoutDefinition `json:"layout"`
 }
 
+type layoutTurnoutDefinition struct {
+	ID        string                            `json:"id"`
+	Name      string                            `json:"name"`
+	Kind      model.TurnoutKind                 `json:"kind"`
+	Endpoints []model.AccessoryEndpoint         `json:"endpoints"`
+	Positions []model.TurnoutPositionDefinition `json:"positions"`
+}
+
+type layoutArchiveDefinition struct {
+	Nodes             []model.TopologyNode      `json:"nodes"`
+	TrackSections     []model.TrackSection      `json:"trackSections"`
+	TurnoutTopologies []model.TurnoutTopology   `json:"turnoutTopologies"`
+	Blocks            []model.Block             `json:"blocks"`
+	Turnouts          []layoutTurnoutDefinition `json:"turnouts"`
+	Routes            []model.RouteDefinition   `json:"routes"`
+	FeedbackMappings  []model.FeedbackMapping   `json:"feedbackMappings"`
+}
+
 // MarshalJSON deliberately exports turnout configuration separately from its
 // operational state. A layout archive must not restore a pending command or a
 // last observed position when imported on another server.
 func (d LayoutDocument) MarshalJSON() ([]byte, error) {
-	type turnoutDefinition struct {
-		ID        string                            `json:"id"`
-		Name      string                            `json:"name"`
-		Kind      model.TurnoutKind                 `json:"kind"`
-		Endpoints []model.AccessoryEndpoint         `json:"endpoints"`
-		Positions []model.TurnoutPositionDefinition `json:"positions"`
-	}
-	type layoutDefinition struct {
-		Blocks           []model.Block           `json:"blocks"`
-		Turnouts         []turnoutDefinition     `json:"turnouts"`
-		Routes           []model.RouteDefinition `json:"routes"`
-		FeedbackMappings []model.FeedbackMapping `json:"feedbackMappings"`
-	}
-	turnouts := make([]turnoutDefinition, 0, len(d.Layout.Turnouts))
+	turnouts := make([]layoutTurnoutDefinition, 0, len(d.Layout.Turnouts))
 	for _, turnout := range d.Layout.Turnouts {
-		turnouts = append(turnouts, turnoutDefinition{
+		turnouts = append(turnouts, layoutTurnoutDefinition{
 			ID: turnout.ID, Name: turnout.Name, Kind: turnout.Kind,
 			Endpoints: turnout.Endpoints, Positions: turnout.Positions,
 		})
 	}
 	return json.Marshal(struct {
-		Layout layoutDefinition `json:"layout"`
-	}{Layout: layoutDefinition{
-		Blocks: d.Layout.Blocks, Turnouts: turnouts, Routes: d.Layout.Routes,
+		Layout layoutArchiveDefinition `json:"layout"`
+	}{Layout: layoutArchiveDefinition{
+		Nodes: d.Layout.TopologyNodes, TrackSections: d.Layout.TrackSections,
+		TurnoutTopologies: d.Layout.TurnoutTopologies,
+		Blocks:            d.Layout.Blocks, Turnouts: turnouts, Routes: d.Layout.Routes,
 		FeedbackMappings: d.Layout.FeedbackMappings,
 	}})
+}
+
+func (d *LayoutDocument) UnmarshalJSON(data []byte) error {
+	var document struct {
+		Layout struct {
+			Nodes             []model.TopologyNode    `json:"nodes"`
+			TrackSections     []model.TrackSection    `json:"trackSections"`
+			TurnoutTopologies []model.TurnoutTopology `json:"turnoutTopologies"`
+			Blocks            []model.Block           `json:"blocks"`
+			Turnouts          []model.Turnout         `json:"turnouts"`
+			Routes            []model.RouteDefinition `json:"routes"`
+			FeedbackMappings  []model.FeedbackMapping `json:"feedbackMappings"`
+		} `json:"layout"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&document); err != nil {
+		return err
+	}
+	d.Layout = model.LayoutDefinition{
+		TopologyNodes:     document.Layout.Nodes,
+		TrackSections:     document.Layout.TrackSections,
+		TurnoutTopologies: document.Layout.TurnoutTopologies,
+		Blocks:            document.Layout.Blocks,
+		Turnouts:          document.Layout.Turnouts,
+		Routes:            document.Layout.Routes,
+		FeedbackMappings:  document.Layout.FeedbackMappings,
+	}
+	return nil
 }
 
 type Service struct {
@@ -273,6 +309,9 @@ func validateLayout(layout *model.LayoutDefinition) error {
 		}
 		layout.Turnouts[i] = normalized
 		turnouts[normalized.ID] = normalized
+	}
+	if err := model.ValidateTopologyDefinition(*layout); err != nil {
+		return err
 	}
 	for _, r := range layout.Routes {
 		if r.ID == "" || r.Name == "" {

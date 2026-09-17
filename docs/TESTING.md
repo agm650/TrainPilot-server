@@ -174,10 +174,16 @@ TJS et personnalisés. Ils vérifient la validation, les vecteurs inconnus et
 l'inversion des endpoints.
 
 Les tests de `internal/store` créent aussi une ancienne table `turnouts`, puis
-exécutent deux fois la migration. Les tests de `internal/transfer` importent une
-archive de circuit version 1 et vérifient un round-trip déterministe en version
-3. Le round-trip couvre un simple, un triple et une TJD. Il vérifie aussi que
-les états runtime ne sont pas restaurés.
+exécutent deux fois la migration. Ils vérifient que les données historiques
+restent intactes, que les nouvelles tables topologiques restent vides et que
+les références empêchent les suppressions implicites. Les round-trips couvrent
+une ligne, une boucle, un triple et une TJD avec un ordre déterministe.
+
+Les tests de `internal/transfer` importent des archives de circuit versions 1
+et 3, puis vérifient un round-trip déterministe en version 4. Une ancienne
+archive produit toujours une topologie vide. Une archive version 4 conserve les
+nœuds, sections, ports, positions et connexions, sans restaurer les états
+runtime des aiguillages.
 
 ```bash
 go test ./internal/model ./internal/store ./internal/transfer

@@ -148,6 +148,10 @@ func (s *Store) ExportLayout(ctx context.Context) (model.LayoutDefinition, error
 	if err != nil {
 		return model.LayoutDefinition{}, err
 	}
+	topology, err := s.GetTopologyDefinition(ctx)
+	if err != nil {
+		return model.LayoutDefinition{}, err
+	}
 	routes, err := s.ListRoutes(ctx)
 	if err != nil {
 		return model.LayoutDefinition{}, err
@@ -195,7 +199,15 @@ func (s *Store) ExportLayout(ctx context.Context) (model.LayoutDefinition, error
 		rows.Close()
 		defs = append(defs, def)
 	}
-	return model.LayoutDefinition{Blocks: blocks, Turnouts: turnouts, Routes: defs, FeedbackMappings: mappings}, nil
+	return model.LayoutDefinition{
+		Blocks:            blocks,
+		Turnouts:          turnouts,
+		Routes:            defs,
+		FeedbackMappings:  mappings,
+		TopologyNodes:     topology.TopologyNodes,
+		TrackSections:     topology.TrackSections,
+		TurnoutTopologies: topology.TurnoutTopologies,
+	}, nil
 }
 
 func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition, replace bool) error {
@@ -206,6 +218,11 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 			return err
 		}
 		normalizedTurnouts[index] = normalized
+	}
+	validatedLayout := layout
+	validatedLayout.Turnouts = normalizedTurnouts
+	if err := model.ValidateTopologyDefinition(validatedLayout); err != nil {
+		return err
 	}
 	if err := validateTurnoutAddressOwnership(normalizedTurnouts); err != nil {
 		return err
@@ -221,6 +238,9 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 			}
 		}
 		if replace {
+			if err := clearTopologyDefinition(ctx, tx); err != nil {
+				return err
+			}
 			for _, q := range []string{`DELETE FROM route_conflicts`, `DELETE FROM route_turnouts`, `DELETE FROM route_blocks`, `DELETE FROM routes`, `DELETE FROM feedback_mappings`, `DELETE FROM turnouts`, `DELETE FROM blocks`} {
 				if _, err := tx.ExecContext(ctx, q); err != nil {
 					return err
@@ -236,6 +256,9 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 			if err := upsertTurnout(ctx, tx, turnout); err != nil {
 				return err
 			}
+		}
+		if err := upsertTopologyDefinition(ctx, tx, layout); err != nil {
+			return err
 		}
 		for _, m := range layout.FeedbackMappings {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO feedback_mappings(provider,address,block_id) VALUES(?,?,?) ON CONFLICT(provider,address) DO UPDATE SET block_id=excluded.block_id`, m.Provider, m.Address, m.BlockID); err != nil {
