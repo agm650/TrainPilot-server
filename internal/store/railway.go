@@ -177,33 +177,147 @@ func (s *Store) GetTurnout(ctx context.Context, id string) (x model.Turnout, err
 	return normalized, nil
 }
 
+// TurnoutRuntimeState contains the persisted fields needed to confirm a
+// command and publish a state event, without reloading the static definition.
+// Callers must load the full turnout when they need to validate its geometry.
+type TurnoutRuntimeState struct {
+	ID               string
+	DesiredPosition  string
+	ReportedPosition string
+	Pending          bool
+	ReportedStatus   station.AccessoryReportState
+	Quality          station.AccessoryReportQuality
+	CommandStatus    model.TurnoutCommandStatus
+}
+
+func (s *Store) GetTurnoutRuntimeState(ctx context.Context, id string) (state TurnoutRuntimeState, err error) {
+	started := time.Now()
+	defer func() { s.observe("get_turnout_state", started, err) }()
+	var pending int
+	err = s.DB.QueryRowContext(ctx, `SELECT id,desired_position,reported_position,pending,reported_status,quality,command_status FROM turnouts WHERE id=?`, id).
+		Scan(&state.ID, &state.DesiredPosition, &state.ReportedPosition, &pending, &state.ReportedStatus, &state.Quality, &state.CommandStatus)
+	if errors.Is(err, sql.ErrNoRows) {
+		return state, ErrNotFound
+	}
+	if err != nil {
+		return state, err
+	}
+	state.Pending = pending != 0
+	// Match the runtime defaults applied by model.NormalizeTurnout. Migrations
+	// populate these fields, but older databases may still contain empty values.
+	if state.ReportedStatus == "" || (state.ReportedStatus == station.AccessoryReportUnknown && state.ReportedPosition != "") {
+		if state.ReportedPosition == "" {
+			state.ReportedStatus = station.AccessoryReportUnknown
+		} else {
+			state.ReportedStatus = station.AccessoryReportKnown
+		}
+	}
+	if state.Quality == "" && state.ReportedPosition != "" {
+		state.Quality = station.AccessoryReportAssumed
+	}
+	if state.CommandStatus == "" {
+		switch {
+		case state.Pending:
+			state.CommandStatus = model.TurnoutCommandPending
+		case state.DesiredPosition != "" && state.DesiredPosition == state.ReportedPosition:
+			state.CommandStatus = model.TurnoutCommandSucceeded
+		default:
+			state.CommandStatus = model.TurnoutCommandIdle
+		}
+	}
+	if !state.ReportedStatus.Valid() || (state.Quality != "" && !state.Quality.Valid()) || !state.CommandStatus.Valid() {
+		return TurnoutRuntimeState{}, fmt.Errorf("%w: turnout %q has invalid runtime state", model.ErrInvalidTurnout, id)
+	}
+	return state, nil
+}
+
 func (s *Store) ListTurnoutsByAccessoryAddress(ctx context.Context, address int) ([]model.Turnout, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT turnout_id FROM turnout_endpoints WHERE linear_address=? ORDER BY turnout_id`, address)
+	// Read the runtime state and complete definition from one database snapshot.
+	// Accessory feedback must not use a cached definition: ImportLayout may
+	// replace an idle turnout's endpoint mapping at any time.
+	rows, err := s.DB.QueryContext(ctx, `SELECT
+		t.id,t.name,t.kind,t.desired_position,t.reported_position,t.pending,t.reported_status,t.quality,t.command_status,
+		t.dcc_address,t.desired_state,t.reported_state,
+		e.endpoint_id,e.linear_address,e.inverted,
+		p.position_id,p.label,
+		v.endpoint_id,v.required_position
+		FROM turnout_endpoints AS matched
+		JOIN turnouts AS t ON t.id=matched.turnout_id
+		JOIN turnout_endpoints AS e ON e.turnout_id=t.id
+		LEFT JOIN turnout_positions AS p ON p.turnout_id=t.id
+		LEFT JOIN turnout_position_endpoints AS v ON v.turnout_id=t.id AND v.position_id=p.position_id
+		WHERE matched.linear_address=?
+		ORDER BY t.id,e.ordinal,e.endpoint_id,p.ordinal,p.position_id,v.endpoint_id`, address)
 	if err != nil {
 		return nil, err
 	}
-	var ids []string
+	defer rows.Close()
+	turnouts := make([]model.Turnout, 0)
+	var current model.Turnout
+	var haveCurrent bool
+	var endpoints map[string]bool
+	var positions map[string]int
+	appendCurrent := func() error {
+		if !haveCurrent {
+			return nil
+		}
+		normalized, err := model.NormalizeTurnout(current)
+		if err != nil {
+			return fmt.Errorf("load turnout %q: %w", current.ID, err)
+		}
+		turnouts = append(turnouts, normalized)
+		return nil
+	}
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
+		var turnout model.Turnout
+		var pending, linearAddress, inverted int
+		var endpointID string
+		var positionID, positionLabel, vectorEndpointID, vectorPosition sql.NullString
+		if err := rows.Scan(
+			&turnout.ID, &turnout.Name, &turnout.Kind, &turnout.DesiredPosition, &turnout.ReportedPosition,
+			&pending, &turnout.ReportedStatus, &turnout.Quality, &turnout.CommandStatus,
+			&turnout.DCCAddress, &turnout.DesiredState, &turnout.ReportedState,
+			&endpointID, &linearAddress, &inverted,
+			&positionID, &positionLabel, &vectorEndpointID, &vectorPosition,
+		); err != nil {
 			return nil, err
 		}
-		ids = append(ids, id)
+		if !haveCurrent || current.ID != turnout.ID {
+			if err := appendCurrent(); err != nil {
+				return nil, err
+			}
+			turnout.Pending = pending != 0
+			current = turnout
+			haveCurrent = true
+			endpoints = make(map[string]bool)
+			positions = make(map[string]int)
+		}
+		if !endpoints[endpointID] {
+			current.Endpoints = append(current.Endpoints, model.AccessoryEndpoint{
+				ID: endpointID, LinearAddress: linearAddress, Inverted: inverted != 0,
+			})
+			endpoints[endpointID] = true
+		}
+		if positionID.Valid {
+			index, exists := positions[positionID.String]
+			if !exists {
+				index = len(current.Positions)
+				current.Positions = append(current.Positions, model.TurnoutPositionDefinition{
+					ID: positionID.String, Label: positionLabel.String,
+					Endpoints: make(map[string]model.AccessoryPosition),
+				})
+				positions[positionID.String] = index
+			}
+			if vectorEndpointID.Valid && vectorPosition.Valid {
+				current.Positions[index].Endpoints[vectorEndpointID.String] = model.AccessoryPosition(vectorPosition.String)
+			}
+		}
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
 		return nil, err
 	}
-	rows.Close()
-
-	turnouts := make([]model.Turnout, 0, len(ids))
-	for _, id := range ids {
-		turnout, err := s.GetTurnout(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		turnouts = append(turnouts, turnout)
+	if err := appendCurrent(); err != nil {
+		return nil, err
 	}
 	return turnouts, nil
 }

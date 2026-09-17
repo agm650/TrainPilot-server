@@ -99,6 +99,67 @@ func TestCompoundTurnoutPersistenceRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGetTurnoutRuntimeStateMatchesFullTurnout(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	turnout := model.NewSimpleTurnout("runtime-state", "Runtime state", 12, "straight", "straight")
+	if err := db.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{turnout}}, false); err != nil {
+		t.Fatal(err)
+	}
+	check := func() {
+		t.Helper()
+		full, err := db.GetTurnout(ctx, turnout.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := db.GetTurnoutRuntimeState(ctx, turnout.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := TurnoutRuntimeState{
+			ID:               full.ID,
+			DesiredPosition:  full.DesiredPosition,
+			ReportedPosition: full.ReportedPosition,
+			Pending:          full.Pending,
+			ReportedStatus:   full.ReportedStatus,
+			Quality:          full.Quality,
+			CommandStatus:    full.CommandStatus,
+		}
+		if got != want {
+			t.Fatalf("runtime state=%+v, full turnout state=%+v", got, want)
+		}
+	}
+	check()
+	if err := db.SetTurnoutDesiredPosition(ctx, turnout.ID, "diverging", true); err != nil {
+		t.Fatal(err)
+	}
+	check()
+	if err := db.SetTurnoutObservation(ctx, turnout.ID, "diverging", station.AccessoryReportKnown, station.AccessoryReportPhysical); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTurnoutCommandResult(ctx, turnout.ID, false, model.TurnoutCommandSucceeded); err != nil {
+		t.Fatal(err)
+	}
+	check()
+	if _, err := db.DB.ExecContext(ctx, `UPDATE turnouts SET reported_status='unknown',quality='',command_status='' WHERE id=?`, turnout.ID); err != nil {
+		t.Fatal(err)
+	}
+	check()
+	if _, err := db.DB.ExecContext(ctx, `UPDATE turnouts SET reported_status='bogus' WHERE id=?`, turnout.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.GetTurnoutRuntimeState(ctx, turnout.ID); !errors.Is(err, model.ErrInvalidTurnout) {
+		t.Fatalf("invalid runtime status error=%v", err)
+	}
+	if _, err := db.GetTurnoutRuntimeState(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing turnout error=%v", err)
+	}
+}
+
 func TestTurnoutObservationDoesNotOverwriteTerminalCommandState(t *testing.T) {
 	ctx := context.Background()
 	store, err := Open(":memory:")
@@ -152,12 +213,71 @@ func TestListTurnoutsByAccessoryAddress(t *testing.T) {
 	if len(turnouts) != 1 || turnouts[0].ID != second.ID {
 		t.Fatalf("turnouts at address 13: %+v", turnouts)
 	}
+	full, err := store.GetTurnout(ctx, second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(turnouts[0], full) {
+		t.Fatalf("address lookup differs from full turnout:\n got: %#v\nwant: %#v", turnouts[0], full)
+	}
 	turnouts, err = store.ListTurnoutsByAccessoryAddress(ctx, 99)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(turnouts) != 0 {
 		t.Fatalf("turnouts at unused address: %+v", turnouts)
+	}
+}
+
+func TestListTurnoutsByAccessoryAddressCompoundAndImport(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	turnout := persistedThreeWayTurnout()
+	turnout.Pending = false
+	if err := db.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{turnout}}, false); err != nil {
+		t.Fatal(err)
+	}
+	check := func(address int, wantID string) {
+		t.Helper()
+		got, err := db.ListTurnoutsByAccessoryAddress(ctx, address)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if wantID == "" {
+			if len(got) != 0 {
+				t.Fatalf("address %d returned %+v, want no turnouts", address, got)
+			}
+			return
+		}
+		full, err := db.GetTurnout(ctx, wantID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || !reflect.DeepEqual(got[0], full) {
+			t.Fatalf("address %d returned %#v, want %#v", address, got, full)
+		}
+	}
+	check(20, turnout.ID)
+	check(21, turnout.ID)
+
+	updated := turnout
+	updated.Endpoints = append([]model.AccessoryEndpoint(nil), turnout.Endpoints...)
+	updated.Endpoints[1].LinearAddress = 22
+	if err := db.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{updated}}, false); err != nil {
+		t.Fatal(err)
+	}
+	check(20, turnout.ID)
+	check(21, "")
+	check(22, turnout.ID)
+	if _, err := db.DB.ExecContext(ctx, `UPDATE turnouts SET kind='invalid' WHERE id=?`, turnout.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ListTurnoutsByAccessoryAddress(ctx, 22); !errors.Is(err, model.ErrInvalidTurnout) {
+		t.Fatalf("invalid definition lookup error=%v", err)
 	}
 }
 

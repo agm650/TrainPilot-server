@@ -143,6 +143,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 			UNIQUE(turnout_id, linear_address),
 			UNIQUE(turnout_id, ordinal)
 		)`,
+		`CREATE INDEX IF NOT EXISTS idx_turnout_endpoints_address ON turnout_endpoints(linear_address, turnout_id)`,
 		`CREATE TABLE IF NOT EXISTS turnout_positions (
 			turnout_id TEXT NOT NULL REFERENCES turnouts(id) ON DELETE CASCADE,
 			position_id TEXT NOT NULL,

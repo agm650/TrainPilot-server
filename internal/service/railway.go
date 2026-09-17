@@ -192,12 +192,29 @@ func (r *RailwayService) Turnouts(ctx context.Context) ([]model.Turnout, error) 
 	return r.store.ListTurnouts(ctx)
 }
 func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, position string) (err error) {
-	defer func() { r.metrics.ObserveTurnoutCommand(turnoutMetricResult(err)) }()
+	started := time.Now()
+	defer func() {
+		result := turnoutMetricResult(err)
+		r.metrics.ObserveTurnoutCommand(result)
+		r.metrics.ObserveTurnoutCommandDuration(result, time.Since(started))
+	}()
 	if !Allowed(user.Role, PermissionDispatch) {
 		return ErrPermissionDenied
 	}
+	var phase string
+	var phaseStarted time.Time
+	advancePhase := func(next string) {
+		now := time.Now()
+		if phase != "" {
+			r.metrics.ObserveTurnoutPhaseDuration(phase, now.Sub(phaseStarted))
+		}
+		phase, phaseStarted = next, now
+	}
+	defer advancePhase("")
+	advancePhase("lock_wait")
 	release := r.lockTurnout(id)
 	defer release()
+	advancePhase("prepare")
 	if err := station.CheckCommandAllowed(r.station); err != nil {
 		return err
 	}
@@ -225,9 +242,11 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, po
 
 	path, err := safeTurnoutPath(t, t.ReportedPosition, position)
 	if err != nil {
+		advancePhase("finalize")
 		return r.failTurnoutCommand(ctx, t, position, "unsafe_transition", errors.Join(ErrTurnoutTransitionFailed, err))
 	}
 	if len(path) == 0 {
+		advancePhase("finalize")
 		if err := r.store.SetTurnoutCommandResult(ctx, id, false, model.TurnoutCommandSucceeded); err != nil {
 			return err
 		}
@@ -249,17 +268,23 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, po
 			}
 			required, ok := next.Endpoints[endpoint.ID]
 			if !ok {
+				advancePhase("finalize")
 				return r.failTurnoutCommand(ctx, t, position, "invalid_definition", fmt.Errorf("%w: invalid turnout definition", ErrTurnoutTransitionFailed))
 			}
 			command := station.AccessoryCommand{
 				Address:  endpoint.LinearAddress,
 				Position: model.PhysicalAccessoryPosition(endpoint, required),
 			}
+			advancePhase("station")
 			if err := r.observeStationCommand("accessory", func() error { return r.station.SetBasicAccessory(ctx, command) }); err != nil {
+				advancePhase("finalize")
 				return r.failTurnoutCommand(ctx, t, position, "driver_error", errors.Join(ErrTurnoutTransitionFailed, err))
 			}
+			advancePhase("prepare")
 		}
+		advancePhase("confirmation")
 		if err := r.waitForTurnoutPosition(ctx, t, generation, confirmation, next.ID, changed); err != nil {
+			advancePhase("finalize")
 			confirmationResult := "interrupted"
 			if errors.Is(err, ErrTurnoutConfirmationTimeout) {
 				confirmationResult = "timeout"
@@ -274,8 +299,10 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, po
 			return r.failTurnoutCommandWithStatus(ctx, t, position, reason, status, err)
 		}
 		r.metrics.ObserveTurnoutConfirmation("confirmed")
+		advancePhase("prepare")
 		currentPosition = next.ID
 	}
+	advancePhase("finalize")
 	if err := r.store.SetTurnoutCommandResult(ctx, id, false, model.TurnoutCommandSucceeded); err != nil {
 		return err
 	}
@@ -353,7 +380,16 @@ func (r *RailwayService) observeStationCommand(operation string, command func() 
 }
 
 func (r *RailwayService) handleAccessoryStateEvent(ctx context.Context, event station.AccessoryStateEvent) {
+	started := time.Now()
+	if !event.ObservedAt.IsZero() {
+		if delivery := started.Sub(event.ObservedAt); delivery >= 0 {
+			r.metrics.ObserveTurnoutConfirmationDetail("event_delivery", delivery)
+		}
+	}
+	defer func() { r.metrics.ObserveTurnoutConfirmationDetail("event_handler", time.Since(started)) }()
+	lookupStarted := time.Now()
 	turnouts, err := r.store.ListTurnoutsByAccessoryAddress(ctx, event.Address)
+	r.metrics.ObserveTurnoutConfirmationDetail("event_lookup", time.Since(lookupStarted))
 	if err != nil {
 		return
 	}
@@ -399,10 +435,15 @@ func (r *RailwayService) handleAccessoryStateEvent(ctx context.Context, event st
 }
 
 func (r *RailwayService) persistTurnoutObservation(ctx context.Context, turnoutID, position string, reportState station.AccessoryReportState, quality station.AccessoryReportQuality) error {
-	if err := r.store.SetTurnoutObservation(ctx, turnoutID, position, reportState, quality); err != nil {
+	persistStarted := time.Now()
+	err := r.store.SetTurnoutObservation(ctx, turnoutID, position, reportState, quality)
+	r.metrics.ObserveTurnoutConfirmationDetail("event_persist", time.Since(persistStarted))
+	if err != nil {
 		return err
 	}
+	publishStarted := time.Now()
 	r.publishTurnoutState(ctx, turnoutID)
+	r.metrics.ObserveTurnoutConfirmationDetail("event_publish", time.Since(publishStarted))
 	return nil
 }
 
@@ -543,19 +584,25 @@ func (r *RailwayService) waitForTurnoutPosition(ctx context.Context, turnout mod
 		updates := runtime.updates
 		r.accessoryMu.Unlock()
 
-		current, err := r.store.GetTurnout(ctx, turnout.ID)
+		readStarted := time.Now()
+		current, err := r.store.GetTurnoutRuntimeState(ctx, turnout.ID)
+		r.metrics.ObserveTurnoutConfirmationDetail("wait_read", time.Since(readStarted))
 		if err != nil {
 			return err
 		}
 		if current.ReportedStatus == station.AccessoryReportKnown && current.ReportedPosition == target && confirmed {
 			return nil
 		}
+		waitStarted := time.Now()
 		select {
 		case <-ctx.Done():
+			r.metrics.ObserveTurnoutConfirmationDetail("wait_update", time.Since(waitStarted))
 			return ctx.Err()
 		case <-timer.C:
+			r.metrics.ObserveTurnoutConfirmationDetail("wait_update", time.Since(waitStarted))
 			return ErrTurnoutConfirmationTimeout
 		case <-updates:
+			r.metrics.ObserveTurnoutConfirmationDetail("wait_update", time.Since(waitStarted))
 		}
 	}
 }
@@ -582,7 +629,7 @@ func (r *RailwayService) failTurnoutCommandWithStatus(ctx context.Context, turno
 }
 
 func (r *RailwayService) publishTurnoutState(ctx context.Context, turnoutID string) {
-	turnout, err := r.store.GetTurnout(ctx, turnoutID)
+	turnout, err := r.store.GetTurnoutRuntimeState(ctx, turnoutID)
 	if err != nil {
 		return
 	}
