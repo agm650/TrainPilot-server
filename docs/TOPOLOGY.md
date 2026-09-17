@@ -65,6 +65,33 @@ Versions 1 through 3 remain importable. They produce an empty topology because
 their block and route data cannot reconstruct physical connectivity safely.
 TrainPilot never invents topology during database or archive migration.
 
+## Static physical graph
+
+`internal/topology.Build` creates an indexed in-memory graph after validating
+the complete topology definition. Each track section becomes a bidirectional
+fixed edge carrying its section ID and length. Each turnout connection becomes
+a conditional edge carrying the turnout ID, port pair, and every logical
+position in which that connection is possible.
+
+The static graph is the union of all declared turnout positions. It describes
+every physically possible connection, not the connections enabled by the
+current reported state. Active-turnout filtering belongs to TOP-004.
+
+Nodes, sections, turnout topologies, and incident edges have direct indexes.
+All public graph enumerations are deterministic. `ConnectedComponents`
+identifies independent areas, including isolated nodes. A fixed crossing has
+two separate components when its two tracks share no node. Cycles and parallel
+sections are valid.
+
+The builder applies these structural constraints:
+
+- a `joint` with more than two fixed sections must also be a turnout port;
+- a `buffer` has at most one fixed section and cannot be a turnout port;
+- a `boundary` has at most one fixed section in topology V1.
+
+Layouts needing several connections at a boundary must model an explicit
+internal `joint` and connect that joint to the boundary with one section.
+
 ## Scope of topology V1
 
 Topology V1 stores logical connectivity only. It has no screen coordinates,

@@ -48,14 +48,15 @@ dans ce backlog.
 
 ### Topologie ferroviaire
 
-Le lot TOP sépare la connectivité physique des zones de détection. TOP-001 et
-TOP-002 fournissent le modèle, sa validation, la persistance et les archives ;
-les étapes suivantes ajouteront le graphe actif, les requêtes et l'intégration
-aux itinéraires.
+Le lot TOP sépare la connectivité physique des zones de détection. TOP-001 à
+TOP-003 fournissent le modèle, sa validation, la persistance, les archives et
+le graphe physique statique ; les étapes suivantes ajouteront le graphe actif,
+les requêtes et l'intégration aux itinéraires.
 
 - [x] TOP-001 — Modèle de domaine et validation statique.
 - [x] TOP-002 — Persistance SQLite et migration des archives.
-- [ ] TOP-003 à TOP-006 — Graphe, connexions actives, association aux cantons et pathfinding.
+- [x] TOP-003 — Graphe physique statique et diagnostics structurels.
+- [ ] TOP-004 à TOP-006 — Connexions actives, association aux cantons et pathfinding.
 - [ ] TOP-007 à TOP-009 — API, intégration aux itinéraires, fixtures et conformité finales.
 
 ### Accessoires
