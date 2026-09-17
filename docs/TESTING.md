@@ -179,14 +179,20 @@ restent intactes, que les nouvelles tables topologiques restent vides et que
 les références empêchent les suppressions implicites. Les round-trips couvrent
 une ligne, une boucle, un triple et une TJD avec un ordre déterministe.
 
-Les tests de `internal/transfer` importent des archives de circuit versions 1
-et 3, puis vérifient un round-trip déterministe en version 4. Une ancienne
-archive produit toujours une topologie vide. Une archive version 4 conserve les
-nœuds, sections, ports, positions et connexions, sans restaurer les états
-runtime des aiguillages.
+Les tests de `internal/topology` couvrent aussi les memberships de blocks : une
+ou plusieurs sections continues, branches autour d'un aiguillage, TJD,
+ressources non affectées, doubles associations et îlots disjoints. Les tests de
+`internal/store` vérifient les index inverses et l'indépendance entre membership
+topologique et occupation issue du feedback.
+
+Les tests de `internal/transfer` importent des archives de circuit versions 1,
+3 et 4, puis vérifient un round-trip déterministe en version 5. Une archive v4
+conserve sa topologie mais donne des memberships vides aux anciens blocks. Une
+archive v5 conserve les ressources des blocks sans restaurer les états runtime
+des aiguillages ni `Block.Occupied`.
 
 ```bash
-go test ./internal/model ./internal/store ./internal/transfer
+go test ./internal/model ./internal/topology ./internal/store ./internal/transfer
 ```
 
 Le contrôleur métier est couvert par `internal/service/railway_accessory_test.go`.

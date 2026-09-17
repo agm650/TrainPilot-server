@@ -16,11 +16,12 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/service"
 	"github.com/agm650/TrainPilot-server/internal/store"
+	"github.com/agm650/TrainPilot-server/internal/topology"
 )
 
 const (
 	FormatID       = "org.dcc-control.package"
-	FormatVersion  = 4
+	FormatVersion  = 5
 	OldestVersion  = 1
 	MaxArchiveSize = 25 << 20
 	MaxEntrySize   = 10 << 20
@@ -50,20 +51,35 @@ type layoutTurnoutDefinition struct {
 	Positions []model.TurnoutPositionDefinition `json:"positions"`
 }
 
+type layoutArchiveBlockDefinition struct {
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	TrackSectionIDs []string `json:"trackSectionIds"`
+	TurnoutIDs      []string `json:"turnoutIds,omitempty"`
+	Occupied        *bool    `json:"occupied,omitempty"`
+}
+
 type layoutArchiveDefinition struct {
-	Nodes             []model.TopologyNode      `json:"nodes"`
-	TrackSections     []model.TrackSection      `json:"trackSections"`
-	TurnoutTopologies []model.TurnoutTopology   `json:"turnoutTopologies"`
-	Blocks            []model.Block             `json:"blocks"`
-	Turnouts          []layoutTurnoutDefinition `json:"turnouts"`
-	Routes            []model.RouteDefinition   `json:"routes"`
-	FeedbackMappings  []model.FeedbackMapping   `json:"feedbackMappings"`
+	Nodes             []model.TopologyNode           `json:"nodes"`
+	TrackSections     []model.TrackSection           `json:"trackSections"`
+	TurnoutTopologies []model.TurnoutTopology        `json:"turnoutTopologies"`
+	Blocks            []layoutArchiveBlockDefinition `json:"blocks"`
+	Turnouts          []layoutTurnoutDefinition      `json:"turnouts"`
+	Routes            []model.RouteDefinition        `json:"routes"`
+	FeedbackMappings  []model.FeedbackMapping        `json:"feedbackMappings"`
 }
 
 // MarshalJSON deliberately exports turnout configuration separately from its
 // operational state. A layout archive must not restore a pending command or a
 // last observed position when imported on another server.
 func (d LayoutDocument) MarshalJSON() ([]byte, error) {
+	blocks := make([]layoutArchiveBlockDefinition, 0, len(d.Layout.Blocks))
+	for _, block := range d.Layout.Blocks {
+		blocks = append(blocks, layoutArchiveBlockDefinition{
+			ID: block.ID, Name: block.Name,
+			TrackSectionIDs: append([]string{}, block.TrackSectionIDs...), TurnoutIDs: block.TurnoutIDs,
+		})
+	}
 	turnouts := make([]layoutTurnoutDefinition, 0, len(d.Layout.Turnouts))
 	for _, turnout := range d.Layout.Turnouts {
 		turnouts = append(turnouts, layoutTurnoutDefinition{
@@ -76,7 +92,7 @@ func (d LayoutDocument) MarshalJSON() ([]byte, error) {
 	}{Layout: layoutArchiveDefinition{
 		Nodes: d.Layout.TopologyNodes, TrackSections: d.Layout.TrackSections,
 		TurnoutTopologies: d.Layout.TurnoutTopologies,
-		Blocks:            d.Layout.Blocks, Turnouts: turnouts, Routes: d.Layout.Routes,
+		Blocks:            blocks, Turnouts: turnouts, Routes: d.Layout.Routes,
 		FeedbackMappings: d.Layout.FeedbackMappings,
 	}})
 }
@@ -84,13 +100,13 @@ func (d LayoutDocument) MarshalJSON() ([]byte, error) {
 func (d *LayoutDocument) UnmarshalJSON(data []byte) error {
 	var document struct {
 		Layout struct {
-			Nodes             []model.TopologyNode    `json:"nodes"`
-			TrackSections     []model.TrackSection    `json:"trackSections"`
-			TurnoutTopologies []model.TurnoutTopology `json:"turnoutTopologies"`
-			Blocks            []model.Block           `json:"blocks"`
-			Turnouts          []model.Turnout         `json:"turnouts"`
-			Routes            []model.RouteDefinition `json:"routes"`
-			FeedbackMappings  []model.FeedbackMapping `json:"feedbackMappings"`
+			Nodes             []model.TopologyNode           `json:"nodes"`
+			TrackSections     []model.TrackSection           `json:"trackSections"`
+			TurnoutTopologies []model.TurnoutTopology        `json:"turnoutTopologies"`
+			Blocks            []layoutArchiveBlockDefinition `json:"blocks"`
+			Turnouts          []model.Turnout                `json:"turnouts"`
+			Routes            []model.RouteDefinition        `json:"routes"`
+			FeedbackMappings  []model.FeedbackMapping        `json:"feedbackMappings"`
 		} `json:"layout"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -98,11 +114,18 @@ func (d *LayoutDocument) UnmarshalJSON(data []byte) error {
 	if err := decoder.Decode(&document); err != nil {
 		return err
 	}
+	blocks := make([]model.BlockDefinition, 0, len(document.Layout.Blocks))
+	for _, block := range document.Layout.Blocks {
+		blocks = append(blocks, model.BlockDefinition{
+			ID: block.ID, Name: block.Name,
+			TrackSectionIDs: block.TrackSectionIDs, TurnoutIDs: block.TurnoutIDs,
+		})
+	}
 	d.Layout = model.LayoutDefinition{
 		TopologyNodes:     document.Layout.Nodes,
 		TrackSections:     document.Layout.TrackSections,
 		TurnoutTopologies: document.Layout.TurnoutTopologies,
-		Blocks:            document.Layout.Blocks,
+		Blocks:            blocks,
 		Turnouts:          document.Layout.Turnouts,
 		Routes:            document.Layout.Routes,
 		FeedbackMappings:  document.Layout.FeedbackMappings,
@@ -140,7 +163,7 @@ func BuildRollingStockArchive(createdAt time.Time, items []model.Locomotive) ([]
 }
 
 // BuildLayoutArchive creates an importable archive without requiring a store.
-// Runtime turnout state is omitted by LayoutDocument.MarshalJSON.
+// Runtime turnout and block state are omitted by LayoutDocument.MarshalJSON.
 func BuildLayoutArchive(createdAt time.Time, layout model.LayoutDefinition) ([]byte, error) {
 	if err := validateLayout(&layout); err != nil {
 		return nil, err
@@ -291,12 +314,6 @@ func validateLayout(layout *model.LayoutDefinition) error {
 	turnouts := map[string]model.Turnout{}
 	routes := map[string]bool{}
 	for _, b := range layout.Blocks {
-		if b.ID == "" || b.Name == "" {
-			return errors.New("every block requires id and name")
-		}
-		if blocks[b.ID] {
-			return fmt.Errorf("duplicate block %q", b.ID)
-		}
 		blocks[b.ID] = true
 	}
 	for i, t := range layout.Turnouts {
@@ -310,7 +327,7 @@ func validateLayout(layout *model.LayoutDefinition) error {
 		layout.Turnouts[i] = normalized
 		turnouts[normalized.ID] = normalized
 	}
-	if err := model.ValidateTopologyDefinition(*layout); err != nil {
+	if _, err := topology.Build(*layout); err != nil {
 		return err
 	}
 	for _, r := range layout.Routes {

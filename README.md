@@ -548,8 +548,8 @@ and then releases the lease. `throttle` never acquires a locomotive implicitly;
 
 ## Import and export
 
-Exports are version 4 ZIP archives containing `manifest.json` and a JSON
-document. Versions 1 through 3 remain importable. Imports use `merge` by
+Exports are version 5 ZIP archives containing `manifest.json` and a JSON
+document. Versions 1 through 4 remain importable. Imports use `merge` by
 default. `--replace` replaces the corresponding library after validation.
 
 ```bash
@@ -703,8 +703,9 @@ dccctl turnout T3 right
 ```
 
 Legacy one-address databases and archives are converted automatically to
-simple turnouts. Layout v4 exports include turnout and topology configuration
-but exclude runtime state. Legacy fields remain temporarily exposed for simple turnouts.
+simple turnouts. Layout v5 exports include turnout, topology, and block
+resource configuration but exclude runtime state. Legacy fields remain
+temporarily exposed for simple turnouts.
 After partial failure, the server performs no blind rollback.
 
 A turnout definition cannot be replaced or removed while `pending=true`.

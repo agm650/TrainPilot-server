@@ -205,6 +205,18 @@ func (s *Store) Migrate(ctx context.Context) error {
 			FOREIGN KEY(turnout_id, port_a_id) REFERENCES turnout_topology_ports(turnout_id, port_id) ON DELETE CASCADE,
 			FOREIGN KEY(turnout_id, port_b_id) REFERENCES turnout_topology_ports(turnout_id, port_id) ON DELETE CASCADE
 		)`,
+		`CREATE TABLE IF NOT EXISTS block_track_sections (
+			block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+			track_section_id TEXT NOT NULL REFERENCES track_sections(id) ON DELETE CASCADE,
+			PRIMARY KEY(block_id, track_section_id),
+			UNIQUE(track_section_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS block_turnouts (
+			block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+			turnout_id TEXT NOT NULL REFERENCES turnout_topologies(turnout_id) ON DELETE CASCADE,
+			PRIMARY KEY(block_id, turnout_id),
+			UNIQUE(turnout_id)
+		)`,
 		`CREATE TABLE IF NOT EXISTS routes (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,

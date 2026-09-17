@@ -6,6 +6,7 @@ import (
 
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/sqlite"
+	"github.com/agm650/TrainPilot-server/internal/topology"
 )
 
 func (s *Store) ListTopologyNodes(ctx context.Context) ([]model.TopologyNode, error) {
@@ -166,16 +167,24 @@ func (s *Store) ReplaceTopologyDefinition(ctx context.Context, definition model.
 	if err != nil {
 		return err
 	}
+	blocks, err := s.ListBlockDefinitions(ctx)
+	if err != nil {
+		return err
+	}
 	validated := definition
 	validated.Turnouts = turnouts
-	if err := model.ValidateTopologyDefinition(validated); err != nil {
+	validated.Blocks = blocks
+	if _, err := topology.Build(validated); err != nil {
 		return err
 	}
 	return s.DB.WithTransaction(ctx, func(tx *sqlite.Tx) error {
 		if err := clearTopologyDefinition(ctx, tx); err != nil {
 			return err
 		}
-		return upsertTopologyDefinition(ctx, tx, definition)
+		if err := upsertTopologyDefinition(ctx, tx, definition); err != nil {
+			return err
+		}
+		return replaceBlockMemberships(ctx, tx, blocks)
 	})
 }
 

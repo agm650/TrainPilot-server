@@ -324,7 +324,7 @@ Le lot SIM-001 à SIM-008 est logiciellement terminé. Ces invariants doivent re
 
 - [ ] `AUTO` Import layout v1.
 - [ ] `AUTO` Import layout v2.
-- [ ] `AUTO` Export au format courant v4.
+- [ ] `AUTO` Export au format courant v5.
 - [ ] `AUTO` Ancien `dccAddress + straight/diverging` migré en simple.
 - [ ] `AUTO` Migration SQLite idempotente.
 - [ ] `AUTO` États runtime des aiguillages non restaurés depuis archive.

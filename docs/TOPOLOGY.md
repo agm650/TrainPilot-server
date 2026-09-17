@@ -4,7 +4,32 @@ TrainPilot represents physical connectivity independently from occupancy
 detection. A `TrackSection` describes fixed track on which a train can travel.
 A `Block` describes an area whose occupancy can be detected. A block may cover
 several track sections or turnouts, while a track section may be undetected.
-The association between these resources is outside the TOP-001 model.
+`BlockDefinition` stores that static membership separately from the runtime
+`Block.Occupied` state.
+
+## Detection blocks and physical resources
+
+A block can own any number of track sections and turnouts. A physical resource
+belongs to zero or one block: leaving it unassigned explicitly means that the
+resource is not covered by a detection zone. Duplicate ownership is rejected.
+
+The selected resources of one block must be connected in the static union
+graph. Several branches around a turnout, including a double-slip crossing,
+can therefore share one block. Two disjoint physical islands cannot.
+
+`BlockForTrackSection`, `BlockForTurnout`, and `ResourcesForBlock` provide
+direct inverse lookups in both the topology graph and SQLite store. A legacy
+block with no resource membership remains valid.
+
+Topology membership and feedback mapping have different meanings:
+
+```text
+Block -> physical resources
+provider/address -> Block -> Occupied
+```
+
+Feedback mappings remain the only source of runtime occupancy. Importing block
+configuration never restores or infers `Occupied`.
 
 ## Nodes and track sections
 
@@ -59,11 +84,11 @@ ID, while ports, positions, and connections preserve their declared order.
 Referenced nodes and turnouts cannot be deleted implicitly. A complete layout
 replacement removes their topology explicitly within the same transaction.
 
-Layout archive version 4 stores `nodes`, `trackSections`, and
-`turnoutTopologies` alongside blocks, turnouts, routes, and feedback mappings.
-Versions 1 through 3 remain importable. They produce an empty topology because
-their block and route data cannot reconstruct physical connectivity safely.
-TrainPilot never invents topology during database or archive migration.
+Layout archive version 5 stores block `trackSectionIds` and `turnoutIds` with
+`nodes`, `trackSections`, and `turnoutTopologies`. Versions 1 through 4 remain
+importable. Their blocks have empty resource memberships. Versions 1 through 3
+also produce an empty topology. TrainPilot never infers physical membership
+from route block references during database or archive migration.
 
 ## Static physical graph
 
@@ -77,7 +102,8 @@ The static graph is the union of all declared turnout positions. It describes
 every physically possible connection, not the connections enabled by the
 current reported state.
 
-Nodes, sections, turnout topologies, and incident edges have direct indexes.
+Nodes, sections, turnout topologies, blocks, resource owners, and incident
+edges have direct indexes.
 All public graph enumerations are deterministic. `ConnectedComponents`
 identifies independent areas, including isolated nodes. A fixed crossing has
 two separate components when its two tracks share no node. Cycles and parallel

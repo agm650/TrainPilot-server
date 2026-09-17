@@ -101,8 +101,9 @@ All notable changes to this project will be documented in this file.
   Turnouts expose `reportQuality`, use `position` for commands, and retain the
   `turnout.commanded`, `turnout.state.changed`, and
   `turnout.command.failed` events.
-- Layout archives are now version 4, retain physical topology, and separate
-  turnout configuration from runtime state. Versions 1 through 3 remain importable.
+- Layout archives are now version 5, retain physical topology and block
+  resource membership, and separate configuration from runtime state.
+  Versions 1 through 4 remain importable.
 - SQLite now uses the pure-Go `modernc.org/sqlite` driver.
 - A valid throttle or function command now renews the control lease.
 - The WebSocket snapshot now includes command-station capabilities and current status.

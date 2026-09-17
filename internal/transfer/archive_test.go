@@ -161,6 +161,95 @@ func TestVersionThreeLayoutArchiveImportsEmptyTopology(t *testing.T) {
 	}
 }
 
+func TestVersionFourBlockImportsWithoutMembershipOrRuntimeState(t *testing.T) {
+	ctx := context.Background()
+	legacyDocument := map[string]any{
+		"layout": map[string]any{
+			"nodes":             []any{},
+			"trackSections":     []any{},
+			"turnoutTopologies": []any{},
+			"blocks": []any{map[string]any{
+				"id": "legacy", "name": "Legacy", "occupied": true,
+			}},
+			"turnouts": []any{},
+			"routes": []any{map[string]any{
+				"id": "route", "name": "Route", "blockIds": []any{"legacy"}, "turnoutStates": map[string]any{},
+			}},
+			"feedbackMappings": []any{},
+		},
+	}
+	data, err := writeArchive(Manifest{Format: FormatID, Version: 4, PackageType: "layout", CreatedAt: time.Now()}, "layout.json", legacyDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	admin := model.User{ID: "admin", Role: model.RoleAdministrator}
+	if err := New(target, events.New(), clock.Real{}).ImportLayout(ctx, admin, data, true); err != nil {
+		t.Fatal(err)
+	}
+	definition, err := target.ResourcesForBlock(ctx, "legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(definition.TrackSectionIDs) != 0 || len(definition.TurnoutIDs) != 0 {
+		t.Fatalf("legacy route inferred block resources: %+v", definition)
+	}
+	blocks, err := target.ListBlocks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blocks) != 1 || blocks[0].Occupied {
+		t.Fatalf("legacy runtime occupancy was restored: %+v", blocks)
+	}
+}
+
+func TestBlockMembershipArchiveRoundTripOmitsOccupancy(t *testing.T) {
+	ctx := context.Background()
+	layout := model.LayoutDefinition{
+		TopologyNodes: []model.TopologyNode{
+			{ID: "a", Kind: model.TopologyNodeBoundary},
+			{ID: "b", Kind: model.TopologyNodeBoundary},
+		},
+		TrackSections: []model.TrackSection{{ID: "section", Name: "Section", NodeAID: "a", NodeBID: "b"}},
+		Blocks: []model.BlockDefinition{{
+			ID: "block", Name: "Block", TrackSectionIDs: []string{"section"},
+		}},
+	}
+	createdAt := time.Date(2026, 9, 17, 13, 0, 0, 0, time.UTC)
+	data, err := BuildLayoutArchive(createdAt, layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := archiveEntry(t, data, "layout.json")
+	if bytes.Contains(contents, []byte(`"occupied"`)) {
+		t.Fatalf("layout archive contains runtime occupancy: %s", contents)
+	}
+	if !bytes.Contains(contents, []byte(`"trackSectionIds"`)) {
+		t.Fatalf("layout archive omits block membership: %s", contents)
+	}
+
+	target, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	admin := model.User{ID: "admin", Role: model.RoleAdministrator}
+	if err := New(target, events.New(), clock.Real{}).ImportLayout(ctx, admin, data, true); err != nil {
+		t.Fatal(err)
+	}
+	exported, err := target.ExportLayout(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(exported.Blocks, layout.Blocks) {
+		t.Fatalf("block membership round trip mismatch: got %#v want %#v", exported.Blocks, layout.Blocks)
+	}
+}
+
 func TestLegacyLayoutArchiveImportsAsSimpleTurnout(t *testing.T) {
 	ctx := context.Background()
 	legacyDocument := map[string]any{
@@ -209,7 +298,7 @@ func TestCompoundLayoutArchiveRoundTripIsDeterministic(t *testing.T) {
 		t.Fatal(err)
 	}
 	layout := model.LayoutDefinition{
-		Blocks:   []model.Block{{ID: "block-a", Name: "Block A"}},
+		Blocks:   []model.BlockDefinition{{ID: "block-a", Name: "Block A"}},
 		Turnouts: []model.Turnout{want},
 		Routes: []model.RouteDefinition{{
 			ID: "route-left", Name: "Route left", BlockIDs: []string{"block-a"},
@@ -346,7 +435,7 @@ func TestInvalidLayoutDoesNotModifyDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	invalid := LayoutDocument{Layout: model.LayoutDefinition{
-		Blocks: []model.Block{{ID: "new-block", Name: "New block"}},
+		Blocks: []model.BlockDefinition{{ID: "new-block", Name: "New block"}},
 		Routes: []model.RouteDefinition{{ID: "bad-route", Name: "Bad route", BlockIDs: []string{"missing-block"}, TurnoutStates: map[string]string{}}},
 	}}
 	data, err := writeArchive(Manifest{Format: FormatID, Version: FormatVersion, PackageType: "layout", CreatedAt: time.Now()}, "layout.json", invalid)
@@ -412,4 +501,29 @@ func assertTopologyArchiveFields(t *testing.T, data []byte) {
 		return
 	}
 	t.Fatal("layout.json not found")
+}
+
+func archiveEntry(t *testing.T, data []byte, name string) []byte {
+	t.Helper()
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range reader.File {
+		if file.Name != name {
+			continue
+		}
+		entry, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		contents, err := io.ReadAll(entry)
+		entry.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return contents
+	}
+	t.Fatalf("archive entry %q not found", name)
+	return nil
 }

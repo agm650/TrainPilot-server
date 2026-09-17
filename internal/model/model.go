@@ -134,6 +134,15 @@ type Block struct {
 	Occupied bool   `json:"occupied"`
 }
 
+// BlockDefinition describes the physical resources assigned to a block.
+// Runtime occupancy remains on Block and is not part of this definition.
+type BlockDefinition struct {
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	TrackSectionIDs []string `json:"trackSectionIds"`
+	TurnoutIDs      []string `json:"turnoutIds,omitempty"`
+}
+
 type AccessoryPosition = station.AccessoryPosition
 
 const (
@@ -472,7 +481,7 @@ type RouteDefinition struct {
 }
 
 type LayoutDefinition struct {
-	Blocks            []Block           `json:"blocks"`
+	Blocks            []BlockDefinition `json:"blocks"`
 	Turnouts          []Turnout         `json:"turnouts"`
 	Routes            []RouteDefinition `json:"routes"`
 	FeedbackMappings  []FeedbackMapping `json:"feedbackMappings"`

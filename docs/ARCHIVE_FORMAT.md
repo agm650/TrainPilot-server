@@ -1,6 +1,6 @@
 # Format des archives DCC Control
 
-Version actuelle : **4**. Les archives versions 1 à 3 restent importables.
+Version actuelle : **5**. Les archives versions 1 à 4 restent importables.
 
 Les extensions recommandées sont :
 
@@ -15,7 +15,7 @@ Chaque archive contient obligatoirement `manifest.json` :
 ```json
 {
   "format": "org.dcc-control.package",
-  "version": 4,
+  "version": 5,
   "packageType": "rolling-stock",
   "createdAt": "2026-07-29T20:00:00Z"
 }
@@ -95,7 +95,12 @@ Une archive de type `layout` contient `layout.json` :
       }
     ],
     "blocks": [
-      { "id": "block-a", "name": "Gare voie 1", "occupied": false }
+      {
+        "id": "block-a",
+        "name": "Gare voie 1",
+        "trackSectionIds": ["approach-west"],
+        "turnoutIds": ["turnout-1"]
+      }
     ],
     "turnouts": [
       {
@@ -137,13 +142,19 @@ L’import vérifie toutes les références avant d’ouvrir la transaction d’
 nœuds, sections, ports, connexions, cantons d’itinéraire, aiguillages,
 positions logiques, conflits et mappings de rétrosignalisation.
 
-Les exports version 4 séparent configuration et état opérationnel. Ils ne
+Les exports version 5 séparent configuration et état opérationnel. Ils ne
 contiennent pas `desiredPosition`, `reportedPosition`, `pending`,
-`reportedStatus`, `reportQuality` ni `commandStatus`.
+`reportedStatus`, `reportQuality`, `commandStatus` ni `occupied`.
+
+`trackSectionIds` et `turnoutIds` décrivent les ressources physiques couvertes
+par chaque block. Une ressource appartient au plus à un block et l'union des
+ressources d'un block doit être connexe dans le graphe statique. Le mapping de
+feedback reste indépendant et demeure la source de l'occupation runtime.
 
 Les archives versions 1 à 3 ne contiennent aucune topologie. Leur import crée
-une topologie vide. TrainPilot ne déduit jamais des connexions physiques depuis
-les cantons ou les itinéraires, car ces informations sont insuffisantes.
+une topologie vide. Les archives versions 1 à 4 importent les anciens blocks
+avec des memberships vides. TrainPilot ne déduit jamais des ressources depuis
+les cantons d'itinéraire, car ces informations sont insuffisantes.
 
 Les champs `dccAddress`, `desiredState` et `reportedState` des anciennes
 archives sont acceptés. Ils sont dépréciés. Une archive version 1 est convertie
@@ -168,4 +179,4 @@ Le modèle complet des appareils composés est décrit dans
 - import autorisé uniquement au rôle applicatif `administrator` ;
 - les imports réussis publient `rolling-stock.imported` ou `layout.imported` sur le WebSocket.
 
-Les ressources graphiques et images ne sont pas encore définies dans la version 4.
+Les ressources graphiques et images ne sont pas encore définies dans la version 5.

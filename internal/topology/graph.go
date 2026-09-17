@@ -45,6 +45,10 @@ type Graph struct {
 	sectionIDs        []string
 	turnoutTopologies map[string]model.TurnoutTopology
 	turnoutIDs        []string
+	blocks            map[string]model.BlockDefinition
+	blockIDs          []string
+	blockBySection    map[string]string
+	blockByTurnout    map[string]string
 	edges             []Edge
 	incident          map[string][]int
 }
@@ -55,11 +59,17 @@ func Build(definition model.LayoutDefinition) (*Graph, error) {
 	if err := model.ValidateTopologyDefinition(definition); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidGraph, err)
 	}
+	if err := model.ValidateBlockDefinitions(definition); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidGraph, err)
+	}
 
 	graph := &Graph{
 		nodes:             make(map[string]model.TopologyNode, len(definition.TopologyNodes)),
 		sections:          make(map[string]model.TrackSection, len(definition.TrackSections)),
 		turnoutTopologies: make(map[string]model.TurnoutTopology, len(definition.TurnoutTopologies)),
+		blocks:            make(map[string]model.BlockDefinition, len(definition.Blocks)),
+		blockBySection:    make(map[string]string),
+		blockByTurnout:    make(map[string]string),
 		incident:          make(map[string][]int, len(definition.TopologyNodes)),
 	}
 
@@ -141,6 +151,23 @@ func Build(definition model.LayoutDefinition) (*Graph, error) {
 			graph.incident[edge.NodeBID] = append(graph.incident[edge.NodeBID], index)
 		}
 	}
+	for _, block := range definition.Blocks {
+		canonical := cloneBlockDefinition(block)
+		sort.Strings(canonical.TrackSectionIDs)
+		sort.Strings(canonical.TurnoutIDs)
+		graph.blocks[block.ID] = canonical
+		graph.blockIDs = append(graph.blockIDs, block.ID)
+		for _, sectionID := range block.TrackSectionIDs {
+			graph.blockBySection[sectionID] = block.ID
+		}
+		for _, turnoutID := range block.TurnoutIDs {
+			graph.blockByTurnout[turnoutID] = block.ID
+		}
+		if err := graph.validateBlockConnectivity(canonical); err != nil {
+			return nil, err
+		}
+	}
+	sort.Strings(graph.blockIDs)
 	return graph, nil
 }
 
@@ -201,6 +228,47 @@ func (g *Graph) TurnoutTopologies() []model.TurnoutTopology {
 	return topologies
 }
 
+func (g *Graph) Blocks() []model.BlockDefinition {
+	if g == nil {
+		return nil
+	}
+	blocks := make([]model.BlockDefinition, 0, len(g.blockIDs))
+	for _, id := range g.blockIDs {
+		blocks = append(blocks, cloneBlockDefinition(g.blocks[id]))
+	}
+	return blocks
+}
+
+func (g *Graph) BlockForTrackSection(sectionID string) (model.BlockDefinition, bool) {
+	if g == nil {
+		return model.BlockDefinition{}, false
+	}
+	blockID, exists := g.blockBySection[sectionID]
+	if !exists {
+		return model.BlockDefinition{}, false
+	}
+	return cloneBlockDefinition(g.blocks[blockID]), true
+}
+
+func (g *Graph) BlockForTurnout(turnoutID string) (model.BlockDefinition, bool) {
+	if g == nil {
+		return model.BlockDefinition{}, false
+	}
+	blockID, exists := g.blockByTurnout[turnoutID]
+	if !exists {
+		return model.BlockDefinition{}, false
+	}
+	return cloneBlockDefinition(g.blocks[blockID]), true
+}
+
+func (g *Graph) ResourcesForBlock(blockID string) (model.BlockDefinition, bool) {
+	if g == nil {
+		return model.BlockDefinition{}, false
+	}
+	block, exists := g.blocks[blockID]
+	return cloneBlockDefinition(block), exists
+}
+
 func (g *Graph) Edges() []Edge {
 	if g == nil {
 		return nil
@@ -255,6 +323,58 @@ func (g *Graph) ConnectedComponents() [][]string {
 		components = append(components, component)
 	}
 	return components
+}
+
+func (g *Graph) validateBlockConnectivity(block model.BlockDefinition) error {
+	selectedSections := make(map[string]bool, len(block.TrackSectionIDs))
+	for _, sectionID := range block.TrackSectionIDs {
+		selectedSections[sectionID] = true
+	}
+	selectedTurnouts := make(map[string]bool, len(block.TurnoutIDs))
+	for _, turnoutID := range block.TurnoutIDs {
+		selectedTurnouts[turnoutID] = true
+	}
+
+	selectedEdges := make([]Edge, 0, len(block.TrackSectionIDs)+len(block.TurnoutIDs))
+	nodes := make(map[string]bool)
+	for _, edge := range g.edges {
+		if edge.Kind == EdgeKindTrackSection && !selectedSections[edge.TrackSectionID] {
+			continue
+		}
+		if edge.Kind == EdgeKindTurnout && !selectedTurnouts[edge.TurnoutID] {
+			continue
+		}
+		selectedEdges = append(selectedEdges, edge)
+		nodes[edge.NodeAID] = true
+		nodes[edge.NodeBID] = true
+	}
+	if len(nodes) == 0 {
+		return nil
+	}
+	adjacent := make(map[string][]string, len(nodes))
+	for _, edge := range selectedEdges {
+		adjacent[edge.NodeAID] = append(adjacent[edge.NodeAID], edge.NodeBID)
+		adjacent[edge.NodeBID] = append(adjacent[edge.NodeBID], edge.NodeAID)
+	}
+	visited := map[string]bool{}
+	queue := make([]string, 0, len(nodes))
+	for nodeID := range nodes {
+		queue = append(queue, nodeID)
+		break
+	}
+	visited[queue[0]] = true
+	for head := 0; head < len(queue); head++ {
+		for _, next := range adjacent[queue[head]] {
+			if !visited[next] {
+				visited[next] = true
+				queue = append(queue, next)
+			}
+		}
+	}
+	if len(visited) != len(nodes) {
+		return fmt.Errorf("%w: %w: block %q resources form disconnected islands", ErrInvalidGraph, model.ErrInvalidBlockDefinition, block.ID)
+	}
+	return nil
 }
 
 func validateNodeStructure(graph *Graph, fixedIncidence map[string]int, portNodes map[string]bool) error {
@@ -318,6 +438,12 @@ func cloneTurnoutTopology(topology model.TurnoutTopology) model.TurnoutTopology 
 		clone.Positions[index].Connections = append([]model.PortConnection(nil), position.Connections...)
 	}
 	return clone
+}
+
+func cloneBlockDefinition(block model.BlockDefinition) model.BlockDefinition {
+	block.TrackSectionIDs = append([]string(nil), block.TrackSectionIDs...)
+	block.TurnoutIDs = append([]string(nil), block.TurnoutIDs...)
+	return block
 }
 
 func cloneEdge(edge Edge) Edge {

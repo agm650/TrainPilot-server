@@ -9,6 +9,7 @@ import (
 
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/sqlite"
+	"github.com/agm650/TrainPilot-server/internal/topology"
 )
 
 func (s *Store) ListRoutes(ctx context.Context) (out []model.Route, err error) {
@@ -136,7 +137,7 @@ func (s *Store) RouteTurnoutRequirements(ctx context.Context, id string) (map[st
 }
 
 func (s *Store) ExportLayout(ctx context.Context) (model.LayoutDefinition, error) {
-	blocks, err := s.ListBlocks(ctx)
+	blocks, err := s.ListBlockDefinitions(ctx)
 	if err != nil {
 		return model.LayoutDefinition{}, err
 	}
@@ -221,7 +222,7 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 	}
 	validatedLayout := layout
 	validatedLayout.Turnouts = normalizedTurnouts
-	if err := model.ValidateTopologyDefinition(validatedLayout); err != nil {
+	if _, err := topology.Build(validatedLayout); err != nil {
 		return err
 	}
 	if err := validateTurnoutAddressOwnership(normalizedTurnouts); err != nil {
@@ -230,6 +231,9 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 
 	return s.DB.WithTransaction(ctx, func(tx *sqlite.Tx) error {
 		if err := rejectPendingTurnoutConfiguration(ctx, tx, normalizedTurnouts, replace); err != nil {
+			return err
+		}
+		if err := rejectOmittedBlockResourceChanges(ctx, tx, layout, replace); err != nil {
 			return err
 		}
 		if !replace {
@@ -248,7 +252,7 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 			}
 		}
 		for _, b := range layout.Blocks {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO blocks(id,name,occupied) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,occupied=excluded.occupied`, b.ID, b.Name, boolInt(b.Occupied)); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO blocks(id,name,occupied) VALUES(?,?,0) ON CONFLICT(id) DO UPDATE SET name=excluded.name`, b.ID, b.Name); err != nil {
 				return err
 			}
 		}
@@ -258,6 +262,9 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 			}
 		}
 		if err := upsertTopologyDefinition(ctx, tx, layout); err != nil {
+			return err
+		}
+		if err := replaceBlockMemberships(ctx, tx, layout.Blocks); err != nil {
 			return err
 		}
 		for _, m := range layout.FeedbackMappings {
@@ -296,6 +303,77 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 		}
 		return nil
 	})
+}
+
+func rejectOmittedBlockResourceChanges(ctx context.Context, tx *sqlite.Tx, layout model.LayoutDefinition, replace bool) error {
+	if replace {
+		return nil
+	}
+	includedBlocks := make(map[string]bool, len(layout.Blocks))
+	for _, block := range layout.Blocks {
+		includedBlocks[block.ID] = true
+	}
+	for _, section := range layout.TrackSections {
+		owner, exists, err := blockOwnerForResource(ctx, tx, `SELECT block_id FROM block_track_sections WHERE track_section_id=?`, section.ID)
+		if err != nil {
+			return err
+		}
+		if exists && !includedBlocks[owner] {
+			return fmt.Errorf("%w: track section %q belongs to omitted block %q", ErrConflict, section.ID, owner)
+		}
+	}
+	for _, turnout := range layout.TurnoutTopologies {
+		owner, exists, err := blockOwnerForResource(ctx, tx, `SELECT block_id FROM block_turnouts WHERE turnout_id=?`, turnout.TurnoutID)
+		if err != nil {
+			return err
+		}
+		if exists && !includedBlocks[owner] {
+			return fmt.Errorf("%w: turnout %q belongs to omitted block %q", ErrConflict, turnout.TurnoutID, owner)
+		}
+	}
+	return nil
+}
+
+func blockOwnerForResource(ctx context.Context, tx *sqlite.Tx, query, resourceID string) (string, bool, error) {
+	rows, err := tx.QueryContext(ctx, query, resourceID)
+	if err != nil {
+		return "", false, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return "", false, rows.Err()
+	}
+	var owner string
+	if err := rows.Scan(&owner); err != nil {
+		return "", false, err
+	}
+	return owner, true, rows.Err()
+}
+
+func replaceBlockMemberships(ctx context.Context, tx *sqlite.Tx, blocks []model.BlockDefinition) error {
+	for _, block := range blocks {
+		for _, query := range []string{
+			`DELETE FROM block_track_sections WHERE block_id=?`,
+			`DELETE FROM block_turnouts WHERE block_id=?`,
+		} {
+			if _, err := tx.ExecContext(ctx, query, block.ID); err != nil {
+				return err
+			}
+		}
+	}
+	for _, block := range blocks {
+		for _, sectionID := range block.TrackSectionIDs {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO block_track_sections(block_id,track_section_id) VALUES(?,?)`, block.ID, sectionID); err != nil {
+				return fmt.Errorf("store block %q track section %q: %w", block.ID, sectionID, err)
+			}
+		}
+		for _, turnoutID := range block.TurnoutIDs {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO block_turnouts(block_id,turnout_id) VALUES(?,?)`, block.ID, turnoutID); err != nil {
+				return fmt.Errorf("store block %q turnout %q: %w", block.ID, turnoutID, err)
+			}
+		}
+	}
+	return nil
 }
 
 func validateTurnoutAddressOwnership(turnouts []model.Turnout) error {

@@ -291,6 +291,124 @@ func TestBuildThousandsOfSections(t *testing.T) {
 	}
 }
 
+func TestBlockMembershipSupportsSingleAndContinuousSections(t *testing.T) {
+	layout := model.LayoutDefinition{
+		TopologyNodes: []model.TopologyNode{
+			node("a", model.TopologyNodeBoundary),
+			node("b", model.TopologyNodeJoint),
+			node("c", model.TopologyNodeBoundary),
+		},
+		TrackSections: []model.TrackSection{
+			section("first", "a", "b"),
+			section("second", "b", "c"),
+		},
+		Blocks: []model.BlockDefinition{
+			{ID: "single", Name: "Single", TrackSectionIDs: []string{"first"}},
+		},
+	}
+	graph := buildGraph(t, layout)
+	block, exists := graph.BlockForTrackSection("first")
+	if !exists || block.ID != "single" {
+		t.Fatalf("BlockForTrackSection(first) = %+v,%v", block, exists)
+	}
+	if _, exists := graph.BlockForTrackSection("second"); exists {
+		t.Fatal("unassigned track section unexpectedly has a block")
+	}
+	if _, exists := graph.BlockForTurnout("missing"); exists {
+		t.Fatal("unassigned turnout unexpectedly has a block")
+	}
+
+	layout.Blocks[0].TrackSectionIDs = []string{"second", "first"}
+	graph = buildGraph(t, layout)
+	resources, exists := graph.ResourcesForBlock("single")
+	if !exists || !reflect.DeepEqual(resources.TrackSectionIDs, []string{"first", "second"}) {
+		t.Fatalf("ResourcesForBlock(single) = %+v,%v", resources, exists)
+	}
+	resources.TrackSectionIDs[0] = "mutated"
+	resources, _ = graph.ResourcesForBlock("single")
+	if resources.TrackSectionIDs[0] != "first" {
+		t.Fatal("block resource index exposed mutable internal state")
+	}
+}
+
+func TestBlockMembershipSupportsTurnoutBranchesAndDoubleSlip(t *testing.T) {
+	tests := []struct {
+		name   string
+		layout model.LayoutDefinition
+	}{
+		{name: "simple turnout branches", layout: layoutWithAttachedSections(topologyfixture.Simple())},
+		{name: "double slip", layout: layoutWithAttachedSections(topologyfixture.DoubleSlip())},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			turnoutID := test.layout.Turnouts[0].ID
+			sectionIDs := make([]string, 0, len(test.layout.TrackSections))
+			for _, trackSection := range test.layout.TrackSections {
+				sectionIDs = append(sectionIDs, trackSection.ID)
+			}
+			test.layout.Blocks = []model.BlockDefinition{{
+				ID: "block", Name: "Block", TrackSectionIDs: sectionIDs, TurnoutIDs: []string{turnoutID},
+			}}
+			graph := buildGraph(t, test.layout)
+			block, exists := graph.BlockForTurnout(turnoutID)
+			if !exists || block.ID != "block" {
+				t.Fatalf("BlockForTurnout(%q) = %+v,%v", turnoutID, block, exists)
+			}
+		})
+	}
+}
+
+func TestBlockMembershipRejectsDuplicateAndDisconnectedResources(t *testing.T) {
+	continuous := model.LayoutDefinition{
+		TopologyNodes: []model.TopologyNode{
+			node("a", model.TopologyNodeBoundary), node("b", model.TopologyNodeJoint), node("c", model.TopologyNodeBoundary),
+		},
+		TrackSections: []model.TrackSection{section("ab", "a", "b"), section("bc", "b", "c")},
+	}
+	disconnected := model.LayoutDefinition{
+		TopologyNodes: []model.TopologyNode{
+			node("a", model.TopologyNodeBoundary), node("b", model.TopologyNodeBoundary),
+			node("c", model.TopologyNodeBoundary), node("d", model.TopologyNodeBoundary),
+		},
+		TrackSections: []model.TrackSection{section("ab", "a", "b"), section("cd", "c", "d")},
+		Blocks:        []model.BlockDefinition{{ID: "block", Name: "Block", TrackSectionIDs: []string{"ab", "cd"}}},
+	}
+	doubleSection := continuous
+	doubleSection.Blocks = []model.BlockDefinition{
+		{ID: "first", Name: "First", TrackSectionIDs: []string{"ab"}},
+		{ID: "second", Name: "Second", TrackSectionIDs: []string{"ab"}},
+	}
+	doubleTurnout := topologyfixture.Simple()
+	doubleTurnout.Blocks = []model.BlockDefinition{
+		{ID: "first", Name: "First", TurnoutIDs: []string{doubleTurnout.Turnouts[0].ID}},
+		{ID: "second", Name: "Second", TurnoutIDs: []string{doubleTurnout.Turnouts[0].ID}},
+	}
+	for _, test := range []struct {
+		name   string
+		layout model.LayoutDefinition
+	}{
+		{name: "duplicate section", layout: doubleSection},
+		{name: "duplicate turnout", layout: doubleTurnout},
+		{name: "disconnected islands", layout: disconnected},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := topology.Build(test.layout)
+			if !errors.Is(err, topology.ErrInvalidGraph) || !errors.Is(err, model.ErrInvalidBlockDefinition) {
+				t.Fatalf("Build() error = %v, want graph and block definition errors", err)
+			}
+		})
+	}
+}
+
+func TestBlockWithoutMembershipRemainsValid(t *testing.T) {
+	layout := model.LayoutDefinition{Blocks: []model.BlockDefinition{{ID: "legacy", Name: "Legacy"}}}
+	graph := buildGraph(t, layout)
+	resources, exists := graph.ResourcesForBlock("legacy")
+	if !exists || len(resources.TrackSectionIDs) != 0 || len(resources.TurnoutIDs) != 0 {
+		t.Fatalf("legacy block resources = %+v,%v", resources, exists)
+	}
+}
+
 func buildGraph(t *testing.T, layout model.LayoutDefinition) *topology.Graph {
 	t.Helper()
 	graph, err := topology.Build(layout)
@@ -322,4 +440,13 @@ func fixedBranchLayout(kind model.TopologyNodeKind) model.LayoutDefinition {
 			section("center-c", "center", "c"),
 		},
 	}
+}
+
+func layoutWithAttachedSections(layout model.LayoutDefinition) model.LayoutDefinition {
+	for _, port := range layout.TurnoutTopologies[0].Ports {
+		outerID := "outer-" + port.ID
+		layout.TopologyNodes = append(layout.TopologyNodes, node(outerID, model.TopologyNodeBoundary))
+		layout.TrackSections = append(layout.TrackSections, section("section-"+port.ID, port.NodeID, outerID))
+	}
+	return layout
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/events"
+	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/agm650/TrainPilot-server/internal/station/simulator"
 	"github.com/agm650/TrainPilot-server/internal/store"
@@ -20,6 +21,16 @@ func TestFeedbackUpdatesMappedBlock(t *testing.T) {
 	}
 	defer db.Close()
 	if err := db.SeedDemo(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ImportLayout(ctx, model.LayoutDefinition{
+		TopologyNodes: []model.TopologyNode{
+			{ID: "feedback-a", Kind: model.TopologyNodeBoundary},
+			{ID: "feedback-b", Kind: model.TopologyNodeBoundary},
+		},
+		TrackSections: []model.TrackSection{{ID: "feedback-section", NodeAID: "feedback-a", NodeBID: "feedback-b"}},
+		Blocks:        []model.BlockDefinition{{ID: "block-a", Name: "Block A", TrackSectionIDs: []string{"feedback-section"}}},
+	}, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.SetFeedbackMapping(ctx, "simulator", 2, "block-b"); err != nil {

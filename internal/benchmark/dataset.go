@@ -64,7 +64,7 @@ func GenerateDataset(name string) (GeneratedDataset, error) {
 	}
 	for index := 1; index <= preset.Blocks; index++ {
 		blockID := fmt.Sprintf("benchmark-block-%04d", index)
-		dataset.Layout.Blocks = append(dataset.Layout.Blocks, model.Block{ID: blockID, Name: fmt.Sprintf("Benchmark block %04d", index)})
+		dataset.Layout.Blocks = append(dataset.Layout.Blocks, model.BlockDefinition{ID: blockID, Name: fmt.Sprintf("Benchmark block %04d", index)})
 		dataset.Layout.FeedbackMappings = append(dataset.Layout.FeedbackMappings, model.FeedbackMapping{
 			Provider: "simulator", Address: index, BlockID: blockID,
 		})
