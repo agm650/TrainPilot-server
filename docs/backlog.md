@@ -46,6 +46,17 @@ dans ce backlog.
 - [ ] Tester un redémarrage du serveur lorsque des cantons sont déjà occupés sur le réseau réel.
 - [ ] Valider sur le petit réseau les trois sections rouges extérieures et les deux sections rouges intérieures.
 
+### Topologie ferroviaire
+
+Le lot TOP sépare la connectivité physique des zones de détection. TOP-001
+fournit le modèle et sa validation statique ; les étapes suivantes ajouteront
+la persistance, le graphe actif, les requêtes et l'intégration aux itinéraires.
+
+- [x] TOP-001 — Modèle de domaine et validation statique.
+- [ ] TOP-002 — Persistance SQLite et migration des archives.
+- [ ] TOP-003 à TOP-006 — Graphe, connexions actives, association aux cantons et pathfinding.
+- [ ] TOP-007 à TOP-009 — API, intégration aux itinéraires, fixtures et conformité finales.
+
 ### Accessoires
 
 Le lot AIG-001 à AIG-010 est implémenté et couvert sans matériel. Les tâches

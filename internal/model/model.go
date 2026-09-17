@@ -472,8 +472,11 @@ type RouteDefinition struct {
 }
 
 type LayoutDefinition struct {
-	Blocks           []Block           `json:"blocks"`
-	Turnouts         []Turnout         `json:"turnouts"`
-	Routes           []RouteDefinition `json:"routes"`
-	FeedbackMappings []FeedbackMapping `json:"feedbackMappings"`
+	Blocks            []Block           `json:"blocks"`
+	Turnouts          []Turnout         `json:"turnouts"`
+	Routes            []RouteDefinition `json:"routes"`
+	FeedbackMappings  []FeedbackMapping `json:"feedbackMappings"`
+	TopologyNodes     []TopologyNode    `json:"topologyNodes"`
+	TrackSections     []TrackSection    `json:"trackSections"`
+	TurnoutTopologies []TurnoutTopology `json:"turnoutTopologies"`
 }
