@@ -90,7 +90,13 @@ func TestTopologyLayoutArchiveRoundTripIsDeterministic(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer source.Close()
-	if err := source.ImportLayout(ctx, topologyfixture.DoubleSlip(), false); err != nil {
+	layout := topologyfixture.DoubleSlip()
+	layout.Routes = []model.RouteDefinition{{
+		ID: "double-slip-route", Name: "Double slip route",
+		EntryNodeID: "double-slip-a", ExitNodeID: "double-slip-c",
+		TurnoutStates: map[string]string{"double-slip": "route_b"},
+	}}
+	if err := source.ImportLayout(ctx, layout, false); err != nil {
 		t.Fatal(err)
 	}
 	createdAt := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
@@ -119,6 +125,13 @@ func TestTopologyLayoutArchiveRoundTripIsDeterministic(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("topology archive round trip mismatch:\n got: %#v\nwant: %#v", got, want)
+	}
+	exported, err := target.ExportLayout(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exported.Routes) != 1 || exported.Routes[0].EntryNodeID != "double-slip-a" || exported.Routes[0].ExitNodeID != "double-slip-c" {
+		t.Fatalf("route endpoints were not preserved: %+v", exported.Routes)
 	}
 	second, err := New(target, events.New(), clock.NewFake(createdAt)).ExportLayout(ctx)
 	if err != nil {

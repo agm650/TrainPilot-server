@@ -221,7 +221,9 @@ func (s *Store) Migrate(ctx context.Context) error {
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
 			state TEXT NOT NULL DEFAULT 'idle',
-			reserved_by_session TEXT NOT NULL DEFAULT ''
+			reserved_by_session TEXT NOT NULL DEFAULT '',
+			entry_node_id TEXT NOT NULL DEFAULT '',
+			exit_node_id TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE TABLE IF NOT EXISTS route_blocks (
 			route_id TEXT NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
@@ -256,7 +258,33 @@ func (s *Store) Migrate(ctx context.Context) error {
 			return fmt.Errorf("migration %d: %w", i+1, err)
 		}
 	}
-	return s.migrateTurnoutSchema(ctx)
+	if err := s.migrateTurnoutSchema(ctx); err != nil {
+		return err
+	}
+	return s.migrateRouteSchema(ctx)
+}
+
+func (s *Store) migrateRouteSchema(ctx context.Context) error {
+	columns, err := s.tableColumns(ctx, "routes")
+	if err != nil {
+		return fmt.Errorf("inspect route schema: %w", err)
+	}
+	additions := []struct {
+		name string
+		sql  string
+	}{
+		{"entry_node_id", `ALTER TABLE routes ADD COLUMN entry_node_id TEXT NOT NULL DEFAULT ''`},
+		{"exit_node_id", `ALTER TABLE routes ADD COLUMN exit_node_id TEXT NOT NULL DEFAULT ''`},
+	}
+	for _, addition := range additions {
+		if columns[addition.name] {
+			continue
+		}
+		if _, err := s.DB.ExecContext(ctx, addition.sql); err != nil {
+			return fmt.Errorf("add routes.%s: %w", addition.name, err)
+		}
+	}
+	return nil
 }
 
 func (s *Store) migrateTurnoutSchema(ctx context.Context) error {

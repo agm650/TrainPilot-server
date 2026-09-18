@@ -126,6 +126,8 @@ Une archive de type `layout` contient `layout.json` :
       {
         "id": "route-a-b",
         "name": "Gare vers pleine voie",
+        "entryNodeId": "boundary-west",
+        "exitNodeId": "turnout-straight",
         "blockIds": ["block-a"],
         "turnoutStates": { "turnout-1": "straight" },
         "conflictRouteIds": []
@@ -140,7 +142,10 @@ Une archive de type `layout` contient `layout.json` :
 
 L’import vérifie toutes les références avant d’ouvrir la transaction d’écriture :
 nœuds, sections, ports, connexions, cantons d’itinéraire, aiguillages,
-positions logiques, conflits et mappings de rétrosignalisation.
+positions logiques, conflits et mappings de rétrosignalisation. Lorsqu'une
+route version 5 possède `entryNodeId` et `exitNodeId`, son chemin physique, ses
+positions d'aiguillage et tous les blocks traversés sont aussi validés. Ces
+champs restent optionnels pour les anciennes routes.
 
 Les exports version 5 séparent configuration et état opérationnel. Ils ne
 contiennent pas `desiredPosition`, `reportedPosition`, `pending`,

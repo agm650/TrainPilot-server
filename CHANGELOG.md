@@ -40,6 +40,9 @@ All notable changes to this project will be documented in this file.
 - Authenticated topology REST reads with a deterministic revision, compact
   WebSocket snapshot synchronization, and `dccctl topology` inspection and
   validation commands.
+- Optional topological endpoints on route definitions, with persisted archive
+  round-trips, constrained physical-path validation, stable error/warning
+  diagnostics, and undeclared shared-resource conflict warnings.
 - Typed station contract for binary DCC accessories, portable linear-address range validation, and a generic provider for qualified feedback.
 - z21 `LAN_X_SET_TURNOUT` accessory commands, configurable pulse and safe deactivation, correlated `LAN_X_GET_TURNOUT_INFO` queries, and state broadcasts without invented positions.
 - DCC-EX accessories aligned with `<a linear 0|1>`, including portable-range validation, `assumed` feedback, concurrent TCP tests, and no replay after reconnection.

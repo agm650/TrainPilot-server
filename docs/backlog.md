@@ -1,6 +1,6 @@
 # Backlog restant — TrainPilot-server
 
-Dernière mise à jour : 12 septembre 2026.
+Dernière mise à jour : 18 septembre 2026.
 
 Ce document ne contient que les travaux restant à réaliser. Les fonctionnalités
 terminées et leur historique restent consignés dans `DCC_BACKLOG.md`. Avant de
@@ -49,10 +49,10 @@ dans ce backlog.
 ### Topologie ferroviaire
 
 Le lot TOP sépare la connectivité physique des zones de détection. TOP-001 à
-TOP-007 fournissent le modèle, sa validation, la persistance, les archives, les
+TOP-008 fournissent le modèle, sa validation, la persistance, les archives, les
 graphes physique et actif, l'association aux cantons, les requêtes, le
-pathfinding et les contrats publics ; les étapes suivantes ajouteront
-l'intégration aux itinéraires et la conformité finale.
+pathfinding, les contrats publics et la validation des itinéraires ; l'étape
+suivante ajoutera les fixtures et la conformité finales.
 
 - [x] TOP-001 — Modèle de domaine et validation statique.
 - [x] TOP-002 — Persistance SQLite et migration des archives.
@@ -61,7 +61,8 @@ l'intégration aux itinéraires et la conformité finale.
 - [x] TOP-005 — Association des blocks aux ressources physiques.
 - [x] TOP-006 — Service de requêtes topologiques et pathfinding.
 - [x] TOP-007 — API REST, révision WebSocket, CLI et import/export atomique.
-- [ ] TOP-008 à TOP-009 — Intégration aux itinéraires, fixtures et conformité finales.
+- [x] TOP-008 — Validation topologique des définitions d'itinéraires.
+- [ ] TOP-009 — Fixtures, scénarios et conformité finales.
 
 ### Accessoires
 

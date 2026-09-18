@@ -199,6 +199,40 @@ validated, atomic layout import pipeline.
 validate` rebuilds the graph against the referenced turnout definitions,
 verifies the revision, and exits non-zero on failure.
 
+## Topological route validation
+
+`RouteDefinition` may declare optional `entryNodeId` and `exitNodeId`. Routes
+without either field remain compatible and keep their previous validation.
+When one endpoint is present, both are required.
+
+For a route with endpoints, configuration validation constrains the static
+graph with the declared turnout positions and finds a continuous physical path.
+It derives every traversed track section, turnout, and detection block. A
+traversed block absent from `blockIds`, or a required turnout position absent
+from `turnoutStates`, rejects the layout before its database transaction.
+
+Additional blocks and turnouts remain allowed as intentional protection. They
+produce warnings. Two routes that share a physical resource or traversed block
+also produce a warning for each missing directional `conflictRouteIds` entry.
+The validator does not add conflicts automatically.
+
+Stable diagnostics are:
+
+| Severity | Code | Meaning |
+| --- | --- | --- |
+| error | `route_no_path` | endpoints are missing, unknown, or disconnected |
+| error | `route_missing_block` | a traversed block is not protected |
+| error | `route_missing_turnout_position` | a required turnout or position is absent or incompatible |
+| warning | `route_extra_block` | an additional non-traversed block is protected |
+| warning | `route_extra_turnout` | an additional non-traversed turnout is locked |
+| warning | `route_possible_undeclared_conflict` | shared resources lack a directional conflict declaration |
+
+Topological validation is not atomic runtime reservation. It validates imported
+configuration only. `RouteService.Reserve` and `RouteService.Activate` retain
+their existing behavior, including the immediate P0 occupancy/conflict
+revalidation before the first physical turnout command. No SQLite transaction
+is held during hardware confirmation waits.
+
 ## Scope of topology V1
 
 Topology V1 stores logical connectivity only. It has no screen coordinates,

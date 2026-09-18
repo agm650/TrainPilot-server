@@ -75,6 +75,16 @@
   le layout, tandis que `layout.imported` n'est publié qu'après un commit réussi ;
 - `dccctl topology` couvre le résumé, le JSON déterministe et une validation
   qui retourne une erreur sur une fixture invalide.
+- les anciennes routes sans extrémités topologiques restent compatibles ; les
+  routes simples, via aiguillage simple, triple et TJD valident un chemin
+  contraint par leurs positions déclarées ;
+- une absence de chemin, de block traversé ou de position requise refuse
+  l'import avant transaction, tandis qu'un block ou turnout de protection
+  supplémentaire produit seulement un warning stable ;
+- deux routes partageant une ressource physique ou un block traversé signalent
+  chaque conflit directionnel absent sans modifier les réservations runtime ;
+- les endpoints de route migrent avec une valeur vide et passent un
+  aller-retour SQLite/archive sans perte.
 
 ## Commandes
 

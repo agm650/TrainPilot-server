@@ -478,6 +478,8 @@ type RouteDefinition struct {
 	BlockIDs         []string          `json:"blockIds"`
 	TurnoutStates    map[string]string `json:"turnoutStates"`
 	ConflictRouteIDs []string          `json:"conflictRouteIds,omitempty"`
+	EntryNodeID      string            `json:"entryNodeId,omitempty"`
+	ExitNodeID       string            `json:"exitNodeId,omitempty"`
 }
 
 type LayoutDefinition struct {

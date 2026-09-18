@@ -9,9 +9,10 @@ import (
 )
 
 type PathConstraints struct {
-	ExcludedTrackSections map[string]bool
-	ExcludedTurnouts      map[string]bool
-	ExcludedBlocks        map[string]bool
+	ExcludedTrackSections    map[string]bool
+	ExcludedTurnouts         map[string]bool
+	ExcludedBlocks           map[string]bool
+	RequiredTurnoutPositions map[string]string
 }
 
 type SectionTraversal struct {
@@ -166,7 +167,7 @@ func findPath(view pathView, fromNodeID, toNodeID string, constraints PathConstr
 			if !exists {
 				continue
 			}
-			requirements, compatible := extendRequirements(current.requirements, candidate)
+			requirements, compatible := extendRequirements(current.requirements, candidate, constraints)
 			if !compatible {
 				continue
 			}
@@ -255,13 +256,19 @@ func traversalFromStep(candidate pathEdge, fromNodeID, toNodeID string, requirem
 	}
 }
 
-func extendRequirements(current map[string][]string, candidate pathEdge) (map[string][]string, bool) {
+func extendRequirements(current map[string][]string, candidate pathEdge, constraints PathConstraints) (map[string][]string, bool) {
 	if candidate.edge.Kind != EdgeKindTurnout {
 		return current, true
 	}
 	allowed := candidate.edge.PositionIDs
 	if candidate.activePosition != "" {
 		allowed = []string{candidate.activePosition}
+	}
+	if required := constraints.RequiredTurnoutPositions[candidate.edge.TurnoutID]; required != "" {
+		allowed = intersectSortedStrings(allowed, []string{required})
+		if len(allowed) == 0 {
+			return nil, false
+		}
 	}
 	if existing, exists := current[candidate.edge.TurnoutID]; exists {
 		allowed = intersectSortedStrings(existing, allowed)

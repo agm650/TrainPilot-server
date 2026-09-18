@@ -327,7 +327,8 @@ func validateLayout(layout *model.LayoutDefinition) error {
 		layout.Turnouts[i] = normalized
 		turnouts[normalized.ID] = normalized
 	}
-	if _, err := topology.Build(*layout); err != nil {
+	graph, err := topology.Build(*layout)
+	if err != nil {
 		return err
 	}
 	for _, r := range layout.Routes {
@@ -364,6 +365,9 @@ func validateLayout(layout *model.LayoutDefinition) error {
 				return fmt.Errorf("route %q references unknown conflict %q", r.ID, id)
 			}
 		}
+	}
+	if err := topology.RouteValidationErrors(topology.ValidateRouteDefinitions(graph, layout.Routes, layout.Turnouts)); err != nil {
+		return err
 	}
 	return nil
 }

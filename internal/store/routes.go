@@ -160,6 +160,9 @@ func (s *Store) ExportLayout(ctx context.Context) (model.LayoutDefinition, error
 	defs := make([]model.RouteDefinition, 0, len(routes))
 	for _, route := range routes {
 		def := model.RouteDefinition{ID: route.ID, Name: route.Name, TurnoutStates: map[string]string{}}
+		if err := s.DB.QueryRowContext(ctx, `SELECT entry_node_id,exit_node_id FROM routes WHERE id=?`, route.ID).Scan(&def.EntryNodeID, &def.ExitNodeID); err != nil {
+			return model.LayoutDefinition{}, err
+		}
 		rows, err := s.DB.QueryContext(ctx, `SELECT block_id FROM route_blocks WHERE route_id=? ORDER BY block_id`, route.ID)
 		if err != nil {
 			return model.LayoutDefinition{}, err
@@ -222,7 +225,11 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 	}
 	validatedLayout := layout
 	validatedLayout.Turnouts = normalizedTurnouts
-	if _, err := topology.Build(validatedLayout); err != nil {
+	graph, err := topology.Build(validatedLayout)
+	if err != nil {
+		return err
+	}
+	if err := topology.RouteValidationErrors(topology.ValidateRouteDefinitions(graph, layout.Routes, normalizedTurnouts)); err != nil {
 		return err
 	}
 	if err := validateTurnoutAddressOwnership(normalizedTurnouts); err != nil {
@@ -274,7 +281,7 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 		}
 		// First pass: create every route so conflict foreign keys can resolve.
 		for _, r := range layout.Routes {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO routes(id,name,state,reserved_by_session) VALUES(?,?,'idle','') ON CONFLICT(id) DO UPDATE SET name=excluded.name,state='idle',reserved_by_session=''`, r.ID, r.Name); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO routes(id,name,state,reserved_by_session,entry_node_id,exit_node_id) VALUES(?,?,'idle','',?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,state='idle',reserved_by_session='',entry_node_id=excluded.entry_node_id,exit_node_id=excluded.exit_node_id`, r.ID, r.Name, r.EntryNodeID, r.ExitNodeID); err != nil {
 				return err
 			}
 		}
