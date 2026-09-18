@@ -20,6 +20,7 @@ type systemSnapshotPayload struct {
 	Blocks                  []model.Block                  `json:"blocks"`
 	Turnouts                []model.Turnout                `json:"turnouts"`
 	Routes                  []model.Route                  `json:"routes"`
+	TopologyRevision        string                         `json:"topologyRevision"`
 }
 
 type systemSnapshot struct {
@@ -71,6 +72,10 @@ func (s *Server) buildSystemSnapshot(ctx context.Context, session model.Session)
 	if err != nil {
 		return systemSnapshot{}, err
 	}
+	topologyDefinition, err := s.topologyDefinition(ctx, turnouts)
+	if err != nil {
+		return systemSnapshot{}, err
+	}
 	return systemSnapshot{
 		Type:       "system.snapshot",
 		Sequence:   sequence,
@@ -84,6 +89,7 @@ func (s *Server) buildSystemSnapshot(ctx context.Context, session model.Session)
 			Blocks:                  snapshotItems(blocks),
 			Turnouts:                snapshotItems(turnouts),
 			Routes:                  snapshotItems(routes),
+			TopologyRevision:        topologyDefinition.Revision,
 		},
 	}, nil
 }

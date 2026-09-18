@@ -53,6 +53,17 @@ type TurnoutTopologyPosition struct {
 	Connections []PortConnection `json:"connections"`
 }
 
+// TopologyDefinition is the canonical public description of the physical
+// railway topology. Runtime state and DCC endpoint configuration stay on the
+// existing turnout and block resources.
+type TopologyDefinition struct {
+	Revision          string            `json:"revision"`
+	Nodes             []TopologyNode    `json:"nodes"`
+	TrackSections     []TrackSection    `json:"trackSections"`
+	TurnoutTopologies []TurnoutTopology `json:"turnoutTopologies"`
+	Blocks            []BlockDefinition `json:"blocks"`
+}
+
 type PortConnection struct {
 	PortAID string `json:"portAId"`
 	PortBID string `json:"portBId"`

@@ -546,6 +546,19 @@ activity or heartbeat during that period, the server starts a controlled stop
 and then releases the lease. `throttle` never acquires a locomotive implicitly;
 `acquire` is mandatory.
 
+Inspect or validate the persisted physical topology without sending a railway
+command:
+
+```bash
+dccctl --server http://127.0.0.1:8080 --username alice topology
+dccctl --server http://127.0.0.1:8080 --username alice topology --json
+dccctl --server http://127.0.0.1:8080 --username alice topology validate
+```
+
+The summary reports nodes, track sections, turnout topologies, blocks, and
+connected components. Validation exits non-zero for an invalid graph or stale
+revision.
+
 ## Import and export
 
 Exports are version 5 ZIP archives containing `manifest.json` and a JSON
@@ -610,10 +623,17 @@ When a WebSocket connection opens, the server sends a complete
 `system.snapshot` whose `sequence` is the event bus's current sequence. It
 contains station status, locomotives, full leases for the connected session,
 public ownership state for all controlled locomotives, blocks, turnouts, and
-routes. `controlLeases` remains private to the session.
+routes. It also contains `topologyRevision`. The full static definition is read
+from authenticated `GET /api/v1/topology`; it is not duplicated in every
+snapshot. `controlLeases` remains private to the session.
 `locomotiveControlStates` distinguishes `mine`,
 `same_user_other_session`, and `other` without exposing lease identifiers from
 other sessions. A locomotive absent from that array is free.
+
+Clients cache the topology by its revision. They reload
+`GET /api/v1/topology` when the snapshot revision changes or after a
+`layout.imported` event. The event is emitted only after the layout transaction
+commits successfully.
 
 The client ignores events with a sequence less than or equal to the snapshot.
 The server also filters old or duplicate events generated while building the

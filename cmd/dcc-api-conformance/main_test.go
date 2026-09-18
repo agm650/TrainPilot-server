@@ -83,7 +83,8 @@ func TestCompoundTurnoutContractsAreDocumented(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, fragment := range []string{
-		"version: 1.7.0",
+		"version: 1.8.0",
+		"TopologyDefinition:",
 		"position:",
 		"deprecated: true",
 		"reportQuality:",
@@ -95,7 +96,8 @@ func TestCompoundTurnoutContractsAreDocumented(t *testing.T) {
 		}
 	}
 	for _, fragment := range []string{
-		"version: 1.9.1",
+		"version: 1.10.0",
+		"topologyRevision:",
 		"name: turnout.commanded",
 		"name: turnout.state.changed",
 		"name: turnout.command.failed",

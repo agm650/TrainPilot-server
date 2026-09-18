@@ -455,6 +455,56 @@ func TestInvalidLayoutDoesNotModifyDatabase(t *testing.T) {
 	}
 }
 
+func TestLayoutImportedEventIsPublishedOnlyAfterSuccessfulCommit(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	bus := events.New()
+	stream, unsubscribe := bus.Subscribe(2)
+	defer unsubscribe()
+	svc := New(db, bus, clock.Real{})
+	admin := model.User{ID: "admin", Role: model.RoleAdministrator}
+
+	invalid := topologyfixture.ThreeWay()
+	invalid.TrackSections = []model.TrackSection{{ID: "broken", NodeAID: "missing", NodeBID: invalid.TopologyNodes[0].ID}}
+	invalidData, err := writeArchive(Manifest{Format: FormatID, Version: FormatVersion, PackageType: "layout", CreatedAt: time.Now()}, "layout.json", LayoutDocument{Layout: invalid})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ImportLayout(ctx, admin, invalidData, true); err == nil {
+		t.Fatal("invalid layout unexpectedly imported")
+	}
+	select {
+	case event := <-stream:
+		t.Fatalf("event published after rejected import: %+v", event)
+	default:
+	}
+
+	valid := topologyfixture.PassingStation()
+	validData, err := BuildLayoutArchive(time.Now(), valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ImportLayout(ctx, admin, validData, true); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-stream:
+		if event.Type != "layout.imported" {
+			t.Fatalf("event=%+v", event)
+		}
+	default:
+		t.Fatal("layout.imported event is missing after successful commit")
+	}
+	persisted, err := db.GetTopologyDefinition(ctx)
+	if err != nil || len(persisted.TopologyNodes) != len(valid.TopologyNodes) {
+		t.Fatalf("persisted topology nodes=%d err=%v", len(persisted.TopologyNodes), err)
+	}
+}
+
 func archiveThreeWayTurnout() model.Turnout {
 	return model.Turnout{
 		ID: "three-way", Name: "Three way", Kind: model.TurnoutKindThreeWay,

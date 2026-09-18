@@ -69,6 +69,12 @@
 - les archives parc/circuit passent un aller-retour sans perte ;
 - un rôle driver peut exporter mais ne peut pas importer ;
 - un import invalide ou contenant des références cassées est rejeté sans modification partielle.
+- la topologie REST exige une authentification, reste lisible par un viewer et
+  expose des tableaux canoniques pour un réseau vide, triple, TJD ou complet ;
+- `topologyRevision` reste stable lors des changements runtime et change avec
+  le layout, tandis que `layout.imported` n'est publié qu'après un commit réussi ;
+- `dccctl topology` couvre le résumé, le JSON déterministe et une validation
+  qui retourne une erreur sur une fixture invalide.
 
 ## Commandes
 
@@ -184,6 +190,12 @@ ou plusieurs sections continues, branches autour d'un aiguillage, TJD,
 ressources non affectées, doubles associations et îlots disjoints. Les tests de
 `internal/store` vérifient les index inverses et l'indépendance entre membership
 topologique et occupation issue du feedback.
+
+Le pathfinding topologique couvre les parcours orientés aller/retour, impasses,
+réseaux disjoints, cycles, chemins alternatifs, aiguillages simples et triples,
+TJD, états actifs inconnus, exclusions de sections/turnouts/blocks et 100
+répétitions déterministes. La fixture `PassingStation` représente une gare de
+passage avec voie d'évitement et embranchement.
 
 Les tests de `internal/transfer` importent des archives de circuit versions 1,
 3 et 4, puis vérifient un round-trip déterministe en version 5. Une archive v4

@@ -141,9 +141,67 @@ Active views are computed directly from the supplied turnout states. There is
 no shared cache or event-driven invalidation. A new reported state is visible
 on the next `ActiveView` call, while an existing view remains unchanged.
 
+## Queries and physical pathfinding
+
+Both static and active graphs expose deterministic queries for neighboring
+nodes, track sections at a node, adjacent sections, resources at a node, and
+adjacent resources. Block ownership remains available through the resource
+indexes described above.
+
+`FindPath` uses breadth-first search and minimizes the number of traversals.
+This V1 cost model is explicitly named `traversal_count`. It does not compare
+millimeters because a zero section length means unknown, not zero distance.
+A future cost model can therefore replace traversal count without changing the
+orientation or resource metadata returned by a path.
+
+Every traversal records its `from` and `to` nodes. A track section therefore
+remains bidirectional while its use in one path is oriented. A turnout
+traversal also records its entry and exit ports. Static paths return a
+deterministic required position plus every compatible position; requirements
+are intersected if the same turnout is encountered more than once. Active
+paths return the confirmed reported position and its report quality.
+
+Static pathfinding can use connections from any declared turnout position. An
+active path uses only connections present in the immutable `ActiveView`; an
+unknown, pending, or invalid turnout can therefore make a static path
+unavailable in the active graph. Neither variant sends commands.
+
+Callers can exclude track sections, turnouts, or blocks with
+`PathConstraints`. Block occupancy is never read or converted automatically
+into an exclusion. Reservation and interlocking policies remain the caller's
+responsibility. Neighbor order is stable, cycles are bounded by visited search
+states, and the same graph and constraints produce the same path.
+
+`topologyfixture.PassingStation` provides a realistic through station with a
+main platform, passing loop, siding, two station throats, and a branch turnout.
+
+## Public API, revision, and CLI
+
+Every authenticated role can read the complete static definition with
+`GET /api/v1/topology`. The response contains canonical, deterministically
+ordered `nodes`, `trackSections`, `turnoutTopologies`, and block resource
+membership. It references turnout IDs and does not duplicate DCC endpoints,
+reported positions, pending commands, or occupancy.
+
+The response also contains a `revision`: a lowercase SHA-256 of the canonical
+topology JSON. The digest covers physical topology, names, and block membership.
+It excludes runtime block and turnout state. `system.snapshot` carries only this
+value as `topologyRevision`, keeping resynchronization snapshots small.
+
+A client loads the topology through REST and caches it by revision. It reloads
+when a later snapshot has a different `topologyRevision` or after
+`layout.imported`. That event is published only after a successful layout
+transaction. V1 intentionally exposes no topology CRUD; changes use the
+validated, atomic layout import pipeline.
+
+`dccctl topology` prints counts and the static connected-component count.
+`dccctl topology --json` emits the canonical response. `dccctl topology
+validate` rebuilds the graph against the referenced turnout definitions,
+verifies the revision, and exits non-zero on failure.
+
 ## Scope of topology V1
 
 Topology V1 stores logical connectivity only. It has no screen coordinates,
 curves, radii, drawing geometry, operating direction, signaling rules,
-pathfinding, resource reservation, train location, or progressive route
-release. Those layers can use this graph without changing its physical model.
+resource reservation, train location, or progressive route release. Physical
+pathfinding is descriptive only and makes no operating or safety decision.

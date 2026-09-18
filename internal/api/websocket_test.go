@@ -22,6 +22,7 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/clock"
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
+	"github.com/agm650/TrainPilot-server/internal/model/topologyfixture"
 	"github.com/agm650/TrainPilot-server/internal/observability"
 	"github.com/agm650/TrainPilot-server/internal/service"
 	"github.com/agm650/TrainPilot-server/internal/station"
@@ -252,6 +253,9 @@ func TestSystemSnapshotContainsCompleteClientState(t *testing.T) {
 	if len(snapshot.Payload.Locomotives) != len(fixture.locomotives) || len(snapshot.Payload.Blocks) == 0 || len(snapshot.Payload.Turnouts) == 0 || len(snapshot.Payload.Routes) == 0 {
 		t.Fatalf("incomplete snapshot=%+v", snapshot.Payload)
 	}
+	if snapshot.Payload.TopologyRevision == "" {
+		t.Fatal("topology revision is missing")
+	}
 	turnout := snapshot.Payload.Turnouts[0]
 	if turnout.Kind != model.TurnoutKindSimple || len(turnout.Endpoints) != 1 || len(turnout.Positions) != 2 || turnout.DesiredPosition != "straight" || turnout.ReportedPosition != "straight" {
 		t.Fatalf("turnout model=%+v", turnout)
@@ -261,6 +265,35 @@ func TestSystemSnapshotContainsCompleteClientState(t *testing.T) {
 	}
 	if len(snapshot.Payload.LocomotiveControlStates) != 1 || snapshot.Payload.LocomotiveControlStates[0].LocomotiveID != fixture.lease.LocomotiveID || snapshot.Payload.LocomotiveControlStates[0].Ownership != model.ControlOwnershipMine {
 		t.Fatalf("locomotive control states=%+v", snapshot.Payload.LocomotiveControlStates)
+	}
+}
+
+func TestSystemSnapshotTopologyRevisionChangesOnlyWithLayout(t *testing.T) {
+	ctx := context.Background()
+	fixture := newWebsocketFixture(t)
+	before, err := fixture.api.buildSystemSnapshot(ctx, fixture.session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.api.store.SetBlockOccupied(ctx, "block-a", true); err != nil {
+		t.Fatal(err)
+	}
+	runtimeChanged, err := fixture.api.buildSystemSnapshot(ctx, fixture.session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtimeChanged.Payload.TopologyRevision != before.Payload.TopologyRevision {
+		t.Fatal("runtime block state changed topology revision")
+	}
+	if err := fixture.api.store.ImportLayout(ctx, topologyfixture.PassingStation(), true); err != nil {
+		t.Fatal(err)
+	}
+	layoutChanged, err := fixture.api.buildSystemSnapshot(ctx, fixture.session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if layoutChanged.Payload.TopologyRevision == before.Payload.TopologyRevision {
+		t.Fatal("layout import did not change topology revision")
 	}
 }
 

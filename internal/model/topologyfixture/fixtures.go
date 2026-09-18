@@ -54,6 +54,64 @@ func SingleSlip() model.LayoutDefinition {
 	)
 }
 
+// PassingStation models a through station with a passing loop and a siding.
+// Three simple turnouts connect the west approach, two station tracks, the
+// east approach, and the siding buffer stop.
+func PassingStation() model.LayoutDefinition {
+	west := model.NewSimpleTurnout("station-west", "West throat", 50, "straight", "straight")
+	east := model.NewSimpleTurnout("station-east", "East throat", 51, "straight", "straight")
+	branch := model.NewSimpleTurnout("station-branch", "Siding branch", 52, "straight", "straight")
+	turnouts := []model.Turnout{west, east, branch}
+
+	nodes := []model.TopologyNode{
+		{ID: "west-boundary", Kind: model.TopologyNodeBoundary},
+		{ID: "east-boundary", Kind: model.TopologyNodeBoundary},
+		{ID: "siding-buffer", Kind: model.TopologyNodeBuffer},
+	}
+	var topologies []model.TurnoutTopology
+	for _, turnout := range turnouts {
+		ports := []model.TurnoutPort{
+			{ID: "stem", NodeID: turnout.ID + "-stem"},
+			{ID: "straight", NodeID: turnout.ID + "-straight"},
+			{ID: "diverging", NodeID: turnout.ID + "-diverging"},
+		}
+		for _, port := range ports {
+			nodes = append(nodes, model.TopologyNode{ID: port.NodeID, Kind: model.TopologyNodeJoint})
+		}
+		topologies = append(topologies, model.TurnoutTopology{
+			TurnoutID: turnout.ID,
+			Ports:     ports,
+			Positions: []model.TurnoutTopologyPosition{
+				{PositionID: "straight", Connections: []model.PortConnection{connection("stem", "straight")}},
+				{PositionID: "diverging", Connections: []model.PortConnection{connection("stem", "diverging")}},
+			},
+		})
+	}
+
+	sections := []model.TrackSection{
+		{ID: "approach-west", Name: "West approach", NodeAID: "west-boundary", NodeBID: "station-west-stem"},
+		{ID: "main-west", Name: "Main platform west", NodeAID: "station-west-straight", NodeBID: "station-branch-stem"},
+		{ID: "main-east", Name: "Main platform east", NodeAID: "station-branch-straight", NodeBID: "station-east-straight"},
+		{ID: "passing-loop", Name: "Passing loop", NodeAID: "station-west-diverging", NodeBID: "station-east-diverging"},
+		{ID: "siding", Name: "Siding", NodeAID: "station-branch-diverging", NodeBID: "siding-buffer"},
+		{ID: "approach-east", Name: "East approach", NodeAID: "station-east-stem", NodeBID: "east-boundary"},
+	}
+
+	return model.LayoutDefinition{
+		Turnouts:          turnouts,
+		TopologyNodes:     nodes,
+		TrackSections:     sections,
+		TurnoutTopologies: topologies,
+		Blocks: []model.BlockDefinition{
+			{ID: "block-west", Name: "West approach", TrackSectionIDs: []string{"approach-west"}},
+			{ID: "block-main", Name: "Main platform", TrackSectionIDs: []string{"main-west", "main-east"}, TurnoutIDs: []string{"station-branch"}},
+			{ID: "block-loop", Name: "Passing loop", TrackSectionIDs: []string{"passing-loop"}},
+			{ID: "block-siding", Name: "Siding", TrackSectionIDs: []string{"siding"}},
+			{ID: "block-east", Name: "East approach", TrackSectionIDs: []string{"approach-east"}},
+		},
+	}
+}
+
 func turnoutLayout(
 	turnout model.Turnout,
 	portIDs []string,

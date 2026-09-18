@@ -18,6 +18,7 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/clock"
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
+	"github.com/agm650/TrainPilot-server/internal/model/topologyfixture"
 	"github.com/agm650/TrainPilot-server/internal/service"
 	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/agm650/TrainPilot-server/internal/station/simulator"
@@ -260,14 +261,16 @@ func TestHTTPHandlersCoverSuccessAndErrorPaths(t *testing.T) {
 	assertStatus(t, server.URL, http.MethodGet, "/healthz", "", nil, http.StatusOK)
 	assertStatus(t, server.URL, http.MethodGet, "/api/v1/system/info", "", nil, http.StatusOK)
 	assertStatus(t, server.URL, http.MethodGet, "/api/v1/blocks", "", nil, http.StatusUnauthorized)
+	assertStatus(t, server.URL, http.MethodGet, "/api/v1/topology", "", nil, http.StatusUnauthorized)
 	assertStatus(t, server.URL, http.MethodGet, "/api/v1/blocks", "NotBearer token", nil, http.StatusUnauthorized)
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/auth/login", "", []byte(`{`), http.StatusBadRequest)
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/auth/login", "", []byte(`{"username":"dispatcher","password":"correct-horse-1"}`), http.StatusBadRequest)
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/auth/login", "", []byte(`{"username":"dispatcher","password":"wrong-password","clientId":"bad"}`), http.StatusUnauthorized)
 
-	for _, path := range []string{"/api/v1/me", "/api/v1/locomotives", "/api/v1/blocks", "/api/v1/turnouts", "/api/v1/routes"} {
+	for _, path := range []string{"/api/v1/me", "/api/v1/locomotives", "/api/v1/blocks", "/api/v1/topology", "/api/v1/turnouts", "/api/v1/routes"} {
 		assertStatus(t, server.URL, http.MethodGet, path, "Bearer "+dispatcher.AccessToken, nil, http.StatusOK)
 	}
+	assertStatus(t, server.URL, http.MethodGet, "/api/v1/topology", "Bearer "+viewer.AccessToken, nil, http.StatusOK)
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/turnouts/turnout-1", "Bearer "+viewer.AccessToken, []byte(`{"state":"straight"}`), http.StatusForbidden)
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/turnouts/turnout-1", "Bearer "+dispatcher.AccessToken, []byte(`{"state":"invalid"}`), http.StatusBadRequest)
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/turnouts/missing", "Bearer "+dispatcher.AccessToken, []byte(`{"state":"straight"}`), http.StatusNotFound)
@@ -315,6 +318,73 @@ func TestHTTPHandlersCoverSuccessAndErrorPaths(t *testing.T) {
 	assertStatus(t, server.URL, http.MethodGet, "/api/v1/me", "Bearer "+dispatcher.AccessToken, nil, http.StatusUnauthorized)
 }
 
+func TestTopologyHTTPReturnsCanonicalEmptyAndCompleteDefinitions(t *testing.T) {
+	ctx := context.Background()
+	fixture := newDetailedHTTPFixture(t)
+
+	emptyArchive, err := transfer.BuildLayoutArchive(time.Now(), model.LayoutDefinition{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.administrator.ImportLayout(ctx, emptyArchive, true); err != nil {
+		t.Fatal(err)
+	}
+	empty, err := fixture.viewer.Topology(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.Revision == "" || empty.Nodes == nil || empty.TrackSections == nil || empty.TurnoutTopologies == nil || empty.Blocks == nil {
+		t.Fatalf("empty topology=%+v", empty)
+	}
+	if len(empty.Nodes) != 0 || len(empty.TrackSections) != 0 || len(empty.TurnoutTopologies) != 0 || len(empty.Blocks) != 0 {
+		t.Fatalf("unexpected seeded physical topology=%+v", empty)
+	}
+
+	layout := topologyfixture.PassingStation()
+	archive, err := transfer.BuildLayoutArchive(time.Now(), layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.administrator.ImportLayout(ctx, archive, true); err != nil {
+		t.Fatal(err)
+	}
+	complete, err := fixture.viewer.Topology(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if complete.Revision == empty.Revision || len(complete.Nodes) != len(layout.TopologyNodes) || len(complete.TrackSections) != len(layout.TrackSections) || len(complete.TurnoutTopologies) != len(layout.TurnoutTopologies) || len(complete.Blocks) != len(layout.Blocks) {
+		t.Fatalf("complete topology=%+v", complete)
+	}
+	if complete.TurnoutTopologies[0].TurnoutID == "" || len(complete.TurnoutTopologies[0].Ports) != 3 {
+		t.Fatalf("turnout topology=%+v", complete.TurnoutTopologies[0])
+	}
+}
+
+func TestTopologyHTTPSupportsCompoundTurnoutGeometry(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		layout    model.LayoutDefinition
+		wantPorts int
+	}{
+		{"three way", topologyfixture.ThreeWay(), 4},
+		{"double slip", topologyfixture.DoubleSlip(), 4},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newDetailedHTTPFixture(t)
+			if err := fixture.db.ImportLayout(context.Background(), test.layout, true); err != nil {
+				t.Fatal(err)
+			}
+			definition, err := fixture.viewer.Topology(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(definition.TurnoutTopologies) != 1 || len(definition.TurnoutTopologies[0].Ports) != test.wantPorts || len(definition.TurnoutTopologies[0].Positions) != len(test.layout.Turnouts[0].Positions) {
+				t.Fatalf("definition=%+v", definition)
+			}
+		})
+	}
+}
+
 func assertProblemCode(t *testing.T, baseURL, method, path, authorization string, body []byte, wantStatus int, wantCode string) {
 	t.Helper()
 	req, err := http.NewRequest(method, baseURL+path, bytes.NewReader(body))
@@ -343,12 +413,13 @@ func newHTTPFixture(t *testing.T) (*httptest.Server, *client.Client, *client.Cli
 }
 
 type detailedHTTPFixture struct {
-	server     *httptest.Server
-	dispatcher *client.Client
-	viewer     *client.Client
-	db         *store.Store
-	simulator  *simulator.Simulator
-	bus        *events.Bus
+	server        *httptest.Server
+	dispatcher    *client.Client
+	viewer        *client.Client
+	administrator *client.Client
+	db            *store.Store
+	simulator     *simulator.Simulator
+	bus           *events.Bus
 }
 
 func newDetailedHTTPFixture(t *testing.T) detailedHTTPFixture {
@@ -368,7 +439,7 @@ func newDetailedHTTPFixture(t *testing.T) detailedHTTPFixture {
 	for _, item := range []struct {
 		name string
 		role model.Role
-	}{{"dispatcher", model.RoleDispatcher}, {"viewer", model.RoleViewer}, {"driver", model.RoleDriver}} {
+	}{{"dispatcher", model.RoleDispatcher}, {"viewer", model.RoleViewer}, {"driver", model.RoleDriver}, {"administrator", model.RoleAdministrator}} {
 		if _, err := users.Create(ctx, item.name, item.name, "correct-horse-1", item.role, false, false); err != nil {
 			t.Fatal(err)
 		}
@@ -390,13 +461,17 @@ func newDetailedHTTPFixture(t *testing.T) detailedHTTPFixture {
 
 	dispatcher := client.New(server.URL)
 	viewer := client.New(server.URL)
+	administrator := client.New(server.URL)
 	if _, err := dispatcher.Login(ctx, "dispatcher", "correct-horse-1", "dispatcher-client"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := viewer.Login(ctx, "viewer", "correct-horse-1", "viewer-client"); err != nil {
 		t.Fatal(err)
 	}
-	return detailedHTTPFixture{server: server, dispatcher: dispatcher, viewer: viewer, db: db, simulator: sim, bus: bus}
+	if _, err := administrator.Login(ctx, "administrator", "correct-horse-1", "administrator-client"); err != nil {
+		t.Fatal(err)
+	}
+	return detailedHTTPFixture{server: server, dispatcher: dispatcher, viewer: viewer, administrator: administrator, db: db, simulator: sim, bus: bus}
 }
 
 func TestRouteActivationHTTPRejectsLateInvalidation(t *testing.T) {

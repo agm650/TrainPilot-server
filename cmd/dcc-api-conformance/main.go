@@ -13,6 +13,7 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/client"
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/station"
+	"github.com/agm650/TrainPilot-server/internal/topology"
 )
 
 const (
@@ -117,8 +118,18 @@ func run(ctx context.Context, cfg configuration, output io.Writer) int {
 	add("authenticated client lists locomotives", err)
 	_, err = c1.Blocks(ctx)
 	add("authenticated client lists blocks", err)
-	_, err = c1.Turnouts(ctx)
-	add("authenticated client lists turnouts", err)
+	topologyDefinition, topologyErr := c1.Topology(ctx)
+	add("authenticated client reads physical topology", topologyErr)
+	turnouts, turnoutsErr := c1.Turnouts(ctx)
+	add("authenticated client lists turnouts", turnoutsErr)
+	topologyValidationErr := topologyErr
+	if topologyValidationErr == nil {
+		topologyValidationErr = turnoutsErr
+	}
+	if topologyValidationErr == nil {
+		_, topologyValidationErr = topology.BuildDefinition(topologyDefinition, turnouts)
+	}
+	add("physical topology and revision are valid", topologyValidationErr)
 	_, err = c1.Routes(ctx)
 	add("authenticated client lists routes", err)
 	_, err = c1.StationStatus(ctx)

@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: DCC Control Server API
-  version: 1.7.0
+  version: 1.8.0
   description: >-
     Contract for native DCC clients. User administration is deliberately absent
     from this public API and is available only over the local administration socket.
@@ -354,6 +354,19 @@ paths:
                   items:
                     type: array
                     items: { $ref: '#/components/schemas/Block' }
+  /api/v1/topology:
+    get:
+      operationId: getTopology
+      description: >-
+        Returns the canonical physical topology and its deterministic revision.
+        Runtime block occupancy and turnout state remain on their existing resources.
+      responses:
+        '200':
+          description: Complete persisted physical topology.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TopologyDefinition' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /api/v1/turnouts:
     get:
       operationId: listTurnouts
@@ -754,6 +767,95 @@ components:
         id: { type: string }
         name: { type: string }
         occupied: { type: boolean }
+    TopologyDefinition:
+      type: object
+      additionalProperties: false
+      required: [revision, nodes, trackSections, turnoutTopologies, blocks]
+      properties:
+        revision:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: SHA-256 of the canonical physical topology and block membership.
+        nodes:
+          type: array
+          items: { $ref: '#/components/schemas/TopologyNode' }
+        trackSections:
+          type: array
+          items: { $ref: '#/components/schemas/TrackSection' }
+        turnoutTopologies:
+          type: array
+          items: { $ref: '#/components/schemas/TurnoutTopology' }
+        blocks:
+          type: array
+          items: { $ref: '#/components/schemas/BlockDefinition' }
+    TopologyNode:
+      type: object
+      additionalProperties: false
+      required: [id, kind]
+      properties:
+        id: { type: string, minLength: 1 }
+        name: { type: string }
+        kind: { type: string, enum: [joint, buffer, boundary] }
+    TrackSection:
+      type: object
+      additionalProperties: false
+      required: [id, name, nodeAId, nodeBId]
+      properties:
+        id: { type: string, minLength: 1 }
+        name: { type: string }
+        nodeAId: { type: string, minLength: 1 }
+        nodeBId: { type: string, minLength: 1 }
+        lengthMm: { type: integer, minimum: 0 }
+    TurnoutTopology:
+      type: object
+      additionalProperties: false
+      required: [turnoutId, ports, positions]
+      properties:
+        turnoutId: { type: string, minLength: 1 }
+        ports:
+          type: array
+          minItems: 2
+          items: { $ref: '#/components/schemas/TurnoutPort' }
+        positions:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/TurnoutTopologyPosition' }
+    TurnoutPort:
+      type: object
+      additionalProperties: false
+      required: [id, nodeId]
+      properties:
+        id: { type: string, minLength: 1 }
+        nodeId: { type: string, minLength: 1 }
+    TurnoutTopologyPosition:
+      type: object
+      additionalProperties: false
+      required: [positionId, connections]
+      properties:
+        positionId: { type: string, minLength: 1 }
+        connections:
+          type: array
+          items: { $ref: '#/components/schemas/PortConnection' }
+    PortConnection:
+      type: object
+      additionalProperties: false
+      required: [portAId, portBId]
+      properties:
+        portAId: { type: string, minLength: 1 }
+        portBId: { type: string, minLength: 1 }
+    BlockDefinition:
+      type: object
+      additionalProperties: false
+      required: [id, name, trackSectionIds]
+      properties:
+        id: { type: string, minLength: 1 }
+        name: { type: string, minLength: 1 }
+        trackSectionIds:
+          type: array
+          items: { type: string, minLength: 1 }
+        turnoutIds:
+          type: array
+          items: { type: string, minLength: 1 }
     AccessoryEndpoint:
       type: object
       required: [id, linearAddress]

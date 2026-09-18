@@ -34,6 +34,12 @@ All notable changes to this project will be documented in this file.
   components, cycle support, and structural node diagnostics.
 - Conservative active topology views driven only by confirmed reported turnout
   positions, with report quality retained as traversal metadata.
+- Deterministic topology queries and traversal-count pathfinding for static and
+  active graphs, with oriented traversals, turnout requirements, and caller
+  exclusions for sections, turnouts, and blocks.
+- Authenticated topology REST reads with a deterministic revision, compact
+  WebSocket snapshot synchronization, and `dccctl topology` inspection and
+  validation commands.
 - Typed station contract for binary DCC accessories, portable linear-address range validation, and a generic provider for qualified feedback.
 - z21 `LAN_X_SET_TURNOUT` accessory commands, configurable pulse and safe deactivation, correlated `LAN_X_GET_TURNOUT_INFO` queries, and state broadcasts without invented positions.
 - DCC-EX accessories aligned with `<a linear 0|1>`, including portable-range validation, `assumed` feedback, concurrent TCP tests, and no replay after reconnection.
@@ -97,10 +103,11 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Drivers now receive `position1` or `position2` through `SetBasicAccessory`, without geometric `straight`/`diverging` strings.
-- The OpenAPI contract is now version `1.7.0` and AsyncAPI is now `1.9.1`.
+- The OpenAPI contract is now version `1.8.0` and AsyncAPI is now `1.10.0`.
   Turnouts expose `reportQuality`, use `position` for commands, and retain the
   `turnout.commanded`, `turnout.state.changed`, and
-  `turnout.command.failed` events.
+  `turnout.command.failed` events. Snapshots expose `topologyRevision` and the
+  full static definition is available from `GET /api/v1/topology`.
 - Layout archives are now version 5, retain physical topology and block
   resource membership, and separate configuration from runtime state.
   Versions 1 through 4 remain importable.

@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: DCC Control Server Events
-  version: 1.9.1
+  version: 1.10.0
   description: >-
     WebSocket event contract for native clients, including complete sequenced
     snapshots and explicit resynchronization requests. After a snapshot, clients
@@ -264,7 +264,7 @@ components:
           capturedAt: { type: string, format: date-time }
           payload:
             type: object
-            required: [station, stationStatus, locomotives, controlLeases, locomotiveControlStates, blocks, turnouts, routes]
+            required: [station, stationStatus, locomotives, controlLeases, locomotiveControlStates, blocks, turnouts, routes, topologyRevision]
             properties:
               station: { $ref: '#/components/schemas/StationCapabilities' }
               stationStatus: { $ref: '#/components/schemas/StationStatus' }
@@ -290,6 +290,12 @@ components:
               routes:
                 type: array
                 items: { $ref: '#/components/schemas/Route' }
+              topologyRevision:
+                type: string
+                pattern: '^[0-9a-f]{64}$'
+                description: >-
+                  Revision returned by GET /api/v1/topology. Reload that resource
+                  when this value changes or after layout.imported.
     StationStatusChanged:
       name: station.status.changed
       payload:
