@@ -110,6 +110,21 @@ type OccupancyObservation struct {
 	Occupant   *OccupantRef   `json:"occupant,omitempty"`
 }
 
+type SensorOccupancyState struct {
+	ProviderID string         `json:"providerId"`
+	SensorID   string         `json:"sensorId"`
+	BlockID    string         `json:"blockId"`
+	State      OccupancyState `json:"state"`
+	Sequence   uint64         `json:"sequence"`
+	ObservedAt time.Time      `json:"observedAt"`
+	ReceivedAt time.Time      `json:"receivedAt"`
+	Occupant   *OccupantRef   `json:"occupant,omitempty"`
+	Required   bool           `json:"required"`
+	Priority   int            `json:"priority"`
+	Fresh      bool           `json:"fresh"`
+	Available  bool           `json:"available"`
+}
+
 var ErrInvalidOccupancy = errors.New("invalid occupancy")
 
 func ValidateBlockOccupancy(occupancy BlockOccupancy) error {

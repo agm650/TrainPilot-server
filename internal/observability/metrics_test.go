@@ -100,6 +100,31 @@ func TestTurnoutDurationMetricsBoundLabels(t *testing.T) {
 	}
 }
 
+func TestOccupancyMetricsUseBoundedLabels(t *testing.T) {
+	metrics := New(":memory:")
+	metrics.OccupancyObservationAccepted()
+	metrics.OccupancyObservationRejected("secret-sensor-id")
+	metrics.SetOccupancyBlockStateCounts(2, 3, 4)
+	metrics.SetOccupancyStaleSourceCounts(5, 6)
+	body := scrape(t, metrics)
+	for _, sample := range []string{
+		`trainpilot_occupancy_observations_total 1`,
+		`trainpilot_occupancy_observations_rejected_total{reason="other"} 1`,
+		`trainpilot_occupancy_block_state{state="unknown"} 2`,
+		`trainpilot_occupancy_block_state{state="free"} 3`,
+		`trainpilot_occupancy_block_state{state="occupied"} 4`,
+		`trainpilot_occupancy_source_stale{required="true"} 5`,
+		`trainpilot_occupancy_source_stale{required="false"} 6`,
+	} {
+		if !strings.Contains(body, sample) {
+			t.Fatalf("missing metric sample %q", sample)
+		}
+	}
+	if strings.Contains(body, "secret-sensor-id") {
+		t.Fatal("unbounded occupancy label leaked into metrics")
+	}
+}
+
 func scrape(t *testing.T, metrics *Metrics) string {
 	t.Helper()
 	recorder := httptest.NewRecorder()

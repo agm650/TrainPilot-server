@@ -44,7 +44,7 @@ dans ce backlog.
 ### Rétrosignalisation et cantons
 
 - [x] OCC-001 — Modèle multi-sources, validation et persistance de la configuration.
-- [ ] OCC-002 — Service d'agrégation conservative et gestion de la fraîcheur.
+- [x] OCC-002 — Service d'agrégation conservative et gestion de la fraîcheur.
 - [ ] OCC-003 — Adaptation du feedback R-BUS au service d'occupation.
 - [ ] OCC-004 — API sécurisée pour les observations externes.
 - [ ] OCC-005 — Contrats REST/WebSocket, snapshot et sûreté des itinéraires.

@@ -65,5 +65,30 @@ do not advance the last accepted sequence.
 - Startup and restart never restore an old runtime `free` observation.
 - Occupancy configuration does not imply that a sensor observation exists.
 
-Aggregation, station adapters, external observation APIs, and public runtime
-contracts are implemented by OCC-002 through OCC-005.
+The aggregation order is fixed: any fresh `occupied` wins; otherwise a missing,
+unavailable, stale, or `unknown` required source produces `unknown`; otherwise
+fresh required sources produce `free`. With no required source, at least one
+fresh `free` is needed to produce `free`.
+
+The service keeps only the last accepted observation for each provider and
+sensor. Lower sequences are rejected. An identical duplicate sequence is an
+accepted no-op, while a conflicting duplicate is rejected. A higher-sequence
+refresh updates freshness without publishing another business event when the
+aggregated state is unchanged. Providers must keep sequences monotonic for a
+logical stream; a future stream or epoch identifier will be needed for explicit
+provider-side sequence resets.
+
+A single central sweep recalculates time-based freshness, so a block can move
+to `unknown` without another external observation. Occupant metadata comes from
+the highest-priority fresh occupied source. Conflicting identities at the same
+highest priority yield no occupant identity.
+
+The service exports bounded occupancy metrics without block or sensor labels:
+
+- `trainpilot_occupancy_observations_total`;
+- `trainpilot_occupancy_observations_rejected_total`;
+- `trainpilot_occupancy_block_state`;
+- `trainpilot_occupancy_source_stale`.
+
+Station adapters, external observation APIs, and public runtime contracts are
+implemented by OCC-003 through OCC-005.

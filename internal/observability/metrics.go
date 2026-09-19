@@ -45,6 +45,10 @@ type Metrics struct {
 	feedbackDuration      *prometheus.HistogramVec
 	feedbackMappingErrors *prometheus.CounterVec
 	feedbackOccupancy     *prometheus.CounterVec
+	occupancyObservations prometheus.Counter
+	occupancyRejected     *prometheus.CounterVec
+	occupancyBlockState   *prometheus.GaugeVec
+	occupancySourceStale  *prometheus.GaugeVec
 
 	activeLeases         prometheus.Gauge
 	leaseOperations      *prometheus.CounterVec
@@ -151,6 +155,22 @@ func New(databasePath string) *Metrics {
 			Name: "trainpilot_feedback_occupancy_updates_total",
 			Help: "Mapped occupancy updates grouped by whether state changed.",
 		}, []string{"provider", "result"}),
+		occupancyObservations: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "trainpilot_occupancy_observations_total",
+			Help: "Occupancy observations accepted by the aggregation service.",
+		}),
+		occupancyRejected: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "trainpilot_occupancy_observations_rejected_total",
+			Help: "Occupancy observations rejected by bounded reason.",
+		}, []string{"reason"}),
+		occupancyBlockState: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "trainpilot_occupancy_block_state",
+			Help: "Number of known runtime blocks in each occupancy state.",
+		}, []string{"state"}),
+		occupancySourceStale: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "trainpilot_occupancy_source_stale",
+			Help: "Number of missing, unavailable, or stale occupancy sources.",
+		}, []string{"required"}),
 		activeLeases: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "trainpilot_control_leases_active",
 			Help: "Live locomotive control leases.",
@@ -242,6 +262,7 @@ func New(databasePath string) *Metrics {
 		m.wsConnections, m.wsConnectionsSeen, m.wsEvents, m.wsEventsDropped, m.wsQueueOverflows,
 		m.wsSnapshotRequest, m.wsSnapshotTime, m.wsSnapshotSize,
 		m.feedbackEvents, m.feedbackDuration, m.feedbackMappingErrors, m.feedbackOccupancy,
+		m.occupancyObservations, m.occupancyRejected, m.occupancyBlockState, m.occupancySourceStale,
 		m.activeLeases, m.leaseOperations, m.controlCommands, m.leaseStopDuration, m.safetyStops,
 		m.routeOperations, m.turnoutCommands, m.turnoutConfirms, m.turnoutDuration, m.turnoutPhaseTime, m.turnoutConfirmDetail,
 		m.stationState, m.stationTransitions, m.stationReconnects, m.stationCommands, m.stationDuration,
@@ -381,6 +402,35 @@ func (m *Metrics) ObserveFeedbackOccupancy(provider string, changed bool) {
 		result = "changed"
 	}
 	m.feedbackOccupancy.WithLabelValues(BoundedProvider(provider), result).Inc()
+}
+
+func (m *Metrics) OccupancyObservationAccepted() {
+	if m != nil {
+		m.occupancyObservations.Inc()
+	}
+}
+
+func (m *Metrics) OccupancyObservationRejected(reason string) {
+	if m != nil {
+		m.occupancyRejected.WithLabelValues(bounded(reason, "invalid", "mapping", "stale", "conflict")).Inc()
+	}
+}
+
+func (m *Metrics) SetOccupancyBlockStateCounts(unknown, free, occupied int) {
+	if m == nil {
+		return
+	}
+	m.occupancyBlockState.WithLabelValues("unknown").Set(float64(unknown))
+	m.occupancyBlockState.WithLabelValues("free").Set(float64(free))
+	m.occupancyBlockState.WithLabelValues("occupied").Set(float64(occupied))
+}
+
+func (m *Metrics) SetOccupancyStaleSourceCounts(required, optional int) {
+	if m == nil {
+		return
+	}
+	m.occupancySourceStale.WithLabelValues("true").Set(float64(required))
+	m.occupancySourceStale.WithLabelValues("false").Set(float64(optional))
 }
 
 func (m *Metrics) SetActiveLeases(count int) {
