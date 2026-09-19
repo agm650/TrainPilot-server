@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/model"
@@ -467,7 +468,8 @@ func (s *Store) SeedDemo(ctx context.Context) error {
 		{`INSERT OR IGNORE INTO blocks(id,name,occupied) VALUES(?,?,0)`, []any{"block-a", "Gare voie 1"}},
 		{`INSERT OR IGNORE INTO blocks(id,name,occupied) VALUES(?,?,0)`, []any{"block-b", "Pleine voie"}},
 		{`INSERT OR IGNORE INTO blocks(id,name,occupied) VALUES(?,?,0)`, []any{"block-c", "Gare voie 2"}},
-		{`INSERT OR IGNORE INTO feedback_mappings(provider,address,block_id) VALUES(?,?,?)`, []any{"simulator", 1, "block-a"}},
+		{`INSERT OR IGNORE INTO occupancy_providers(id,type,priority,required,stale_after_ns,freshness_required) VALUES('simulator','simulator',100,1,0,0)`, nil},
+		{`INSERT OR IGNORE INTO occupancy_sensor_mappings(provider_id,sensor_id,block_id) VALUES(?,?,?)`, []any{"simulator", "1", "block-a"}},
 		{`INSERT OR IGNORE INTO turnouts(id,name,dcc_address,desired_state,reported_state,kind,desired_position,reported_position,pending,reported_status,quality,command_status) VALUES(?,?,?,?,?,'simple','straight','straight',0,'known','assumed','succeeded')`, []any{"turnout-1", "Aiguille entrée", 1, "straight", "straight"}},
 		{`INSERT OR IGNORE INTO turnout_endpoints(turnout_id,endpoint_id,linear_address,inverted,ordinal) SELECT 'turnout-1','main',1,0,0 WHERE NOT EXISTS(SELECT 1 FROM turnout_endpoints WHERE turnout_id='turnout-1')`, nil},
 		{`INSERT OR IGNORE INTO turnout_positions(turnout_id,position_id,label,ordinal) SELECT 'turnout-1','straight','',0 WHERE EXISTS(SELECT 1 FROM turnouts t JOIN turnout_endpoints e ON e.turnout_id=t.id WHERE t.id='turnout-1' AND t.kind='simple' AND e.endpoint_id='main')`, nil},
@@ -490,7 +492,7 @@ func (s *Store) SeedDemo(ctx context.Context) error {
 func (s *Store) BlockForFeedback(ctx context.Context, provider string, address int) (blockID string, err error) {
 	started := time.Now()
 	defer func() { s.observe("map_feedback", started, err) }()
-	err = s.DB.QueryRowContext(ctx, `SELECT block_id FROM feedback_mappings WHERE (provider=? OR provider='*') AND address=? ORDER BY provider DESC LIMIT 1`, provider, address).Scan(&blockID)
+	err = s.DB.QueryRowContext(ctx, `SELECT block_id FROM occupancy_sensor_mappings WHERE (provider_id=? OR provider_id='*') AND sensor_id=? ORDER BY provider_id DESC LIMIT 1`, provider, strconv.Itoa(address)).Scan(&blockID)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
@@ -498,7 +500,10 @@ func (s *Store) BlockForFeedback(ctx context.Context, provider string, address i
 }
 
 func (s *Store) SetFeedbackMapping(ctx context.Context, provider string, address int, blockID string) error {
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO feedback_mappings(provider,address,block_id) VALUES(?,?,?) ON CONFLICT(provider,address) DO UPDATE SET block_id=excluded.block_id`, provider, address, blockID)
+	if err := s.ensureDefaultOccupancyProvider(ctx, provider); err != nil {
+		return err
+	}
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO occupancy_sensor_mappings(provider_id,sensor_id,block_id) VALUES(?,?,?) ON CONFLICT(provider_id,sensor_id) DO UPDATE SET block_id=excluded.block_id`, provider, strconv.Itoa(address), blockID)
 	return err
 }
 
@@ -531,7 +536,7 @@ func (s *Store) ReplaceLocomotives(ctx context.Context, items []model.Locomotive
 }
 
 func (s *Store) ListFeedbackMappings(ctx context.Context) ([]model.FeedbackMapping, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT provider,address,block_id FROM feedback_mappings ORDER BY provider,address`)
+	rows, err := s.DB.QueryContext(ctx, `SELECT provider_id,sensor_id,block_id FROM occupancy_sensor_mappings ORDER BY provider_id,sensor_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -539,9 +544,15 @@ func (s *Store) ListFeedbackMappings(ctx context.Context) ([]model.FeedbackMappi
 	var out []model.FeedbackMapping
 	for rows.Next() {
 		var x model.FeedbackMapping
-		if err := rows.Scan(&x.Provider, &x.Address, &x.BlockID); err != nil {
+		var sensorID string
+		if err := rows.Scan(&x.Provider, &sensorID, &x.BlockID); err != nil {
 			return nil, err
 		}
+		address, parseErr := strconv.Atoi(sensorID)
+		if parseErr != nil {
+			continue
+		}
+		x.Address = address
 		out = append(out, x)
 	}
 	return out, rows.Err()

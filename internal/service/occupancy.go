@@ -207,16 +207,9 @@ func (s *OccupancyService) SetProviderAvailable(ctx context.Context, providerID 
 		return err
 	}
 	blocks := make(map[string]struct{})
-	providerFound := false
 	for _, config := range configs {
 		if config.ProviderID == providerID {
-			providerFound = true
 			blocks[config.BlockID] = struct{}{}
-		}
-	}
-	if !providerFound {
-		if _, err := s.store.OccupancyProvider(ctx, providerID); err != nil {
-			return err
 		}
 	}
 	now := s.clock.Now().UTC()

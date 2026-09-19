@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/model"
+	"github.com/agm650/TrainPilot-server/internal/sqlite"
 )
 
 func TestOccupancyConfigurationPersistence(t *testing.T) {
@@ -151,5 +152,66 @@ func TestOccupancyConfigurationRejectsInvalidValuesAndReferences(t *testing.T) {
 	}
 	if _, err := db.OccupancySensorMapping(ctx, "missing", "sensor"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing mapping error = %v", err)
+	}
+}
+
+func TestMigrateLegacyFeedbackMappingToOccupancyMapping(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, `CREATE TABLE blocks (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		occupied INTEGER NOT NULL DEFAULT 0
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO blocks(id,name,occupied) VALUES('block','Block',0)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE feedback_mappings (
+		provider TEXT NOT NULL,
+		address INTEGER NOT NULL,
+		block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+		PRIMARY KEY(provider,address)
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO feedback_mappings(provider,address,block_id) VALUES('z21-rbus',12,'block')`); err != nil {
+		t.Fatal(err)
+	}
+	store := &Store{DB: db}
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := store.OccupancyProvider(ctx, "z21-rbus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.Type != "current-detection" || provider.Priority != 100 || !provider.Required || provider.StaleAfter != 0 {
+		t.Fatalf("migrated provider = %+v", provider)
+	}
+	mapping, err := store.OccupancySensorMapping(ctx, "z21-rbus", "12")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mapping.BlockID != "block" {
+		t.Fatalf("migrated mapping = %+v", mapping)
+	}
+	var legacyTable int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='feedback_mappings'`).Scan(&legacyTable); err != nil {
+		t.Fatal(err)
+	}
+	if legacyTable != 0 {
+		t.Fatal("legacy feedback_mappings table still exists")
+	}
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatalf("second migration: %v", err)
+	}
+	if mappings, err := store.ListOccupancySensorMappings(ctx); err != nil || len(mappings) != 1 {
+		t.Fatalf("mappings after second migration = %+v, err=%v", mappings, err)
 	}
 }

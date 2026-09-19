@@ -252,7 +252,7 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 			if err := clearTopologyDefinition(ctx, tx); err != nil {
 				return err
 			}
-			for _, q := range []string{`DELETE FROM route_conflicts`, `DELETE FROM route_turnouts`, `DELETE FROM route_blocks`, `DELETE FROM routes`, `DELETE FROM feedback_mappings`, `DELETE FROM turnouts`, `DELETE FROM blocks`} {
+			for _, q := range []string{`DELETE FROM route_conflicts`, `DELETE FROM route_turnouts`, `DELETE FROM route_blocks`, `DELETE FROM routes`, `DELETE FROM occupancy_sensor_mappings`, `DELETE FROM turnouts`, `DELETE FROM blocks`} {
 				if _, err := tx.ExecContext(ctx, q); err != nil {
 					return err
 				}
@@ -275,7 +275,14 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 			return err
 		}
 		for _, m := range layout.FeedbackMappings {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO feedback_mappings(provider,address,block_id) VALUES(?,?,?) ON CONFLICT(provider,address) DO UPDATE SET block_id=excluded.block_id`, m.Provider, m.Address, m.BlockID); err != nil {
+			providerType := "current-detection"
+			if m.Provider == "simulator" {
+				providerType = "simulator"
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO occupancy_providers(id,type,priority,required,stale_after_ns,freshness_required) VALUES(?,?,100,1,0,0)`, m.Provider, providerType); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO occupancy_sensor_mappings(provider_id,sensor_id,block_id) VALUES(?,CAST(? AS TEXT),?) ON CONFLICT(provider_id,sensor_id) DO UPDATE SET block_id=excluded.block_id`, m.Provider, m.Address, m.BlockID); err != nil {
 				return err
 			}
 		}

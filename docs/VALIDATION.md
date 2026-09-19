@@ -41,6 +41,13 @@ Les commandes de conformité actives et les mutations de configuration ne sont
 jamais lancées implicitement contre une centrale réelle : elles exigent les
 options explicites documentées dans `docs/TESTING.md`.
 
+La validation automatisée du feedback vérifie la migration des mappings, la
+traduction active/inactive, l'invalidation sur `offline` et l'absence de faux
+`free` au retour `online`. Elle utilise le simulateur et les faux pilotes. Elle
+ne remplace pas les essais physiques du Roco 10819 : chaque entrée, les états
+simultanés, le redémarrage et la coupure/reprise z21 restent à confirmer sur le
+réseau réel.
+
 Sur macOS, les sockets Unix ont une longueur de chemin limitée. Si `TestUserAdministrationOverUnixSocket` échoue avec `bind: invalid argument` dans un chemin temporaire long, relancer les tests avec :
 
 ```bash

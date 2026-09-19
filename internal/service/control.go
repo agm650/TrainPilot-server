@@ -41,12 +41,19 @@ type ControlService struct {
 	locoStateMu                  sync.RWMutex
 	lastDirection                map[string]station.Direction
 	metrics                      *observability.Metrics
+	occupancy                    *OccupancyService
+	occupancyProviderID          string
 }
 
 func NewControlService(s *store.Store, st station.CommandStation, b *events.Bus, c clock.Clock, leaseTTL, stopGrace, monitor time.Duration) *ControlService {
 	return &ControlService{store: s, station: st, events: b, clock: c, leaseTTL: leaseTTL, stopGrace: stopGrace, monitor: monitor, stop: make(chan struct{}), commands: newPriorityCommandGate(), lastDirection: make(map[string]station.Direction)}
 }
 func (c *ControlService) SetMetrics(metrics *observability.Metrics) { c.metrics = metrics }
+
+func (c *ControlService) SetOccupancyProvider(occupancy *OccupancyService, providerID string) {
+	c.occupancy = occupancy
+	c.occupancyProviderID = providerID
+}
 
 func (c *ControlService) Start() {
 	if c.metrics != nil {
@@ -56,6 +63,9 @@ func (c *ControlService) Start() {
 		if provider, ok := c.station.(station.HealthProvider); ok {
 			c.metrics.SetStationState(string(provider.Health().Connectivity))
 		}
+	}
+	if provider, ok := c.station.(station.HealthProvider); ok {
+		c.updateOccupancyProviderAvailability(provider.Health().Connectivity)
 	}
 	go func() {
 		ticker := time.NewTicker(c.monitor)
@@ -206,6 +216,7 @@ func (c *ControlService) validateCommandLease(ctx context.Context, leaseID, loco
 
 func (c *ControlService) publishStationStatusChanges(status station.Status) {
 	c.observeSafetyStatus(status)
+	c.updateOccupancyProviderAvailability(status.Connectivity)
 	_, _, status.EmergencyStop = c.safetySnapshot()
 
 	c.statusMu.Lock()
@@ -239,6 +250,13 @@ func (c *ControlService) publishStationStatusChanges(status station.Status) {
 			"active": status.EmergencyStop,
 		})
 	}
+}
+
+func (c *ControlService) updateOccupancyProviderAvailability(connectivity station.Connectivity) {
+	if c.occupancy == nil || c.occupancyProviderID == "" {
+		return
+	}
+	_ = c.occupancy.SetProviderAvailable(context.Background(), c.occupancyProviderID, connectivity != station.Offline)
 }
 
 func (c *ControlService) rememberTrackPower(enabled bool) {

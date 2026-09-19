@@ -26,7 +26,11 @@
 - l'arrêt d'urgence, la coupure de puissance et la vitesse zéro passent avant les commandes ordinaires en attente, qui sont refusées sans atteindre le pilote ;
 - la reprise après arrêt d'urgence nécessite un ordre `power on` explicite réussi ;
 - les transitions `online`, `degraded`, `offline` et le retour à `online` sont couvertes au niveau du suivi de santé ;
-- un capteur mappé modifie le canton correspondant ;
+- un feedback R-BUS mappé traverse `OccupancyService`, traduit active/inactive
+  en occupied/free et conserve plusieurs adresses et Blocks indépendants ;
+- une centrale offline invalide les observations sticky de son provider et
+  produit unknown pour une source required ; le retour online n'invente pas
+  free avant un nouveau feedback ;
 - un itinéraire occupé ou en conflit ne peut pas être réservé et une activation hors ligne échoue ;
 - après réservation, une occupation tardive refuse l'activation avec `route_occupied`, sans commande d'aiguillage ni événement `route.activated` ;
 - après réservation, un conflit tardif `reserved` ou `active` refuse l'activation avec `route_conflict`, sans commande d'aiguillage ni événement `route.activated` ;

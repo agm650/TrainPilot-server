@@ -279,7 +279,63 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if err := s.migrateTurnoutSchema(ctx); err != nil {
 		return err
 	}
-	return s.migrateRouteSchema(ctx)
+	if err := s.migrateRouteSchema(ctx); err != nil {
+		return err
+	}
+	return s.migrateOccupancySchema(ctx)
+}
+
+func (s *Store) migrateOccupancySchema(ctx context.Context) error {
+	rows, err := s.DB.QueryContext(ctx, `SELECT provider,address,block_id FROM feedback_mappings ORDER BY provider,address`)
+	if err != nil {
+		return fmt.Errorf("list legacy feedback mappings: %w", err)
+	}
+	type legacyMapping struct {
+		provider string
+		address  int
+		blockID  string
+	}
+	var mappings []legacyMapping
+	for rows.Next() {
+		var mapping legacyMapping
+		if err := rows.Scan(&mapping.provider, &mapping.address, &mapping.blockID); err != nil {
+			rows.Close()
+			return fmt.Errorf("read legacy feedback mapping: %w", err)
+		}
+		mappings = append(mappings, mapping)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("list legacy feedback mappings: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, mapping := range mappings {
+		if err := s.ensureDefaultOccupancyProvider(ctx, mapping.provider); err != nil {
+			return err
+		}
+		if _, err := s.DB.ExecContext(ctx, `
+			INSERT OR IGNORE INTO occupancy_sensor_mappings(provider_id,sensor_id,block_id)
+			VALUES(?,CAST(? AS TEXT),?)`, mapping.provider, mapping.address, mapping.blockID); err != nil {
+			return fmt.Errorf("migrate feedback mapping %s:%d: %w", mapping.provider, mapping.address, err)
+		}
+	}
+	if _, err := s.DB.ExecContext(ctx, `DROP TABLE feedback_mappings`); err != nil {
+		return fmt.Errorf("drop legacy feedback mappings: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ensureDefaultOccupancyProvider(ctx context.Context, providerID string) error {
+	providerType := "current-detection"
+	if providerID == "simulator" {
+		providerType = "simulator"
+	}
+	_, err := s.DB.ExecContext(ctx, `
+		INSERT OR IGNORE INTO occupancy_providers(id,type,priority,required,stale_after_ns,freshness_required)
+		VALUES(?,?,100,1,0,0)`, providerID, providerType)
+	return err
 }
 
 func (s *Store) migrateRouteSchema(ctx context.Context) error {

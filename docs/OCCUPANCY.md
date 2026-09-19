@@ -92,3 +92,24 @@ The service exports bounded occupancy metrics without block or sensor labels:
 
 Station adapters, external observation APIs, and public runtime contracts are
 implemented by OCC-003 through OCC-005.
+
+## R-BUS and station feedback
+
+The z21 adapter publishes R-BUS inputs through provider `z21-rbus`. Active
+inputs become `occupied`; inactive inputs become `free`. TrainPilot assigns a
+runtime monotonic sequence to each provider and address before passing the
+observation to `OccupancyService`.
+
+R-BUS feedback is event-driven and has no arbitrary timer expiry. Its
+`staleAfter` is disabled and freshness follows command-station health. When the
+station becomes `offline`, accepted observations from its provider are cleared
+and required mappings become `unknown`. Returning `online` does not revive the
+old observation or invent `free`; a new feedback observation is required.
+`degraded` remains available until the existing station health policy reaches
+`offline`.
+
+Legacy numeric feedback mappings are migrated once to the generic
+provider/sensor/block table. The compatibility store methods use that same
+table, so there is no second occupancy pipeline. Migrated providers default to
+priority 100, required, and sticky freshness. Their settings can be changed in
+the persisted provider configuration.
