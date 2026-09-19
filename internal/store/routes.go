@@ -149,6 +149,14 @@ func (s *Store) ExportLayout(ctx context.Context) (model.LayoutDefinition, error
 	if err != nil {
 		return model.LayoutDefinition{}, err
 	}
+	providers, err := s.ListOccupancyProviders(ctx)
+	if err != nil {
+		return model.LayoutDefinition{}, err
+	}
+	occupancyMappings, err := s.ListOccupancySensorMappings(ctx)
+	if err != nil {
+		return model.LayoutDefinition{}, err
+	}
 	topology, err := s.GetTopologyDefinition(ctx)
 	if err != nil {
 		return model.LayoutDefinition{}, err
@@ -204,13 +212,15 @@ func (s *Store) ExportLayout(ctx context.Context) (model.LayoutDefinition, error
 		defs = append(defs, def)
 	}
 	return model.LayoutDefinition{
-		Blocks:            blocks,
-		Turnouts:          turnouts,
-		Routes:            defs,
-		FeedbackMappings:  mappings,
-		TopologyNodes:     topology.TopologyNodes,
-		TrackSections:     topology.TrackSections,
-		TurnoutTopologies: topology.TurnoutTopologies,
+		Blocks:                  blocks,
+		Turnouts:                turnouts,
+		Routes:                  defs,
+		FeedbackMappings:        mappings,
+		OccupancyProviders:      providers,
+		OccupancySensorMappings: occupancyMappings,
+		TopologyNodes:           topology.TopologyNodes,
+		TrackSections:           topology.TrackSections,
+		TurnoutTopologies:       topology.TurnoutTopologies,
 	}, nil
 }
 
@@ -257,6 +267,22 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 					return err
 				}
 			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM occupancy_providers`); err != nil {
+				return err
+			}
+		}
+		for _, provider := range layout.OccupancyProviders {
+			if err := model.ValidateOccupancyProvider(provider); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO occupancy_providers(id,type,priority,required,stale_after_ns,freshness_required)
+				VALUES(?,?,?,?,?,?)
+				ON CONFLICT(id) DO UPDATE SET type=excluded.type,priority=excluded.priority,required=excluded.required,
+					stale_after_ns=excluded.stale_after_ns,freshness_required=excluded.freshness_required`,
+				provider.ID, provider.Type, provider.Priority, boolInt(provider.Required), int64(provider.StaleAfter), boolInt(provider.FreshnessRequired)); err != nil {
+				return err
+			}
 		}
 		for _, b := range layout.Blocks {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO blocks(id,name,occupied) VALUES(?,?,0) ON CONFLICT(id) DO UPDATE SET name=excluded.name`, b.ID, b.Name); err != nil {
@@ -283,6 +309,18 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 				return err
 			}
 			if _, err := tx.ExecContext(ctx, `INSERT INTO occupancy_sensor_mappings(provider_id,sensor_id,block_id) VALUES(?,CAST(? AS TEXT),?) ON CONFLICT(provider_id,sensor_id) DO UPDATE SET block_id=excluded.block_id`, m.Provider, m.Address, m.BlockID); err != nil {
+				return err
+			}
+		}
+		for _, mapping := range layout.OccupancySensorMappings {
+			if err := model.ValidateOccupancySensorMapping(mapping); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO occupancy_sensor_mappings(provider_id,sensor_id,block_id,required,priority)
+				VALUES(?,?,?,?,?)
+				ON CONFLICT(provider_id,sensor_id) DO UPDATE SET block_id=excluded.block_id,required=excluded.required,priority=excluded.priority`,
+				mapping.ProviderID, mapping.SensorID, mapping.BlockID, nullableBool(mapping.Required), nullableInt(mapping.Priority)); err != nil {
 				return err
 			}
 		}

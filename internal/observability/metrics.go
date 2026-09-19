@@ -49,6 +49,7 @@ type Metrics struct {
 	occupancyRejected     *prometheus.CounterVec
 	occupancyBlockState   *prometheus.GaugeVec
 	occupancySourceStale  *prometheus.GaugeVec
+	occupancyExternalLag  *prometheus.HistogramVec
 
 	activeLeases         prometheus.Gauge
 	leaseOperations      *prometheus.CounterVec
@@ -171,6 +172,11 @@ func New(databasePath string) *Metrics {
 			Name: "trainpilot_occupancy_source_stale",
 			Help: "Number of missing, unavailable, or stale occupancy sources.",
 		}, []string{"required"}),
+		occupancyExternalLag: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "trainpilot_occupancy_external_observation_latency_seconds",
+			Help:    "Delay between an external observation timestamp and server receipt.",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"result"}),
 		activeLeases: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "trainpilot_control_leases_active",
 			Help: "Live locomotive control leases.",
@@ -262,7 +268,7 @@ func New(databasePath string) *Metrics {
 		m.wsConnections, m.wsConnectionsSeen, m.wsEvents, m.wsEventsDropped, m.wsQueueOverflows,
 		m.wsSnapshotRequest, m.wsSnapshotTime, m.wsSnapshotSize,
 		m.feedbackEvents, m.feedbackDuration, m.feedbackMappingErrors, m.feedbackOccupancy,
-		m.occupancyObservations, m.occupancyRejected, m.occupancyBlockState, m.occupancySourceStale,
+		m.occupancyObservations, m.occupancyRejected, m.occupancyBlockState, m.occupancySourceStale, m.occupancyExternalLag,
 		m.activeLeases, m.leaseOperations, m.controlCommands, m.leaseStopDuration, m.safetyStops,
 		m.routeOperations, m.turnoutCommands, m.turnoutConfirms, m.turnoutDuration, m.turnoutPhaseTime, m.turnoutConfirmDetail,
 		m.stationState, m.stationTransitions, m.stationReconnects, m.stationCommands, m.stationDuration,
@@ -431,6 +437,20 @@ func (m *Metrics) SetOccupancyStaleSourceCounts(required, optional int) {
 	}
 	m.occupancySourceStale.WithLabelValues("true").Set(float64(required))
 	m.occupancySourceStale.WithLabelValues("false").Set(float64(optional))
+}
+
+func (m *Metrics) ObserveExternalOccupancyLatency(latency time.Duration, accepted bool) {
+	if m == nil {
+		return
+	}
+	if latency < 0 {
+		latency = 0
+	}
+	result := "rejected"
+	if accepted {
+		result = "accepted"
+	}
+	m.occupancyExternalLag.WithLabelValues(result).Observe(latency.Seconds())
 }
 
 func (m *Metrics) SetActiveLeases(count int) {

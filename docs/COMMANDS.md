@@ -66,8 +66,8 @@ running.
   `/tmp/dccd-admin.sock`;
 - `--username <name>`: target user;
 - `--display-name <name>`: display name used when creating a user;
-- `--role <role>`: `viewer`, `driver`, `dispatcher`, or
-  `administrator`;
+- `--role <role>`: `viewer`, `driver`, `dispatcher`, `administrator`, or
+  `sensor`; the sensor role is limited to external occupancy writes;
 - `--must-change`: require a password change;
 - `--password-stdin`: read the password from standard input.
 

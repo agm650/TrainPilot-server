@@ -226,7 +226,7 @@ go test ./internal/topology -run '^$' \
 ```
 
 Les tests de `internal/transfer` importent des archives de circuit versions 1,
-3 et 4, puis vérifient un round-trip déterministe en version 5. Une archive v4
+3, 4 et 5, puis vérifient un round-trip déterministe en version 6. Une archive v4
 conserve sa topologie mais donne des memberships vides aux anciens blocks. Une
 archive v5 conserve les ressources des blocks sans restaurer les états runtime
 des aiguillages ni `Block.Occupied`.

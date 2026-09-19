@@ -28,6 +28,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Conservative multi-source block occupancy with persisted providers and
+  sensor mappings, R-BUS adaptation, and authenticated single/batch external
+  observations through the restricted `sensor` role.
 - Physical railway topology with validated nodes, track sections, conditional
   turnout connections, normalized SQLite persistence, and deterministic export.
 - Indexed static topology graph with conditional turnout edges, connected
@@ -106,14 +109,15 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Drivers now receive `position1` or `position2` through `SetBasicAccessory`, without geometric `straight`/`diverging` strings.
-- The OpenAPI contract is now version `1.8.0` and AsyncAPI is now `1.10.0`.
+- The OpenAPI contract is now version `1.9.0` and AsyncAPI is now `1.10.0`.
   Turnouts expose `reportQuality`, use `position` for commands, and retain the
   `turnout.commanded`, `turnout.state.changed`, and
   `turnout.command.failed` events. Snapshots expose `topologyRevision` and the
   full static definition is available from `GET /api/v1/topology`.
-- Layout archives are now version 5, retain physical topology and block
-  resource membership, and separate configuration from runtime state.
-  Versions 1 through 4 remain importable.
+- Layout archives are now version 6, retain physical topology, block
+  resource membership, and occupancy provider configuration while separating
+  configuration from runtime observations.
+  Versions 1 through 5 remain importable.
 - SQLite now uses the pure-Go `modernc.org/sqlite` driver.
 - A valid throttle or function command now renews the control lease.
 - The WebSocket snapshot now includes command-station capabilities and current status.

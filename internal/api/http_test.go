@@ -417,9 +417,11 @@ type detailedHTTPFixture struct {
 	dispatcher    *client.Client
 	viewer        *client.Client
 	administrator *client.Client
+	sensor        *client.Client
 	db            *store.Store
 	simulator     *simulator.Simulator
 	bus           *events.Bus
+	occupancy     *service.OccupancyService
 }
 
 func newDetailedHTTPFixture(t *testing.T) detailedHTTPFixture {
@@ -439,7 +441,7 @@ func newDetailedHTTPFixture(t *testing.T) detailedHTTPFixture {
 	for _, item := range []struct {
 		name string
 		role model.Role
-	}{{"dispatcher", model.RoleDispatcher}, {"viewer", model.RoleViewer}, {"driver", model.RoleDriver}, {"administrator", model.RoleAdministrator}} {
+	}{{"dispatcher", model.RoleDispatcher}, {"viewer", model.RoleViewer}, {"driver", model.RoleDriver}, {"administrator", model.RoleAdministrator}, {"sensor", model.RoleSensor}} {
 		if _, err := users.Create(ctx, item.name, item.name, "correct-horse-1", item.role, false, false); err != nil {
 			t.Fatal(err)
 		}
@@ -462,6 +464,7 @@ func newDetailedHTTPFixture(t *testing.T) detailedHTTPFixture {
 	dispatcher := client.New(server.URL)
 	viewer := client.New(server.URL)
 	administrator := client.New(server.URL)
+	sensor := client.New(server.URL)
 	if _, err := dispatcher.Login(ctx, "dispatcher", "correct-horse-1", "dispatcher-client"); err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +474,10 @@ func newDetailedHTTPFixture(t *testing.T) detailedHTTPFixture {
 	if _, err := administrator.Login(ctx, "administrator", "correct-horse-1", "administrator-client"); err != nil {
 		t.Fatal(err)
 	}
-	return detailedHTTPFixture{server: server, dispatcher: dispatcher, viewer: viewer, administrator: administrator, db: db, simulator: sim, bus: bus}
+	if _, err := sensor.Login(ctx, "sensor", "correct-horse-1", "sensor-client"); err != nil {
+		t.Fatal(err)
+	}
+	return detailedHTTPFixture{server: server, dispatcher: dispatcher, viewer: viewer, administrator: administrator, sensor: sensor, db: db, simulator: sim, bus: bus, occupancy: railway.OccupancyService()}
 }
 
 func TestRouteActivationHTTPRejectsLateInvalidation(t *testing.T) {

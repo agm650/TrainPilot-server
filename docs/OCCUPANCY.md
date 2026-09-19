@@ -88,7 +88,8 @@ The service exports bounded occupancy metrics without block or sensor labels:
 - `trainpilot_occupancy_observations_total`;
 - `trainpilot_occupancy_observations_rejected_total`;
 - `trainpilot_occupancy_block_state`;
-- `trainpilot_occupancy_source_stale`.
+- `trainpilot_occupancy_source_stale`;
+- `trainpilot_occupancy_external_observation_latency_seconds`.
 
 Station adapters, external observation APIs, and public runtime contracts are
 implemented by OCC-003 through OCC-005.
@@ -113,3 +114,45 @@ provider/sensor/block table. The compatibility store methods use that same
 table, so there is no second occupancy pipeline. Migrated providers default to
 priority 100, required, and sticky freshness. Their settings can be changed in
 the persisted provider configuration.
+
+## External observation API
+
+External providers use a dedicated account with the `sensor` role. This role
+has only the `occupancy:write` capability. It cannot drive locomotives, command
+turnouts, import layouts, or administer users. Providers accepted by the public
+API must be configured with `freshnessRequired=true` and a positive
+`staleAfter`; this prevents a sensor credential from impersonating sticky
+station feedback.
+
+Provider and sensor mappings are part of layout archive format 6. `staleAfter`
+uses Go duration syntax, for example `3m0s`. A camera provider should normally
+refresh every 60 seconds with `staleAfter` set to 180 seconds.
+
+Send one observation with:
+
+```http
+POST /api/v1/occupancy/observations
+Authorization: Bearer <sensor access token>
+Content-Type: application/json
+
+{
+  "providerId": "camera-yard",
+  "sensorId": "zone-12",
+  "state": "occupied",
+  "sequence": 1842,
+  "observedAt": "2026-09-17T17:12:42.382Z",
+  "occupant": { "type": "locomotive", "id": "BB72084" }
+}
+```
+
+Send a startup or periodic refresh with
+`POST /api/v1/occupancy/snapshot`. A snapshot contains 1 to 256 observations,
+is validated atomically, and is limited by the common 1 MiB JSON body limit.
+An omitted configured sensor is missing, never implicitly `free`.
+
+Accepted requests return `202`. An identical duplicate sequence is an accepted
+no-op. Older sequences return `409 occupancy_sequence_stale`; a conflicting
+duplicate returns `409 occupancy_sequence_conflict`; an unknown provider or
+sensor returns `404 occupancy_sensor_not_found`; invalid content returns
+`400 invalid_occupancy_observation`. `observedAt` is required and cannot be more
+than five minutes in the future. Server receipt time controls freshness.

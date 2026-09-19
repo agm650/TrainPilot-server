@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: DCC Control Server API
-  version: 1.8.0
+  version: 1.9.0
   description: >-
     Contract for native DCC clients. User administration is deliberately absent
     from this public API and is available only over the local administration socket.
@@ -354,6 +354,43 @@ paths:
                   items:
                     type: array
                     items: { $ref: '#/components/schemas/Block' }
+  /api/v1/occupancy/observations:
+    post:
+      operationId: postOccupancyObservation
+      description: >-
+        Accepts one observation from an external provider configured with
+        time-based freshness. Requires the sensor role and occupancy:write
+        capability. Identical duplicate sequences are accepted as no-ops.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OccupancyObservationInput' }
+      responses:
+        '202': { description: Observation accepted or identical duplicate ignored. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/occupancy/snapshot:
+    post:
+      operationId: postOccupancySnapshot
+      description: >-
+        Atomically validates and accepts 1 to 256 observations from one external
+        provider. Sensors omitted from a snapshot are not inferred to be free.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OccupancySnapshotInput' }
+      responses:
+        '202': { description: Snapshot accepted. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /api/v1/topology:
     get:
       operationId: getTopology
@@ -665,7 +702,7 @@ components:
         id: { type: string, format: uuid }
         username: { type: string }
         displayName: { type: string }
-        role: { type: string, enum: [viewer, driver, dispatcher, administrator] }
+        role: { type: string, enum: [viewer, driver, dispatcher, administrator, sensor] }
         enabled: { type: boolean }
         mustChangePassword: { type: boolean }
         createdAt: { type: string, format: date-time }
@@ -767,6 +804,45 @@ components:
         id: { type: string }
         name: { type: string }
         occupied: { type: boolean }
+    OccupantRef:
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type: { type: string, minLength: 1 }
+        id: { type: string, minLength: 1 }
+    OccupancyObservationInput:
+      type: object
+      additionalProperties: false
+      required: [providerId, sensorId, state, sequence, observedAt]
+      properties:
+        providerId: { type: string, minLength: 1 }
+        sensorId: { type: string, minLength: 1 }
+        state: { type: string, enum: [unknown, free, occupied] }
+        sequence: { type: integer, minimum: 1 }
+        observedAt: { type: string, format: date-time }
+        occupant: { $ref: '#/components/schemas/OccupantRef' }
+    OccupancySnapshotItem:
+      type: object
+      additionalProperties: false
+      required: [sensorId, state]
+      properties:
+        sensorId: { type: string, minLength: 1 }
+        state: { type: string, enum: [unknown, free, occupied] }
+        occupant: { $ref: '#/components/schemas/OccupantRef' }
+    OccupancySnapshotInput:
+      type: object
+      additionalProperties: false
+      required: [providerId, sequence, observedAt, observations]
+      properties:
+        providerId: { type: string, minLength: 1 }
+        sequence: { type: integer, minimum: 1 }
+        observedAt: { type: string, format: date-time }
+        observations:
+          type: array
+          minItems: 1
+          maxItems: 256
+          items: { $ref: '#/components/schemas/OccupancySnapshotItem' }
     TopologyDefinition:
       type: object
       additionalProperties: false

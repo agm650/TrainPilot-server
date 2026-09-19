@@ -18,6 +18,11 @@ func TestPermissionMatrix(t *testing.T) {
 		{model.RoleDriver, PermissionDispatch, false},
 		{model.RoleDispatcher, PermissionDispatch, true},
 		{model.RoleAdministrator, PermissionConfigure, true},
+		{model.RoleSensor, PermissionOccupancyWrite, true},
+		{model.RoleSensor, PermissionView, false},
+		{model.RoleSensor, PermissionDrive, false},
+		{model.RoleSensor, PermissionDispatch, false},
+		{model.RoleSensor, PermissionConfigure, false},
 	}
 	for _, tc := range tests {
 		if got := Allowed(tc.role, tc.permission); got != tc.allowed {

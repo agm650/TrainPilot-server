@@ -309,7 +309,7 @@ func TestOccupancyRunExpiresWithoutObservation(t *testing.T) {
 	fixture.clock.Advance(2 * time.Minute)
 	select {
 	case event := <-eventChannel:
-		occupancy, ok := event.Payload.(model.BlockOccupancy)
+		occupancy, ok := event.Payload.(model.BlockOccupancyChanged)
 		if !ok || occupancy.State != model.OccupancyUnknown {
 			t.Fatalf("expiration event = %#v", event.Payload)
 		}

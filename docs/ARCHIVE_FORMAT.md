@@ -1,6 +1,6 @@
 # Format des archives DCC Control
 
-Version actuelle : **5**. Les archives versions 1 à 4 restent importables.
+Version actuelle : **6**. Les archives versions 1 à 5 restent importables.
 
 Les extensions recommandées sont :
 
@@ -15,7 +15,7 @@ Chaque archive contient obligatoirement `manifest.json` :
 ```json
 {
   "format": "org.dcc-control.package",
-  "version": 5,
+  "version": 6,
   "packageType": "rolling-stock",
   "createdAt": "2026-07-29T20:00:00Z"
 }
@@ -135,6 +135,19 @@ Une archive de type `layout` contient `layout.json` :
     ],
     "feedbackMappings": [
       { "provider": "z21-rbus", "address": 1, "blockId": "block-a" }
+    ],
+    "occupancyProviders": [
+      {
+        "id": "camera-yard",
+        "type": "vision",
+        "priority": 90,
+        "required": false,
+        "staleAfter": "3m0s",
+        "freshnessRequired": true
+      }
+    ],
+    "occupancySensorMappings": [
+      { "providerId": "camera-yard", "sensorId": "zone-12", "blockId": "block-a" }
     ]
   }
 }
@@ -143,18 +156,20 @@ Une archive de type `layout` contient `layout.json` :
 L’import vérifie toutes les références avant d’ouvrir la transaction d’écriture :
 nœuds, sections, ports, connexions, cantons d’itinéraire, aiguillages,
 positions logiques, conflits et mappings de rétrosignalisation. Lorsqu'une
-route version 5 possède `entryNodeId` et `exitNodeId`, son chemin physique, ses
+route version 5 ou 6 possède `entryNodeId` et `exitNodeId`, son chemin physique, ses
 positions d'aiguillage et tous les blocks traversés sont aussi validés. Ces
 champs restent optionnels pour les anciennes routes.
 
-Les exports version 5 séparent configuration et état opérationnel. Ils ne
+Les exports version 6 séparent configuration et état opérationnel. Ils ne
 contiennent pas `desiredPosition`, `reportedPosition`, `pending`,
 `reportedStatus`, `reportQuality`, `commandStatus` ni `occupied`.
 
 `trackSectionIds` et `turnoutIds` décrivent les ressources physiques couvertes
 par chaque block. Une ressource appartient au plus à un block et l'union des
-ressources d'un block doit être connexe dans le graphe statique. Le mapping de
-feedback reste indépendant et demeure la source de l'occupation runtime.
+ressources d'un block doit être connexe dans le graphe statique. Les anciens
+`feedbackMappings` numériques restent importables et sont migrés vers
+`occupancySensorMappings`. Les providers et mappings d'occupation sont de la
+configuration ; les observations runtime ne sont jamais archivées.
 
 Les archives versions 1 à 3 ne contiennent aucune topologie. Leur import crée
 une topologie vide. Les archives versions 1 à 4 importent les anciens blocks
@@ -184,4 +199,4 @@ Le modèle complet des appareils composés est décrit dans
 - import autorisé uniquement au rôle applicatif `administrator` ;
 - les imports réussis publient `rolling-stock.imported` ou `layout.imported` sur le WebSocket.
 
-Les ressources graphiques et images ne sont pas encore définies dans la version 5.
+Les ressources graphiques et images ne sont pas encore définies dans la version 6.

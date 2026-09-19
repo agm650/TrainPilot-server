@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"sort"
 	"sync"
@@ -77,48 +78,89 @@ func (s *OccupancyService) Run(ctx context.Context, interval time.Duration) erro
 }
 
 func (s *OccupancyService) Observe(ctx context.Context, observation model.OccupancyObservation) error {
-	if err := model.ValidateOccupancyObservation(observation, true); err != nil {
+	return s.ObserveBatch(ctx, []model.OccupancyObservation{observation})
+}
+
+// ObserveBatch validates the complete batch before changing runtime state.
+func (s *OccupancyService) ObserveBatch(ctx context.Context, observations []model.OccupancyObservation) error {
+	if len(observations) == 0 {
 		s.reject("invalid")
-		return err
+		return fmt.Errorf("%w: at least one observation is required", model.ErrInvalidOccupancy)
 	}
 	configs, err := s.resolvedMappings(ctx)
 	if err != nil {
 		s.reject("mapping")
 		return err
 	}
-	key := occupancySourceKey{providerID: observation.ProviderID, sensorID: observation.SensorID}
-	mapping, found := mappingForSource(configs, key)
-	if !found {
-		s.reject("mapping")
-		return store.ErrNotFound
+	type preparedObservation struct {
+		key         occupancySourceKey
+		mapping     model.ResolvedOccupancySensorMapping
+		observation model.OccupancyObservation
+	}
+	now := s.clock.Now().UTC()
+	prepared := make([]preparedObservation, 0, len(observations))
+	seen := make(map[occupancySourceKey]struct{}, len(observations))
+	for _, observation := range observations {
+		if err := model.ValidateOccupancyObservation(observation, true); err != nil {
+			s.reject("invalid")
+			return err
+		}
+		key := occupancySourceKey{providerID: observation.ProviderID, sensorID: observation.SensorID}
+		if _, duplicate := seen[key]; duplicate {
+			s.reject("invalid")
+			return fmt.Errorf("%w: duplicate sensor in observation batch", model.ErrInvalidOccupancy)
+		}
+		seen[key] = struct{}{}
+		mapping, found := mappingForSource(configs, key)
+		if !found {
+			s.reject("mapping")
+			return store.ErrNotFound
+		}
+		observation.ReceivedAt = now
+		prepared = append(prepared, preparedObservation{key: key, mapping: mapping, observation: observation})
 	}
 
-	now := s.clock.Now().UTC()
-	observation.ReceivedAt = now
 	s.mu.Lock()
-	if previous, exists := s.observations[key]; exists {
+	for _, item := range prepared {
+		previous, exists := s.observations[item.key]
+		if !exists {
+			continue
+		}
 		switch {
-		case observation.Sequence < previous.Sequence:
+		case item.observation.Sequence < previous.Sequence:
 			s.mu.Unlock()
 			s.reject("stale")
 			return ErrOccupancySequenceStale
-		case observation.Sequence == previous.Sequence && sameObservationPayload(previous, observation):
-			s.updateMetricsLocked(configs, now)
-			s.mu.Unlock()
-			s.accept()
-			return nil
-		case observation.Sequence == previous.Sequence:
+		case item.observation.Sequence == previous.Sequence && sameObservationPayload(previous, item.observation):
+			continue
+		case item.observation.Sequence == previous.Sequence:
 			s.mu.Unlock()
 			s.reject("conflict")
 			return ErrOccupancySequenceConflict
 		}
 	}
-	s.observations[key] = observation
-	changed := s.recomputeBlockLocked(mapping.BlockID, configs, now)
+	affectedBlocks := make(map[string]struct{})
+	for _, item := range prepared {
+		if previous, exists := s.observations[item.key]; exists && item.observation.Sequence == previous.Sequence {
+			continue
+		}
+		s.observations[item.key] = item.observation
+		affectedBlocks[item.mapping.BlockID] = struct{}{}
+	}
+	changes := make([]model.BlockOccupancy, 0, len(affectedBlocks))
+	for blockID := range affectedBlocks {
+		if changed := s.recomputeBlockLocked(blockID, configs, now); changed != nil {
+			changes = append(changes, *changed)
+		}
+	}
 	s.updateMetricsLocked(configs, now)
 	s.mu.Unlock()
-	s.accept()
-	s.publish(changed)
+	for range prepared {
+		s.accept()
+	}
+	for i := range changes {
+		s.publish(&changes[i])
+	}
 	return nil
 }
 
@@ -384,7 +426,7 @@ func (s *OccupancyService) providerAvailableLocked(providerID string) bool {
 
 func (s *OccupancyService) publish(changed *model.BlockOccupancy) {
 	if changed != nil && s.events != nil {
-		s.events.Publish("block.occupancy.changed", *changed)
+		s.events.Publish("block.occupancy.changed", changed.ChangedEvent())
 	}
 }
 

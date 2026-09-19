@@ -341,7 +341,7 @@ Une ancienne valeur `unknown` devient une position rapportée vide.
 
 ## 14. Archives
 
-Les exports utilisent le format d'archive version 5.
+Les exports utilisent le format d'archive version 6.
 Ils sont déterministes pour un état et un timestamp identiques.
 
 Les archives versions 1 à 4 restent importables.
@@ -515,7 +515,7 @@ flowchart LR
 
 ## 18. Archives de layout
 
-Le format courant est la version 5. Un export conserve `kind`, `endpoints`,
+Le format courant est la version 6. Un export conserve `kind`, `endpoints`,
 `positions`, la topologie et les références d'itinéraire. Il ne conserve pas `pending`, la
 dernière observation, la qualité ni le résultat de commande. Une importation
 repart donc avec un état runtime neutre.

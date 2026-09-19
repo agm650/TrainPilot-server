@@ -263,6 +263,46 @@ func TestBlockMembershipArchiveRoundTripOmitsOccupancy(t *testing.T) {
 	}
 }
 
+func TestOccupancyConfigurationArchiveRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	required, priority := true, 95
+	layout := model.LayoutDefinition{
+		Blocks: []model.BlockDefinition{{ID: "block", Name: "Block"}},
+		OccupancyProviders: []model.OccupancyProvider{{
+			ID: "camera-yard", Type: "vision", Priority: 90, Required: false,
+			StaleAfter: 3 * time.Minute, FreshnessRequired: true,
+		}},
+		OccupancySensorMappings: []model.OccupancySensorMapping{{
+			ProviderID: "camera-yard", SensorID: "zone-12", BlockID: "block",
+			Required: &required, Priority: &priority,
+		}},
+	}
+	data, err := BuildLayoutArchive(time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC), layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contents := archiveEntry(t, data, "layout.json"); !bytes.Contains(contents, []byte(`"staleAfter": "3m0s"`)) {
+		t.Fatalf("archive does not contain readable occupancy freshness: %s", contents)
+	}
+	target, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	admin := model.User{ID: "admin", Role: model.RoleAdministrator}
+	if err := New(target, events.New(), clock.Real{}).ImportLayout(ctx, admin, data, true); err != nil {
+		t.Fatal(err)
+	}
+	exported, err := target.ExportLayout(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(exported.OccupancyProviders, layout.OccupancyProviders) ||
+		!reflect.DeepEqual(exported.OccupancySensorMappings, layout.OccupancySensorMappings) {
+		t.Fatalf("occupancy configuration mismatch: got %#v %#v", exported.OccupancyProviders, exported.OccupancySensorMappings)
+	}
+}
+
 func TestLegacyLayoutArchiveImportsAsSimpleTurnout(t *testing.T) {
 	ctx := context.Background()
 	legacyDocument := map[string]any{

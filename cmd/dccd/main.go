@@ -105,7 +105,7 @@ func serve(args []string) error {
 	control.Start()
 	defer control.Close()
 	api := httpapi.New(authSvc, control, railway, routes, transferSvc, db, bus, st, sim, cfg.TestAPI, metrics)
-	httpServer := &http.Server{Addr: cfg.HTTP.Listen, Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second}
+	httpServer := &http.Server{Addr: cfg.HTTP.Listen, Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second}
 	var diagnosticsServer *http.Server
 	if cfg.Diagnostics.Enabled {
 		diagnosticsServer = &http.Server{

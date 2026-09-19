@@ -106,6 +106,7 @@ func TestOccupancyMetricsUseBoundedLabels(t *testing.T) {
 	metrics.OccupancyObservationRejected("secret-sensor-id")
 	metrics.SetOccupancyBlockStateCounts(2, 3, 4)
 	metrics.SetOccupancyStaleSourceCounts(5, 6)
+	metrics.ObserveExternalOccupancyLatency(250*time.Millisecond, true)
 	body := scrape(t, metrics)
 	for _, sample := range []string{
 		`trainpilot_occupancy_observations_total 1`,
@@ -115,6 +116,7 @@ func TestOccupancyMetricsUseBoundedLabels(t *testing.T) {
 		`trainpilot_occupancy_block_state{state="occupied"} 4`,
 		`trainpilot_occupancy_source_stale{required="true"} 5`,
 		`trainpilot_occupancy_source_stale{required="false"} 6`,
+		`trainpilot_occupancy_external_observation_latency_seconds_count{result="accepted"} 1`,
 	} {
 		if !strings.Contains(body, sample) {
 			t.Fatalf("missing metric sample %q", sample)

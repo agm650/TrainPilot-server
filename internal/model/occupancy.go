@@ -36,6 +36,14 @@ type BlockOccupancy struct {
 	UpdatedAt time.Time      `json:"updatedAt"`
 }
 
+type BlockOccupancyChanged struct {
+	BlockID   string         `json:"blockId"`
+	State     OccupancyState `json:"state"`
+	Occupant  *OccupantRef   `json:"occupant,omitempty"`
+	UpdatedAt time.Time      `json:"updatedAt"`
+	Occupied  bool           `json:"occupied"`
+}
+
 func NewUnknownBlockOccupancy(blockID string, now time.Time) BlockOccupancy {
 	return BlockOccupancy{BlockID: blockID, State: OccupancyUnknown, UpdatedAt: now}
 }
@@ -44,6 +52,13 @@ func NewUnknownBlockOccupancy(blockID string, now time.Time) BlockOccupancy {
 // in occupancy-domain decisions.
 func (o BlockOccupancy) LegacyOccupied() bool {
 	return o.State == OccupancyOccupied
+}
+
+func (o BlockOccupancy) ChangedEvent() BlockOccupancyChanged {
+	return BlockOccupancyChanged{
+		BlockID: o.BlockID, State: o.State, Occupant: o.Occupant,
+		UpdatedAt: o.UpdatedAt, Occupied: o.LegacyOccupied(),
+	}
 }
 
 type OccupancyProvider struct {

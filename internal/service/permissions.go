@@ -5,10 +5,11 @@ import "github.com/agm650/TrainPilot-server/internal/model"
 type Permission string
 
 const (
-	PermissionView      Permission = "view"
-	PermissionDrive     Permission = "drive"
-	PermissionDispatch  Permission = "dispatch"
-	PermissionConfigure Permission = "configure"
+	PermissionView           Permission = "view"
+	PermissionDrive          Permission = "drive"
+	PermissionDispatch       Permission = "dispatch"
+	PermissionConfigure      Permission = "configure"
+	PermissionOccupancyWrite Permission = "occupancy:write"
 )
 
 func Allowed(role model.Role, p Permission) bool {
@@ -21,6 +22,8 @@ func Allowed(role model.Role, p Permission) bool {
 		return p == PermissionView || p == PermissionDrive || p == PermissionDispatch
 	case model.RoleAdministrator:
 		return true
+	case model.RoleSensor:
+		return p == PermissionOccupancyWrite
 	default:
 		return false
 	}

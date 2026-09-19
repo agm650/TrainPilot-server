@@ -17,11 +17,12 @@ const (
 	RoleDriver        Role = "driver"
 	RoleDispatcher    Role = "dispatcher"
 	RoleAdministrator Role = "administrator"
+	RoleSensor        Role = "sensor"
 )
 
 func (r Role) Valid() bool {
 	switch r {
-	case RoleViewer, RoleDriver, RoleDispatcher, RoleAdministrator:
+	case RoleViewer, RoleDriver, RoleDispatcher, RoleAdministrator, RoleSensor:
 		return true
 	default:
 		return false
@@ -483,11 +484,13 @@ type RouteDefinition struct {
 }
 
 type LayoutDefinition struct {
-	Blocks            []BlockDefinition `json:"blocks"`
-	Turnouts          []Turnout         `json:"turnouts"`
-	Routes            []RouteDefinition `json:"routes"`
-	FeedbackMappings  []FeedbackMapping `json:"feedbackMappings"`
-	TopologyNodes     []TopologyNode    `json:"topologyNodes"`
-	TrackSections     []TrackSection    `json:"trackSections"`
-	TurnoutTopologies []TurnoutTopology `json:"turnoutTopologies"`
+	Blocks                  []BlockDefinition        `json:"blocks"`
+	Turnouts                []Turnout                `json:"turnouts"`
+	Routes                  []RouteDefinition        `json:"routes"`
+	FeedbackMappings        []FeedbackMapping        `json:"feedbackMappings"`
+	OccupancyProviders      []OccupancyProvider      `json:"occupancyProviders,omitempty"`
+	OccupancySensorMappings []OccupancySensorMapping `json:"occupancySensorMappings,omitempty"`
+	TopologyNodes           []TopologyNode           `json:"topologyNodes"`
+	TrackSections           []TrackSection           `json:"trackSections"`
+	TurnoutTopologies       []TurnoutTopology        `json:"turnoutTopologies"`
 }

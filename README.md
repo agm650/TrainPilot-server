@@ -569,8 +569,8 @@ revision.
 
 ## Import and export
 
-Exports are version 5 ZIP archives containing `manifest.json` and a JSON
-document. Versions 1 through 4 remain importable. Imports use `merge` by
+Exports are version 6 ZIP archives containing `manifest.json` and a JSON
+document. Versions 1 through 5 remain importable. Imports use `merge` by
 default. `--replace` replaces the corresponding library after validation.
 
 ```bash

@@ -108,7 +108,7 @@ ID, while ports, positions, and connections preserve their declared order.
 Referenced nodes and turnouts cannot be deleted implicitly. A complete layout
 replacement removes their topology explicitly within the same transaction.
 
-Layout archive version 5 stores block `trackSectionIds` and `turnoutIds` with
+Layout archive version 6 stores block `trackSectionIds` and `turnoutIds` with
 `nodes`, `trackSections`, and `turnoutTopologies`. Versions 1 through 4 remain
 importable. Their blocks have empty resource memberships. Versions 1 through 3
 also produce an empty topology. TrainPilot never infers physical membership

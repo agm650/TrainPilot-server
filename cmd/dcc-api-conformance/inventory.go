@@ -38,6 +38,8 @@ var publicEndpointInventory = []endpointDefinition{
 	{"PUT", "/api/v1/locomotives/{}/throttle", "active"},
 	{"PUT", "/api/v1/locomotives/{}/functions/{}", "active"},
 	{"GET", "/api/v1/blocks", "passive"},
+	{"POST", "/api/v1/occupancy/observations", "external"},
+	{"POST", "/api/v1/occupancy/snapshot", "external"},
 	{"GET", "/api/v1/topology", "passive"},
 	{"GET", "/api/v1/turnouts", "passive"},
 	{"PUT", "/api/v1/turnouts/{}", "active"},
