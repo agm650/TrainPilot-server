@@ -17,9 +17,11 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/clock"
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
+	"github.com/agm650/TrainPilot-server/internal/model/topologyfixture"
 	"github.com/agm650/TrainPilot-server/internal/service"
 	"github.com/agm650/TrainPilot-server/internal/station/simulator"
 	"github.com/agm650/TrainPilot-server/internal/store"
+	"github.com/agm650/TrainPilot-server/internal/topology"
 	"github.com/agm650/TrainPilot-server/internal/transfer"
 )
 
@@ -106,6 +108,54 @@ func TestCompoundTurnoutContractsAreDocumented(t *testing.T) {
 		if !bytes.Contains(asyncAPI, []byte(fragment)) {
 			t.Errorf("AsyncAPI is missing %q", fragment)
 		}
+	}
+}
+
+func TestValidateTopologyResponse(t *testing.T) {
+	layout := topologyfixture.PassingLoop()
+	definition, err := topology.DefinitionFromLayout(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateTopologyResponse(definition, layout.Turnouts); err != nil {
+		t.Fatalf("valid topology rejected: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		definition model.TopologyDefinition
+	}{
+		{
+			name: "missing arrays",
+			definition: model.TopologyDefinition{
+				Revision: definition.Revision,
+			},
+		},
+		{
+			name: "duplicate id",
+			definition: func() model.TopologyDefinition {
+				invalid := definition
+				invalid.Nodes = append([]model.TopologyNode(nil), definition.Nodes...)
+				invalid.Nodes = append(invalid.Nodes, definition.Nodes[0])
+				return invalid
+			}(),
+		},
+		{
+			name: "broken reference",
+			definition: func() model.TopologyDefinition {
+				invalid := definition
+				invalid.TrackSections = append([]model.TrackSection(nil), definition.TrackSections...)
+				invalid.TrackSections[0].NodeAID = "missing-node"
+				return invalid
+			}(),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateTopologyResponse(test.definition, layout.Turnouts); err == nil {
+				t.Fatal("invalid topology response accepted")
+			}
+		})
 	}
 }
 

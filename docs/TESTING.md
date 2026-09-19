@@ -204,8 +204,22 @@ topologique et occupation issue du feedback.
 Le pathfinding topologique couvre les parcours orientés aller/retour, impasses,
 réseaux disjoints, cycles, chemins alternatifs, aiguillages simples et triples,
 TJD, états actifs inconnus, exclusions de sections/turnouts/blocks et 100
-répétitions déterministes. La fixture `PassingStation` représente une gare de
-passage avec voie d'évitement et embranchement.
+répétitions déterministes. Les neuf fixtures de référence couvrent
+`simple-line`, `passing-loop`, `three-way-yard`, `double-slip-station`,
+`fixed-crossing`, `multi-section-block`, `undetected-section`, `loop` et le
+réseau `conceptual-five-detection-zones`. Pour chacune, les tests vérifient le
+modèle, le graphe, les composantes, les requêtes, les chemins statique et actif,
+les memberships et le round-trip d'archive. Build, path et export sont répétés
+100 fois. Toutes les positions d'aiguillage, `unknown` et `pending` sont
+couvertes.
+
+Les benchmarks sans seuil CI fournissent une baseline sur 100 et 1 000
+sections :
+
+```bash
+go test ./internal/topology -run '^$' \
+  -bench 'Benchmark(TopologyBuild|FindPath)$' -benchmem
+```
 
 Les tests de `internal/transfer` importent des archives de circuit versions 1,
 3 et 4, puis vérifient un round-trip déterministe en version 5. Une archive v4
@@ -216,6 +230,11 @@ des aiguillages ni `Block.Occupied`.
 ```bash
 go test ./internal/model ./internal/topology ./internal/store ./internal/transfer
 ```
+
+La conformité passive lit aussi `GET /api/v1/topology`. Elle exige les quatre
+tableaux du contrat, une révision valide, des IDs uniques et des références
+cohérentes. Le contrôle reste non destructif et fait partie de l'exécution
+standard de `dcc-api-conformance`.
 
 Le contrôleur métier est couvert par `internal/service/railway_accessory_test.go`.
 Il vérifie les confirmations immédiates, absentes et incohérentes, les chemins

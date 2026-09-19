@@ -1,5 +1,7 @@
 # Physical railway topology
 
+## Concepts
+
 TrainPilot represents physical connectivity independently from occupancy
 detection. A `TrackSection` describes fixed track on which a train can travel.
 A `Block` describes an area whose occupancy can be detected. A block may cover
@@ -7,7 +9,15 @@ several track sections or turnouts, while a track section may be undetected.
 `BlockDefinition` stores that static membership separately from the runtime
 `Block.Occupied` state.
 
-## Detection blocks and physical resources
+```text
+physical path:  boundary -- TrackSection -- turnout -- TrackSection -- buffer
+                                  \________ detection Block ________/
+```
+
+Topology support describes where a train could travel. It does not locate a
+train, reserve a route, or decide whether movement is safe.
+
+## Track sections, blocks, and physical resources
 
 A block can own any number of track sections and turnouts. A physical resource
 belongs to zero or one block: leaving it unassigned explicitly means that the
@@ -49,7 +59,7 @@ A fixed crossing without a junction is represented by two track sections that
 do not share a node. A siding can end at a `buffer` node, while track leaving
 the modeled area ends at a `boundary` node.
 
-## Turnout ports and positions
+## Turnout ports
 
 The physical topology of a turnout is separate from its DCC endpoints. Each
 `TurnoutPort` attaches one physical port to a topology node. Each logical
@@ -57,13 +67,27 @@ turnout position declares the bidirectional port connections enabled in that
 position. The topology engine therefore does not infer geometry from the
 turnout kind.
 
+## Simple turnouts
+
 A simple turnout normally has `stem`, `straight`, and `diverging` ports. Its
 straight position connects `stem` to `straight`; its diverging position
 connects `stem` to `diverging`.
 
+```text
+                 straight
+                /
+stem -----------
+                \
+                 diverging
+```
+
+## Three-way turnouts
+
 A three-way turnout normally has `stem`, `left`, `straight`, and `right` ports.
 Each of its three logical positions connects the stem to the selected branch.
 No fourth topology position is implied.
+
+## Double-slip and single-slip crossings
 
 Double-slip crossings (TJD) use four ports. One logical position may enable
 multiple connections simultaneously, for example `a` to `c` and `b` to `d`.
@@ -76,7 +100,7 @@ one topology definition. Unknown positions, ports, nodes, duplicate undirected
 connections, and incomplete position tables are rejected by
 `ValidateTopologyDefinition`.
 
-## Persistence and layout archives
+## Import, export, and persistence
 
 SQLite stores nodes, track sections, turnout ports, positions, and connections
 in normalized tables. Export order is deterministic: resources are ordered by
@@ -89,6 +113,14 @@ Layout archive version 5 stores block `trackSectionIds` and `turnoutIds` with
 importable. Their blocks have empty resource memberships. Versions 1 through 3
 also produce an empty topology. TrainPilot never infers physical membership
 from route block references during database or archive migration.
+
+## Legacy compatibility
+
+Layouts and databases created before topology support remain valid. Their
+topology and block resource memberships are empty until explicitly configured.
+Legacy single-address turnouts are normalized to simple logical turnouts, but
+TrainPilot never guesses track connections from DCC addresses, route blocks,
+or turnout kinds.
 
 ## Static physical graph
 
@@ -141,6 +173,12 @@ Active views are computed directly from the supplied turnout states. There is
 no shared cache or event-driven invalidation. A new reported state is visible
 on the next `ActiveView` call, while an existing view remains unchanged.
 
+## Unknown and pending turnout states
+
+`unknown`, missing, invalid, and `pending` reports enable no internal turnout
+connection. Fixed track remains present. This fail-closed graph behavior does
+not send a stop command and does not replace runtime route safety checks.
+
 ## Queries and physical pathfinding
 
 Both static and active graphs expose deterministic queries for neighboring
@@ -172,8 +210,25 @@ into an exclusion. Reservation and interlocking policies remain the caller's
 responsibility. Neighbor order is stable, cycles are bounded by visited search
 states, and the same graph and constraints produce the same path.
 
-`topologyfixture.PassingStation` provides a realistic through station with a
-main platform, passing loop, siding, two station throats, and a branch turnout.
+## Reference fixtures
+
+`internal/model/topologyfixture` provides stable layouts for regression tests:
+
+| Fixture | Purpose |
+| --- | --- |
+| `simple-line` | two sections between a buffer and a boundary |
+| `passing-loop` | direct and passing tracks between two simple turnouts |
+| `three-way-yard` | three-way turnout and three buffer stops |
+| `double-slip-station` | four approaches around a TJD |
+| `fixed-crossing` | two crossing tracks with no physical connection |
+| `multi-section-block` | one block spanning sections and a turnout |
+| `undetected-section` | valid track with no detection block |
+| `loop` | a complete cycle |
+| `conceptual-five-detection-zones` | five planned TrainPilot detection zones |
+
+The conceptual fixture represents the documented three outer and two inner
+zones as five disconnected sections. It asserts no unconfirmed geometry,
+turnout, or physical connection. Replace it only from an observed track plan.
 
 ## Public API, revision, and CLI
 
@@ -233,9 +288,21 @@ their existing behavior, including the immediate P0 occupancy/conflict
 revalidation before the first physical turnout command. No SQLite transaction
 is held during hardware confirmation waits.
 
-## Scope of topology V1
+## Limitations of topology V1
 
 Topology V1 stores logical connectivity only. It has no screen coordinates,
 curves, radii, drawing geometry, operating direction, signaling rules,
 resource reservation, train location, or progressive route release. Physical
 pathfinding is descriptive only and makes no operating or safety decision.
+
+## Preparation for train localization
+
+Topology V1 supplies the physical resources and detection memberships needed
+by a future localization layer. That layer must still define train identity,
+direction, length, ambiguous occupancy, initialization, and recovery after
+missing feedback. It must not infer an exact section from a multi-resource
+block without additional evidence.
+
+The planned order is train localization first, then safe route interlocking
+based on atomic resource reservations, then signaling. Real z21/R-BUS behavior
+and the five-zone physical layout remain hardware validation work.

@@ -127,7 +127,7 @@ func run(ctx context.Context, cfg configuration, output io.Writer) int {
 		topologyValidationErr = turnoutsErr
 	}
 	if topologyValidationErr == nil {
-		_, topologyValidationErr = topology.BuildDefinition(topologyDefinition, turnouts)
+		topologyValidationErr = validateTopologyResponse(topologyDefinition, turnouts)
 	}
 	add("physical topology and revision are valid", topologyValidationErr)
 	_, err = c1.Routes(ctx)
@@ -227,6 +227,19 @@ func run(ctx context.Context, cfg configuration, output io.Writer) int {
 	}
 	fmt.Fprintf(output, "\nResult: %d passed, %d failed\n", len(results)-failed, failed)
 	return failed
+}
+
+func validateTopologyResponse(definition model.TopologyDefinition, turnouts []model.Turnout) error {
+	if definition.Revision == "" {
+		return errors.New("topology revision is empty")
+	}
+	if definition.Nodes == nil || definition.TrackSections == nil || definition.TurnoutTopologies == nil || definition.Blocks == nil {
+		return errors.New("topology response must contain nodes, trackSections, turnoutTopologies and blocks arrays")
+	}
+	if _, err := topology.BuildDefinition(definition, turnouts); err != nil {
+		return fmt.Errorf("invalid topology response: %w", err)
+	}
+	return nil
 }
 
 type expirationWaitTooLongError struct {

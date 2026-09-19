@@ -546,6 +546,14 @@ activity or heartbeat during that period, the server starts a controlled stop
 and then releases the lease. `throttle` never acquires a locomotive implicitly;
 `acquire` is mandatory.
 
+## Topology
+
+TrainPilot stores logical railway connectivity separately from occupancy
+blocks. It supports fixed track, simple and compound turnouts, active and
+static graphs, block membership, pathfinding, and route-definition validation.
+Topology support is not train localization and does not provide interlocking.
+See [`docs/TOPOLOGY.md`](docs/TOPOLOGY.md) for the model and its limits.
+
 Inspect or validate the persisted physical topology without sending a railway
 command:
 
