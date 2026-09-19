@@ -89,10 +89,8 @@ The service exports bounded occupancy metrics without block or sensor labels:
 - `trainpilot_occupancy_observations_rejected_total`;
 - `trainpilot_occupancy_block_state`;
 - `trainpilot_occupancy_source_stale`;
+- `trainpilot_occupancy_conflicts` with bounded `state` and `identity` types;
 - `trainpilot_occupancy_external_observation_latency_seconds`.
-
-Station adapters, external observation APIs, and public runtime contracts are
-implemented by OCC-003 through OCC-005.
 
 ## R-BUS and station feedback
 
@@ -156,3 +154,33 @@ duplicate returns `409 occupancy_sequence_conflict`; an unknown provider or
 sensor returns `404 occupancy_sensor_not_found`; invalid content returns
 `400 invalid_occupancy_observation`. `observedAt` is required and cannot be more
 than five minutes in the future. Server receipt time controls freshness.
+
+## Public runtime contracts
+
+`GET /api/v1/blocks` exposes `occupancy.state`, optional `occupancy.occupant`,
+and `occupancy.updatedAt`. The deprecated `occupied` boolean remains derived
+from `state == occupied`; it must not be used for safety decisions.
+
+Dispatcher and administrator accounts can inspect each configured source with
+`GET /api/v1/blocks/{id}/occupancy-sources`. The response includes its current
+state, sequence, required/priority settings, availability, and freshness. This
+diagnostic endpoint never changes occupancy.
+
+WebSocket clients receive `block.occupancy.changed` only when the aggregated
+state changes. Higher-sequence refreshes of the same state do not emit another
+business event. Initial and requested `system.snapshot` messages contain the
+same block occupancy object as REST, including after same-connection resync.
+
+## Route safety semantics
+
+- `occupied` blocks reject reservation and activation with
+  `409 route_occupied`.
+- `unknown` blocks reject reservation and activation with
+  `409 route_occupancy_unknown`.
+- only `free` permits the remaining conflict and turnout validations to run.
+
+Activation revalidates occupancy before reading or commanding turnout
+requirements. A rejected activation preserves route ownership and emits no
+turnout command or `route.activated` event. Occupancy can still change while a
+multi-turnout activation is in progress; full atomic resource locking remains
+outside this lot.

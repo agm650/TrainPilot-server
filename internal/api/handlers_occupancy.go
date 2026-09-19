@@ -130,3 +130,28 @@ func writeOccupancyProblem(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusInternalServerError, "internal_error", "internal server error")
 	}
 }
+
+func (s *Server) getBlockOccupancySources(w http.ResponseWriter, r *http.Request) {
+	if !service.Allowed(userFrom(r).Role, service.PermissionDispatch) {
+		writeProblem(w, http.StatusForbidden, "permission_denied", "dispatch permission required")
+		return
+	}
+	blockID := r.PathValue("id")
+	if _, err := s.store.ResourcesForBlock(r.Context(), blockID); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeProblem(w, http.StatusNotFound, "block_not_found", "block not found")
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	states, err := s.railway.OccupancyService().ProviderStates(r.Context(), blockID)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	if states == nil {
+		states = []model.SensorOccupancyState{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": states})
+}

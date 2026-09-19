@@ -47,7 +47,7 @@ dans ce backlog.
 - [x] OCC-002 — Service d'agrégation conservative et gestion de la fraîcheur.
 - [x] OCC-003 — Adaptation du feedback R-BUS au service d'occupation.
 - [x] OCC-004 — API sécurisée pour les observations externes.
-- [ ] OCC-005 — Contrats REST/WebSocket, snapshot et sûreté des itinéraires.
+- [x] OCC-005 — Contrats REST/WebSocket, snapshot et sûreté des itinéraires.
 - [ ] Tester un redémarrage du serveur lorsque des cantons sont déjà occupés sur le réseau réel.
 - [ ] Valider sur le petit réseau les trois sections rouges extérieures et les deux sections rouges intérieures.
 

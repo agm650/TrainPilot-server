@@ -43,6 +43,30 @@ func (s *Store) RouteBlocksOccupied(ctx context.Context, id string) (bool, error
 	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM route_blocks rb JOIN blocks b ON b.id=rb.block_id WHERE rb.route_id=? AND b.occupied=1`, id).Scan(&count)
 	return count > 0, err
 }
+func (s *Store) RouteBlockIDs(ctx context.Context, id string) ([]string, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT block_id FROM route_blocks WHERE route_id=? ORDER BY block_id`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var blockID string
+		if err := rows.Scan(&blockID); err != nil {
+			return nil, err
+		}
+		ids = append(ids, blockID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		if _, err := s.GetRoute(ctx, id); err != nil {
+			return nil, err
+		}
+	}
+	return ids, nil
+}
 func (s *Store) RouteHasActiveConflict(ctx context.Context, id string) (bool, error) {
 	var count int
 	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM route_conflicts rc JOIN routes r ON r.id=rc.conflict_route_id WHERE rc.route_id=? AND r.state IN ('reserved','active')`, id).Scan(&count)
@@ -50,16 +74,10 @@ func (s *Store) RouteHasActiveConflict(ctx context.Context, id string) (bool, er
 }
 func (s *Store) ValidateRouteActivation(ctx context.Context, id, sessionID string) error {
 	var state, reservedBySession string
-	var occupied, conflict int
+	var conflict int
 	err := s.DB.QueryRowContext(ctx, `
 		SELECT r.state,
 		       r.reserved_by_session,
-		       EXISTS (
-		           SELECT 1
-		           FROM route_blocks rb
-		           JOIN blocks b ON b.id=rb.block_id
-		           WHERE rb.route_id=r.id AND b.occupied=1
-		       ),
 		       EXISTS (
 		           SELECT 1
 		           FROM route_conflicts rc
@@ -67,7 +85,7 @@ func (s *Store) ValidateRouteActivation(ctx context.Context, id, sessionID strin
 		           WHERE rc.route_id=r.id AND conflicting.state IN ('reserved','active')
 		       )
 		FROM routes r
-		WHERE r.id=?`, id).Scan(&state, &reservedBySession, &occupied, &conflict)
+		WHERE r.id=?`, id).Scan(&state, &reservedBySession, &conflict)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -76,9 +94,6 @@ func (s *Store) ValidateRouteActivation(ctx context.Context, id, sessionID strin
 	}
 	if state != "reserved" || reservedBySession != sessionID {
 		return ErrNotFound
-	}
-	if occupied != 0 {
-		return ErrRouteOccupied
 	}
 	if conflict != 0 {
 		return ErrRouteConflict

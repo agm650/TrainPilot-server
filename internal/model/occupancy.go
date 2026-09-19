@@ -30,7 +30,7 @@ type OccupantRef struct {
 }
 
 type BlockOccupancy struct {
-	BlockID   string         `json:"blockId"`
+	BlockID   string         `json:"-"`
 	State     OccupancyState `json:"state"`
 	Occupant  *OccupantRef   `json:"occupant,omitempty"`
 	UpdatedAt time.Time      `json:"updatedAt"`

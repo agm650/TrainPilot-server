@@ -448,7 +448,7 @@ aucune commande automatiquement. `reportedPosition != desiredPosition` est un
   résultat de commande ;
 - `turnout.command.failed` expose la cible et une raison publique stable.
 
-Le contrat exact est dans `api/asyncapi.yaml` version `1.10.0`.
+Le contrat exact est dans `api/asyncapi.yaml` version `1.11.0`.
 
 ## 16. Contrat REST et CLI
 

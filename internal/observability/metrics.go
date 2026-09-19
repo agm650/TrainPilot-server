@@ -50,6 +50,7 @@ type Metrics struct {
 	occupancyBlockState   *prometheus.GaugeVec
 	occupancySourceStale  *prometheus.GaugeVec
 	occupancyExternalLag  *prometheus.HistogramVec
+	occupancyConflicts    *prometheus.GaugeVec
 
 	activeLeases         prometheus.Gauge
 	leaseOperations      *prometheus.CounterVec
@@ -177,6 +178,10 @@ func New(databasePath string) *Metrics {
 			Help:    "Delay between an external observation timestamp and server receipt.",
 			Buckets: prometheus.DefBuckets,
 		}, []string{"result"}),
+		occupancyConflicts: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "trainpilot_occupancy_conflicts",
+			Help: "Number of blocks with current state or occupant identity conflicts.",
+		}, []string{"type"}),
 		activeLeases: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "trainpilot_control_leases_active",
 			Help: "Live locomotive control leases.",
@@ -268,7 +273,7 @@ func New(databasePath string) *Metrics {
 		m.wsConnections, m.wsConnectionsSeen, m.wsEvents, m.wsEventsDropped, m.wsQueueOverflows,
 		m.wsSnapshotRequest, m.wsSnapshotTime, m.wsSnapshotSize,
 		m.feedbackEvents, m.feedbackDuration, m.feedbackMappingErrors, m.feedbackOccupancy,
-		m.occupancyObservations, m.occupancyRejected, m.occupancyBlockState, m.occupancySourceStale, m.occupancyExternalLag,
+		m.occupancyObservations, m.occupancyRejected, m.occupancyBlockState, m.occupancySourceStale, m.occupancyExternalLag, m.occupancyConflicts,
 		m.activeLeases, m.leaseOperations, m.controlCommands, m.leaseStopDuration, m.safetyStops,
 		m.routeOperations, m.turnoutCommands, m.turnoutConfirms, m.turnoutDuration, m.turnoutPhaseTime, m.turnoutConfirmDetail,
 		m.stationState, m.stationTransitions, m.stationReconnects, m.stationCommands, m.stationDuration,
@@ -451,6 +456,14 @@ func (m *Metrics) ObserveExternalOccupancyLatency(latency time.Duration, accepte
 		result = "accepted"
 	}
 	m.occupancyExternalLag.WithLabelValues(result).Observe(latency.Seconds())
+}
+
+func (m *Metrics) SetOccupancyConflictCounts(state, identity int) {
+	if m == nil {
+		return
+	}
+	m.occupancyConflicts.WithLabelValues("state").Set(float64(state))
+	m.occupancyConflicts.WithLabelValues("identity").Set(float64(identity))
 }
 
 func (m *Metrics) SetActiveLeases(count int) {
@@ -702,7 +715,7 @@ func boundedResult(result string) string {
 }
 
 func boundedRouteResult(result string) string {
-	return bounded(result, "success", "denied", "conflict", "occupied", "error")
+	return bounded(result, "success", "denied", "conflict", "occupied", "unknown", "error")
 }
 
 func boundedTurnoutResult(result string) string {

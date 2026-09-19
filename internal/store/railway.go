@@ -470,6 +470,8 @@ func (s *Store) SeedDemo(ctx context.Context) error {
 		{`INSERT OR IGNORE INTO blocks(id,name,occupied) VALUES(?,?,0)`, []any{"block-c", "Gare voie 2"}},
 		{`INSERT OR IGNORE INTO occupancy_providers(id,type,priority,required,stale_after_ns,freshness_required) VALUES('simulator','simulator',100,1,0,0)`, nil},
 		{`INSERT OR IGNORE INTO occupancy_sensor_mappings(provider_id,sensor_id,block_id) VALUES(?,?,?)`, []any{"simulator", "1", "block-a"}},
+		{`INSERT OR IGNORE INTO occupancy_sensor_mappings(provider_id,sensor_id,block_id) VALUES(?,?,?)`, []any{"simulator", "2", "block-b"}},
+		{`INSERT OR IGNORE INTO occupancy_sensor_mappings(provider_id,sensor_id,block_id) VALUES(?,?,?)`, []any{"simulator", "3", "block-c"}},
 		{`INSERT OR IGNORE INTO turnouts(id,name,dcc_address,desired_state,reported_state,kind,desired_position,reported_position,pending,reported_status,quality,command_status) VALUES(?,?,?,?,?,'simple','straight','straight',0,'known','assumed','succeeded')`, []any{"turnout-1", "Aiguille entrée", 1, "straight", "straight"}},
 		{`INSERT OR IGNORE INTO turnout_endpoints(turnout_id,endpoint_id,linear_address,inverted,ordinal) SELECT 'turnout-1','main',1,0,0 WHERE NOT EXISTS(SELECT 1 FROM turnout_endpoints WHERE turnout_id='turnout-1')`, nil},
 		{`INSERT OR IGNORE INTO turnout_positions(turnout_id,position_id,label,ordinal) SELECT 'turnout-1','straight','',0 WHERE EXISTS(SELECT 1 FROM turnouts t JOIN turnout_endpoints e ON e.turnout_id=t.id WHERE t.id='turnout-1' AND t.kind='simple' AND e.endpoint_id='main')`, nil},

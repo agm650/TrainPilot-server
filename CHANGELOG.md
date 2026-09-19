@@ -30,7 +30,10 @@ All notable changes to this project will be documented in this file.
 
 - Conservative multi-source block occupancy with persisted providers and
   sensor mappings, R-BUS adaptation, and authenticated single/batch external
-  observations through the restricted `sensor` role.
+  observations through the restricted `sensor` role. REST, WebSocket snapshots
+  and change events expose explicit `unknown/free/occupied` state; dispatcher
+  diagnostics expose per-source freshness, and route commands fail safe on
+  unknown or occupied blocks.
 - Physical railway topology with validated nodes, track sections, conditional
   turnout connections, normalized SQLite persistence, and deterministic export.
 - Indexed static topology graph with conditional turnout edges, connected

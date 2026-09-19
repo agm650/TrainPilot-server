@@ -96,6 +96,60 @@ func TestExternalOccupancyObservationAPI(t *testing.T) {
 	requireClientProblem(t, err, http.StatusNotFound, "occupancy_sensor_not_found")
 }
 
+func TestBlocksExposeAggregatedOccupancyAndSourceDiagnostics(t *testing.T) {
+	fixture := newDetailedHTTPFixture(t)
+	configureExternalOccupancy(t, fixture, "zone-1")
+	ctx := context.Background()
+
+	blocks, err := fixture.viewer.Blocks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var blockA model.Block
+	for _, block := range blocks {
+		if block.ID == "block-a" {
+			blockA = block
+		}
+	}
+	if blockA.Occupancy.State != model.OccupancyUnknown || blockA.Occupied {
+		t.Fatalf("startup block=%+v", blockA)
+	}
+
+	observation := externalObservation("zone-1", model.OccupancyOccupied, 1)
+	observation["occupant"] = map[string]any{"type": "locomotive", "id": "BB72084"}
+	if _, err := fixture.sensor.Do(ctx, http.MethodPost, "/api/v1/occupancy/observations", observation, nil); err != nil {
+		t.Fatal(err)
+	}
+	blocks, err = fixture.viewer.Blocks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, block := range blocks {
+		if block.ID == "block-a" {
+			blockA = block
+		}
+	}
+	if blockA.Occupancy.State != model.OccupancyOccupied || !blockA.Occupied || blockA.Occupancy.Occupant == nil || blockA.Occupancy.Occupant.ID != "BB72084" {
+		t.Fatalf("occupied block=%+v", blockA)
+	}
+
+	_, err = fixture.viewer.BlockOccupancySources(ctx, "block-a")
+	requireClientProblem(t, err, http.StatusForbidden, "permission_denied")
+	_, err = fixture.sensor.BlockOccupancySources(ctx, "block-a")
+	requireClientProblem(t, err, http.StatusForbidden, "permission_denied")
+	for name, apiClient := range map[string]*client.Client{"dispatcher": fixture.dispatcher, "administrator": fixture.administrator} {
+		states, err := apiClient.BlockOccupancySources(ctx, "block-a")
+		if err != nil {
+			t.Fatalf("%s diagnostics: %v", name, err)
+		}
+		if len(states) != 2 {
+			t.Fatalf("%s states=%+v", name, states)
+		}
+	}
+	_, err = fixture.dispatcher.BlockOccupancySources(ctx, "missing")
+	requireClientProblem(t, err, http.StatusNotFound, "block_not_found")
+}
+
 func TestExternalOccupancySequenceSemantics(t *testing.T) {
 	fixture := newDetailedHTTPFixture(t)
 	configureExternalOccupancy(t, fixture, "zone-1")

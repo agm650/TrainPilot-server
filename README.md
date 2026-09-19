@@ -22,7 +22,8 @@ Included features:
 - lease heartbeats;
 - zero-speed stop before releasing an expired lease;
 - demonstration locomotives, blocks, turnouts, and routes;
-- normalized feedback and sensor-to-block mappings;
+- conservative multi-source block occupancy with normalized feedback and
+  sensor-to-block mappings;
 - simulated command-station driver;
 - DCC-EX TCP driver for track power, emergency stop, speed, functions,
   accessories, and sensor feedback, with health tracking and automatic
@@ -235,6 +236,20 @@ Benchmark setup, safety controls, profiles, and reports are documented in
 [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md). The reference performance
 methodology and validated hardware matrix are in
 [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
+
+## Occupancy safety semantics
+
+Block occupancy is explicit: `unknown`, `free`, or `occupied`. Fresh occupied
+observations always win, regardless of source priority. A missing or stale
+required source produces `unknown`. Server restart also starts at `unknown`;
+runtime observations are never restored as an invented `free` state.
+
+Both `unknown` and `occupied` block route reservation and activation. Only
+`free` allows the remaining route validations to proceed. REST, WebSocket
+events, and `system.snapshot` expose the same aggregated state and optional
+occupant. The legacy `occupied` boolean remains a derived compatibility field.
+See [`docs/OCCUPANCY.md`](docs/OCCUPANCY.md) for source diagnostics, external
+observations, freshness, metrics, and error codes.
 
 ### Live benchmark metrics
 

@@ -198,7 +198,15 @@ func locomotiveFromInput(id string, input model.LocomotiveInput) (model.Locomoti
 	}, nil
 }
 func (r *RailwayService) Blocks(ctx context.Context) ([]model.Block, error) {
-	return r.store.ListBlocks(ctx)
+	blocks, err := r.store.ListBlocks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for index := range blocks {
+		blocks[index].Occupancy = r.occupancy.BlockState(blocks[index].ID)
+		blocks[index].Occupied = blocks[index].Occupancy.LegacyOccupied()
+	}
+	return blocks, nil
 }
 func (r *RailwayService) Turnouts(ctx context.Context) ([]model.Turnout, error) {
 	return r.store.ListTurnouts(ctx)
@@ -322,17 +330,30 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, po
 	return nil
 }
 func (r *RailwayService) SetBlockFeedback(ctx context.Context, id string, occupied bool) error {
-	_, err := r.setBlockFeedbackObserved(ctx, id, occupied)
-	return err
-}
-
-func (r *RailwayService) setBlockFeedbackObserved(ctx context.Context, id string, occupied bool) (bool, error) {
-	changed, err := r.store.SetBlockOccupiedObserved(ctx, id, occupied)
+	mappings, err := r.store.ListOccupancySensorMappings(ctx)
 	if err != nil {
-		return false, err
+		return err
 	}
-	r.events.Publish("block.occupancy.changed", map[string]any{"blockId": id, "occupied": occupied})
-	return changed, nil
+	for _, mapping := range mappings {
+		if mapping.BlockID != id {
+			continue
+		}
+		state := model.OccupancyFree
+		if occupied {
+			state = model.OccupancyOccupied
+		}
+		return r.occupancy.Observe(ctx, model.OccupancyObservation{
+			ProviderID: mapping.ProviderID,
+			SensorID:   mapping.SensorID,
+			State:      state,
+			Sequence:   r.nextFeedbackSequence(mapping.ProviderID, mapping.SensorID),
+			ObservedAt: time.Now().UTC(),
+		})
+	}
+	if _, err := r.store.ResourcesForBlock(ctx, id); err != nil {
+		return err
+	}
+	return store.ErrNotFound
 }
 
 func (r *RailwayService) StartFeedback(ctx context.Context) {
@@ -379,12 +400,6 @@ func (r *RailwayService) StartFeedback(ctx context.Context) {
 					continue
 				}
 				after := r.occupancy.BlockState(mapping.BlockID)
-				if after.State != model.OccupancyUnknown {
-					if _, err := r.store.SetBlockOccupiedObserved(ctx, mapping.BlockID, after.LegacyOccupied()); err != nil {
-						r.metrics.ObserveFeedback(event.Source, "update_error", time.Since(started))
-						continue
-					}
-				}
 				r.metrics.ObserveFeedbackOccupancy(event.Source, before.State != after.State)
 				r.metrics.ObserveFeedback(event.Source, "mapped", time.Since(started))
 			}

@@ -26,6 +26,11 @@ type occupancySourceKey struct {
 	sensorID   string
 }
 
+type occupancyDiagnostics struct {
+	stateConflict    bool
+	identityConflict bool
+}
+
 type OccupancyService struct {
 	store   *store.Store
 	events  *events.Bus
@@ -36,25 +41,38 @@ type OccupancyService struct {
 	observations map[occupancySourceKey]model.OccupancyObservation
 	states       map[string]model.BlockOccupancy
 	availability map[string]bool
+	startedAt    time.Time
+	diagnostics  map[string]occupancyDiagnostics
 }
 
 func NewOccupancyService(s *store.Store, bus *events.Bus, c clock.Clock) *OccupancyService {
 	if c == nil {
 		c = clock.Real{}
 	}
-	return &OccupancyService{
+	now := c.Now().UTC()
+	service := &OccupancyService{
 		store:        s,
 		events:       bus,
 		clock:        c,
 		observations: make(map[occupancySourceKey]model.OccupancyObservation),
 		states:       make(map[string]model.BlockOccupancy),
 		availability: make(map[string]bool),
+		startedAt:    now,
+		diagnostics:  make(map[string]occupancyDiagnostics),
 	}
+	if blocks, err := s.ListBlocks(context.Background()); err == nil {
+		for _, block := range blocks {
+			service.states[block.ID] = model.NewUnknownBlockOccupancy(block.ID, now)
+		}
+	}
+	return service
 }
 
 func (s *OccupancyService) SetMetrics(metrics *observability.Metrics) {
+	configs, _ := s.resolvedMappings(context.Background())
 	s.mu.Lock()
 	s.metrics = metrics
+	s.updateMetricsLocked(configs, s.clock.Now().UTC())
 	s.mu.Unlock()
 }
 
@@ -171,7 +189,7 @@ func (s *OccupancyService) BlockState(blockID string) model.BlockOccupancy {
 	if ok {
 		return cloneBlockOccupancy(state)
 	}
-	return model.NewUnknownBlockOccupancy(blockID, s.clock.Now().UTC())
+	return model.NewUnknownBlockOccupancy(blockID, s.startedAt)
 }
 
 func (s *OccupancyService) ProviderStates(ctx context.Context, blockID string) ([]model.SensorOccupancyState, error) {
@@ -223,12 +241,22 @@ func (s *OccupancyService) Recompute(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	persistedBlocks, err := s.store.ListBlocks(ctx)
+	if err != nil {
+		return err
+	}
 	now := s.clock.Now().UTC()
 	blocks := make(map[string]struct{})
-	for _, config := range configs {
-		blocks[config.BlockID] = struct{}{}
+	for _, block := range persistedBlocks {
+		blocks[block.ID] = struct{}{}
 	}
 	s.mu.Lock()
+	for blockID := range s.states {
+		if _, exists := blocks[blockID]; !exists {
+			delete(s.states, blockID)
+			delete(s.diagnostics, blockID)
+		}
+	}
 	changes := make([]model.BlockOccupancy, 0, len(blocks))
 	for blockID := range blocks {
 		if changed := s.recomputeBlockLocked(blockID, configs, now); changed != nil {
@@ -279,7 +307,8 @@ func (s *OccupancyService) SetProviderAvailable(ctx context.Context, providerID 
 }
 
 func (s *OccupancyService) recomputeBlockLocked(blockID string, configs []model.ResolvedOccupancySensorMapping, now time.Time) *model.BlockOccupancy {
-	next := aggregateBlock(blockID, configs, s.observations, s.availability, now)
+	next, diagnostics := aggregateBlock(blockID, configs, s.observations, s.availability, now)
+	s.diagnostics[blockID] = diagnostics
 	previous, exists := s.states[blockID]
 	if !exists {
 		previous = model.NewUnknownBlockOccupancy(blockID, now)
@@ -298,8 +327,9 @@ func (s *OccupancyService) recomputeBlockLocked(blockID string, configs []model.
 	return &changed
 }
 
-func aggregateBlock(blockID string, configs []model.ResolvedOccupancySensorMapping, observations map[occupancySourceKey]model.OccupancyObservation, availability map[string]bool, now time.Time) model.BlockOccupancy {
+func aggregateBlock(blockID string, configs []model.ResolvedOccupancySensorMapping, observations map[occupancySourceKey]model.OccupancyObservation, availability map[string]bool, now time.Time) (model.BlockOccupancy, occupancyDiagnostics) {
 	result := model.NewUnknownBlockOccupancy(blockID, now)
+	diagnostics := occupancyDiagnostics{}
 	hasRequired := false
 	requiredMissing := false
 	hasFreshFree := false
@@ -348,18 +378,20 @@ func aggregateBlock(blockID string, configs []model.ResolvedOccupancySensorMappi
 		}
 	}
 	if result.State == model.OccupancyOccupied {
+		diagnostics.stateConflict = hasFreshFree
+		diagnostics.identityConflict = identityConflict
 		if !identityConflict {
 			result.Occupant = bestOccupant
 		}
-		return result
+		return result, diagnostics
 	}
 	if requiredMissing {
-		return result
+		return result, diagnostics
 	}
 	if hasRequired || hasFreshFree {
 		result.State = model.OccupancyFree
 	}
-	return result
+	return result, diagnostics
 }
 
 func (s *OccupancyService) resolvedMappings(ctx context.Context) ([]model.ResolvedOccupancySensorMapping, error) {
@@ -417,6 +449,16 @@ func (s *OccupancyService) updateMetricsLocked(configs []model.ResolvedOccupancy
 	}
 	s.metrics.SetOccupancyBlockStateCounts(unknown, free, occupied)
 	s.metrics.SetOccupancyStaleSourceCounts(staleRequired, staleOptional)
+	var stateConflicts, identityConflicts int
+	for _, diagnostics := range s.diagnostics {
+		if diagnostics.stateConflict {
+			stateConflicts++
+		}
+		if diagnostics.identityConflict {
+			identityConflicts++
+		}
+	}
+	s.metrics.SetOccupancyConflictCounts(stateConflicts, identityConflicts)
 }
 
 func (s *OccupancyService) providerAvailableLocked(providerID string) bool {

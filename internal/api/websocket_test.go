@@ -253,6 +253,11 @@ func TestSystemSnapshotContainsCompleteClientState(t *testing.T) {
 	if len(snapshot.Payload.Locomotives) != len(fixture.locomotives) || len(snapshot.Payload.Blocks) == 0 || len(snapshot.Payload.Turnouts) == 0 || len(snapshot.Payload.Routes) == 0 {
 		t.Fatalf("incomplete snapshot=%+v", snapshot.Payload)
 	}
+	for _, block := range snapshot.Payload.Blocks {
+		if block.Occupancy.State != model.OccupancyUnknown || block.Occupied {
+			t.Fatalf("startup block occupancy=%+v", block)
+		}
+	}
 	if snapshot.Payload.TopologyRevision == "" {
 		t.Fatal("topology revision is missing")
 	}
@@ -268,6 +273,44 @@ func TestSystemSnapshotContainsCompleteClientState(t *testing.T) {
 	}
 }
 
+func TestWebSocketOccupancyEventAndSameConnectionResync(t *testing.T) {
+	fixture := newWebsocketFixture(t)
+	ctx := context.Background()
+	client := dialTestWebSocket(t, fixture.server.URL, fixture.accessToken)
+	defer client.close()
+	initial := readTestSnapshot(t, client)
+
+	if err := fixture.railway.SetBlockFeedback(ctx, "block-a", true); err != nil {
+		t.Fatal(err)
+	}
+	var changed struct {
+		Type     string `json:"type"`
+		Sequence uint64 `json:"sequence"`
+		Payload  struct {
+			BlockID   string               `json:"blockId"`
+			State     model.OccupancyState `json:"state"`
+			Occupied  bool                 `json:"occupied"`
+			UpdatedAt time.Time            `json:"updatedAt"`
+		} `json:"payload"`
+	}
+	client.readJSON(t, &changed)
+	if changed.Type != "block.occupancy.changed" || changed.Sequence <= initial.Sequence || changed.Payload.BlockID != "block-a" || changed.Payload.State != model.OccupancyOccupied || !changed.Payload.Occupied || changed.Payload.UpdatedAt.IsZero() {
+		t.Fatalf("occupancy event=%+v", changed)
+	}
+
+	client.writeJSON(t, map[string]any{"type": "client.snapshot_request", "lastSequence": changed.Sequence})
+	resynchronized := readTestSnapshot(t, client)
+	found := false
+	for _, block := range resynchronized.Payload.Blocks {
+		if block.ID == "block-a" {
+			found = block.Occupancy.State == model.OccupancyOccupied && block.Occupied
+		}
+	}
+	if !found {
+		t.Fatalf("resynchronized blocks=%+v", resynchronized.Payload.Blocks)
+	}
+}
+
 func TestSystemSnapshotTopologyRevisionChangesOnlyWithLayout(t *testing.T) {
 	ctx := context.Background()
 	fixture := newWebsocketFixture(t)
@@ -275,7 +318,7 @@ func TestSystemSnapshotTopologyRevisionChangesOnlyWithLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.api.store.SetBlockOccupied(ctx, "block-a", true); err != nil {
+	if err := fixture.railway.SetBlockFeedback(ctx, "block-a", true); err != nil {
 		t.Fatal(err)
 	}
 	runtimeChanged, err := fixture.api.buildSystemSnapshot(ctx, fixture.session)

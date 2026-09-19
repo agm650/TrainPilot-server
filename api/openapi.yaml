@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: DCC Control Server API
-  version: 1.9.0
+  version: 1.10.0
   description: >-
     Contract for native DCC clients. User administration is deliberately absent
     from this public API and is available only over the local administration socket.
@@ -354,6 +354,30 @@ paths:
                   items:
                     type: array
                     items: { $ref: '#/components/schemas/Block' }
+  /api/v1/blocks/{blockId}/occupancy-sources:
+    parameters:
+      - name: blockId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getBlockOccupancySources
+      description: Returns per-source runtime diagnostics for dispatcher and administrator roles.
+      responses:
+        '200':
+          description: Configured source states for the block.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/SensorOccupancyState' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/occupancy/observations:
     post:
       operationId: postOccupancyObservation
@@ -502,7 +526,8 @@ paths:
         '409':
           description: >-
             Route activation refused before any turnout command. The stable problem
-            code is `route_occupied` when a route block is occupied or
+            code is `route_occupied` when a route block is occupied,
+            `route_occupancy_unknown` when its safe state is unavailable, or
             `route_conflict` when another conflicting route is reserved or active.
           content:
             application/problem+json:
@@ -513,7 +538,7 @@ paths:
                     properties:
                       status: { type: integer, enum: [409] }
                       category: { type: string, enum: [conflict] }
-                      code: { type: string, enum: [route_occupied, route_conflict] }
+                      code: { type: string, enum: [route_occupied, route_occupancy_unknown, route_conflict] }
   /api/v1/routes/{routeId}/release:
     parameters: [{ $ref: '#/components/parameters/RouteId' }]
     post:
@@ -799,11 +824,22 @@ components:
         direction: { type: string, enum: [forward, reverse] }
     Block:
       type: object
-      required: [id, name, occupied]
+      required: [id, name, occupied, occupancy]
       properties:
         id: { type: string }
         name: { type: string }
-        occupied: { type: boolean }
+        occupied:
+          type: boolean
+          deprecated: true
+          description: Derived compatibility field; true only when occupancy.state is occupied.
+        occupancy: { $ref: '#/components/schemas/BlockOccupancy' }
+    BlockOccupancy:
+      type: object
+      required: [state, updatedAt]
+      properties:
+        state: { type: string, enum: [unknown, free, occupied] }
+        occupant: { $ref: '#/components/schemas/OccupantRef' }
+        updatedAt: { type: string, format: date-time }
     OccupantRef:
       type: object
       additionalProperties: false
@@ -843,6 +879,22 @@ components:
           minItems: 1
           maxItems: 256
           items: { $ref: '#/components/schemas/OccupancySnapshotItem' }
+    SensorOccupancyState:
+      type: object
+      required: [providerId, sensorId, blockId, state, sequence, observedAt, receivedAt, required, priority, fresh, available]
+      properties:
+        providerId: { type: string }
+        sensorId: { type: string }
+        blockId: { type: string }
+        state: { type: string, enum: [unknown, free, occupied] }
+        sequence: { type: integer, minimum: 0 }
+        observedAt: { type: string, format: date-time }
+        receivedAt: { type: string, format: date-time }
+        occupant: { $ref: '#/components/schemas/OccupantRef' }
+        required: { type: boolean }
+        priority: { type: integer, minimum: 0, maximum: 100 }
+        fresh: { type: boolean }
+        available: { type: boolean }
     TopologyDefinition:
       type: object
       additionalProperties: false

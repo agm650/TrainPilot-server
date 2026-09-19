@@ -61,7 +61,7 @@ func TestFeedbackUpdatesMappedBlock(t *testing.T) {
 			t.Fatal("mapped block event was not published")
 		}
 	}
-	blocks, err := db.ListBlocks(ctx)
+	blocks, err := railway.Blocks(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

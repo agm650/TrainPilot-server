@@ -37,6 +37,14 @@ La validation contractuelle inclut également :
 - les bornes de fonctions propres aux capacités du simulateur, de z21 et de
   DCC-EX.
 
+La validation d'occupation couvre le démarrage en `unknown`, l'agrégation
+multi-sources conservative, l'expiration des sources requises, les séquences
+hors ordre, les refresh sans événement métier, et la cohérence REST/WebSocket/
+snapshot. Les tests de route prouvent que `unknown` et `occupied` bloquent
+avant toute commande d'aiguillage, tandis que `free` seul poursuit les autres
+validations. Le diagnostic par source et les métriques utilisent des labels
+bornés.
+
 Les commandes de conformité actives et les mutations de configuration ne sont
 jamais lancées implicitement contre une centrale réelle : elles exigent les
 options explicites documentées dans `docs/TESTING.md`.

@@ -116,8 +116,8 @@ func run(ctx context.Context, cfg configuration, output io.Writer) int {
 
 	locomotives, err := c1.Locomotives(ctx)
 	add("authenticated client lists locomotives", err)
-	_, err = c1.Blocks(ctx)
-	add("authenticated client lists blocks", err)
+	blocks, err := c1.Blocks(ctx)
+	add("authenticated client lists blocks with explicit occupancy", validateBlockOccupancyResponse(blocks, err))
 	topologyDefinition, topologyErr := c1.Topology(ctx)
 	add("authenticated client reads physical topology", topologyErr)
 	turnouts, turnoutsErr := c1.Turnouts(ctx)
@@ -144,6 +144,10 @@ func run(ctx context.Context, cfg configuration, output io.Writer) int {
 		adminClient = client.New(cfg.server)
 		_, err = adminClient.Login(ctx, cfg.admin, cfg.adminPass, "conformance-admin")
 		add("administrator can authenticate", err)
+		if err == nil && len(blocks) > 0 {
+			_, err = adminClient.BlockOccupancySources(ctx, blocks[0].ID)
+			add("administrator reads block occupancy source diagnostics", err)
+		}
 	} else {
 		fmt.Fprintln(output, "SKIP  administrator checks (provide --admin and --admin-pass)")
 	}
@@ -238,6 +242,21 @@ func validateTopologyResponse(definition model.TopologyDefinition, turnouts []mo
 	}
 	if _, err := topology.BuildDefinition(definition, turnouts); err != nil {
 		return fmt.Errorf("invalid topology response: %w", err)
+	}
+	return nil
+}
+
+func validateBlockOccupancyResponse(blocks []model.Block, err error) error {
+	if err != nil {
+		return err
+	}
+	for _, block := range blocks {
+		if !block.Occupancy.State.Valid() {
+			return fmt.Errorf("block %q has invalid occupancy state %q", block.ID, block.Occupancy.State)
+		}
+		if block.Occupied != (block.Occupancy.State == model.OccupancyOccupied) {
+			return fmt.Errorf("block %q legacy occupied field disagrees with occupancy state", block.ID)
+		}
 	}
 	return nil
 }
@@ -395,7 +414,16 @@ func runDispatchChecks(ctx context.Context, admin *client.Client, add func(strin
 		add("dispatch scenario has a route", err)
 		return
 	}
-	add("dispatcher can reserve a route", admin.ReserveRoute(ctx, routes[0].ID))
+	reserveErr := admin.ReserveRoute(ctx, routes[0].ID)
+	var httpErr *client.HTTPError
+	if errors.As(reserveErr, &httpErr) && httpErr.Problem != nil && httpErr.Problem.Code == "route_occupancy_unknown" {
+		add("unknown occupancy safely blocks route reservation", expectHTTPError(reserveErr, http.StatusConflict, "conflict", "route_occupancy_unknown"))
+		return
+	}
+	add("dispatcher can reserve a route", reserveErr)
+	if reserveErr != nil {
+		return
+	}
 	add("dispatcher can activate a reserved route", admin.ActivateRoute(ctx, routes[0].ID))
 	add("dispatcher can release a route", admin.ReleaseRoute(ctx, routes[0].ID))
 }

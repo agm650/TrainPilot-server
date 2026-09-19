@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: DCC Control Server Events
-  version: 1.10.0
+  version: 1.11.0
   description: >-
     WebSocket event contract for native clients, including complete sequenced
     snapshots and explicit resynchronization requests. After a snapshot, clients
@@ -184,11 +184,28 @@ components:
         model: { type: string }
     Block:
       type: object
-      required: [id, name, occupied]
+      required: [id, name, occupied, occupancy]
       properties:
         id: { type: string }
         name: { type: string }
-        occupied: { type: boolean }
+        occupied:
+          type: boolean
+          deprecated: true
+          description: Derived compatibility field; true only for occupied state.
+        occupancy: { $ref: '#/components/schemas/BlockOccupancy' }
+    OccupantRef:
+      type: object
+      required: [type, id]
+      properties:
+        type: { type: string }
+        id: { type: string }
+    BlockOccupancy:
+      type: object
+      required: [state, updatedAt]
+      properties:
+        state: { type: string, enum: [unknown, free, occupied] }
+        occupant: { $ref: '#/components/schemas/OccupantRef' }
+        updatedAt: { type: string, format: date-time }
     AccessoryEndpoint:
       type: object
       required: [id, linearAddress]
@@ -496,10 +513,16 @@ components:
               type: { const: block.occupancy.changed }
               payload:
                 type: object
-                required: [blockId, occupied]
+                required: [blockId, state, updatedAt, occupied]
                 properties:
                   blockId: { type: string }
-                  occupied: { type: boolean }
+                  state: { type: string, enum: [unknown, free, occupied] }
+                  occupant: { $ref: '#/components/schemas/OccupantRef' }
+                  updatedAt: { type: string, format: date-time }
+                  occupied:
+                    type: boolean
+                    deprecated: true
+                    description: Derived compatibility field; true only for occupied state.
     TurnoutStateChanged:
       name: turnout.state.changed
       payload:

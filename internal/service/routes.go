@@ -18,6 +18,7 @@ type RouteService struct {
 }
 
 var ErrRouteOccupied = store.ErrRouteOccupied
+var ErrRouteOccupancyUnknown = store.ErrRouteOccupancyUnknown
 var ErrRouteConflict = store.ErrRouteConflict
 
 func (r *RouteService) SetMetrics(metrics *observability.Metrics) { r.metrics = metrics }
@@ -39,13 +40,9 @@ func (r *RouteService) Reserve(ctx context.Context, user model.User, sess model.
 	if !Allowed(user.Role, PermissionDispatch) {
 		return ErrPermissionDenied
 	}
-	occ, err := r.store.RouteBlocksOccupied(ctx, id)
-	if err != nil {
+	if err := r.validateRouteOccupancy(ctx, id); err != nil {
+		result = routeMetricResult(err)
 		return err
-	}
-	if occ {
-		result = "occupied"
-		return fmt.Errorf("route contains an occupied block: %w", store.ErrConflict)
 	}
 	conflict, err := r.store.RouteHasActiveConflict(ctx, id)
 	if err != nil {
@@ -69,6 +66,9 @@ func (r *RouteService) Activate(ctx context.Context, user model.User, sess model
 	if err := r.store.ValidateRouteActivation(ctx, id, sess.ID); err != nil {
 		return err
 	}
+	if err := r.validateRouteOccupancy(ctx, id); err != nil {
+		return err
+	}
 	requirements, err := r.store.RouteTurnoutRequirements(ctx, id)
 	if err != nil {
 		return err
@@ -82,6 +82,26 @@ func (r *RouteService) Activate(ctx context.Context, user model.User, sess model
 		return err
 	}
 	r.events.Publish("route.activated", map[string]any{"routeId": id})
+	return nil
+}
+
+func (r *RouteService) validateRouteOccupancy(ctx context.Context, routeID string) error {
+	blockIDs, err := r.store.RouteBlockIDs(ctx, routeID)
+	if err != nil {
+		return err
+	}
+	unknown := false
+	for _, blockID := range blockIDs {
+		switch r.railway.OccupancyService().BlockState(blockID).State {
+		case model.OccupancyOccupied:
+			return fmt.Errorf("route block %q is occupied: %w", blockID, ErrRouteOccupied)
+		case model.OccupancyUnknown:
+			unknown = true
+		}
+	}
+	if unknown {
+		return ErrRouteOccupancyUnknown
+	}
 	return nil
 }
 func (r *RouteService) Release(ctx context.Context, sess model.Session, id string) (err error) {

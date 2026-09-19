@@ -108,6 +108,14 @@ construit `dccd`, `dccctl` et `trainpilot-bench`, puis exécute séparément les
 phases actives, de reconnexion et de resynchronisation sur une fixture réduite.
 Il ne constitue ni un test de charge capacitaire ni une validation matérielle.
 
+Les tests d'occupation multi-sources se trouvent principalement dans
+`internal/service`, `internal/api` et `cmd/dcc-api-conformance`. Ils vérifient
+notamment que `occupied` gagne indépendamment de la priorité, qu'une source
+requise périmée produit `unknown`, que les séquences anciennes sont rejetées et
+qu'un snapshot demandé sur la connexion WebSocket courante restitue l'état
+agrégé. Ces tests utilisent SQLite en mémoire, le simulateur et des faux
+pilotes ; ils ne remplacent pas une validation R-BUS ou caméra réelle.
+
 La conformité HTTP passive, sans commande de voie, s'exécute contre un serveur
 déjà démarré avec :
 

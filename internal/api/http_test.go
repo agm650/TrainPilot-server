@@ -135,6 +135,7 @@ func TestOperationProblemsUseStableCodes(t *testing.T) {
 		{"takeover conflict", service.ErrLeaseTakeoverConflict, http.StatusConflict, "lease_takeover_conflict", "conflict"},
 		{"permission", service.ErrPermissionDenied, http.StatusForbidden, "permission_denied", "authorization"},
 		{"route occupied", service.ErrRouteOccupied, http.StatusConflict, "route_occupied", "conflict"},
+		{"route occupancy unknown", service.ErrRouteOccupancyUnknown, http.StatusConflict, "route_occupancy_unknown", "conflict"},
 		{"route conflict", service.ErrRouteConflict, http.StatusConflict, "route_conflict", "conflict"},
 		{"validation", service.ErrValidation, http.StatusBadRequest, "validation_failed", "validation"},
 		{"pending turnout configuration", store.ErrTurnoutConfigurationPending, http.StatusConflict, "turnout_configuration_pending", "conflict"},
@@ -277,6 +278,9 @@ func TestHTTPHandlersCoverSuccessAndErrorPaths(t *testing.T) {
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/turnouts/turnout-1", "Bearer "+dispatcher.AccessToken, []byte(`{"state":"straight"}`), http.StatusNoContent)
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/turnouts/turnout-1", "Bearer "+dispatcher.AccessToken, []byte(`{"position":"diverging"}`), http.StatusNoContent)
 
+	for _, blockID := range []string{"block-a", "block-b"} {
+		assertStatus(t, server.URL, http.MethodPost, "/test/v1/simulator/blocks/"+blockID+"/occupancy", "Bearer "+dispatcher.AccessToken, []byte(`{"occupied":false}`), http.StatusNoContent)
+	}
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/routes/route-a-b/reserve", "Bearer "+dispatcher.AccessToken, nil, http.StatusNoContent)
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/routes/route-a-b/activate", "Bearer "+dispatcher.AccessToken, nil, http.StatusNoContent)
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/routes/route-a-b/release", "Bearer "+viewer.AccessToken, nil, http.StatusNotFound)
@@ -483,23 +487,33 @@ func newDetailedHTTPFixture(t *testing.T) detailedHTTPFixture {
 func TestRouteActivationHTTPRejectsLateInvalidation(t *testing.T) {
 	for _, test := range []struct {
 		name     string
-		mutate   func(context.Context, *store.Store) error
+		mutate   func(context.Context, detailedHTTPFixture) error
 		wantCode string
 	}{
 		{
 			name: "occupied",
-			mutate: func(ctx context.Context, db *store.Store) error {
-				return db.SetBlockOccupied(ctx, "block-a", true)
+			mutate: func(ctx context.Context, fixture detailedHTTPFixture) error {
+				return fixture.occupancy.Observe(ctx, model.OccupancyObservation{
+					ProviderID: "simulator", SensorID: "1", State: model.OccupancyOccupied,
+					Sequence: 2, ObservedAt: time.Now().UTC(),
+				})
 			},
 			wantCode: "route_occupied",
 		},
 		{
+			name: "unknown",
+			mutate: func(ctx context.Context, fixture detailedHTTPFixture) error {
+				return fixture.occupancy.SetProviderAvailable(ctx, "simulator", false)
+			},
+			wantCode: "route_occupancy_unknown",
+		},
+		{
 			name: "conflict",
-			mutate: func(ctx context.Context, db *store.Store) error {
-				if _, err := db.DB.ExecContext(ctx, `INSERT INTO routes(id,name,state,reserved_by_session) VALUES('route-conflict','Conflict','active','other')`); err != nil {
+			mutate: func(ctx context.Context, fixture detailedHTTPFixture) error {
+				if _, err := fixture.db.DB.ExecContext(ctx, `INSERT INTO routes(id,name,state,reserved_by_session) VALUES('route-conflict','Conflict','active','other')`); err != nil {
 					return err
 				}
-				_, err := db.DB.ExecContext(ctx, `INSERT INTO route_conflicts(route_id,conflict_route_id) VALUES('route-a-b','route-conflict')`)
+				_, err := fixture.db.DB.ExecContext(ctx, `INSERT INTO route_conflicts(route_id,conflict_route_id) VALUES('route-a-b','route-conflict')`)
 				return err
 			},
 			wantCode: "route_conflict",
@@ -508,6 +522,14 @@ func TestRouteActivationHTTPRejectsLateInvalidation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newDetailedHTTPFixture(t)
 			ctx := context.Background()
+			for _, sensorID := range []string{"1", "2"} {
+				if err := fixture.occupancy.Observe(ctx, model.OccupancyObservation{
+					ProviderID: "simulator", SensorID: sensorID, State: model.OccupancyFree,
+					Sequence: 1, ObservedAt: time.Now().UTC(),
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if _, err := fixture.db.DB.ExecContext(ctx, `UPDATE route_turnouts SET required_state='diverging' WHERE route_id='route-a-b'`); err != nil {
 				t.Fatal(err)
 			}
@@ -518,7 +540,7 @@ func TestRouteActivationHTTPRejectsLateInvalidation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := test.mutate(ctx, fixture.db); err != nil {
+			if err := test.mutate(ctx, fixture); err != nil {
 				t.Fatal(err)
 			}
 			ch, unsubscribe := fixture.bus.Subscribe(8)

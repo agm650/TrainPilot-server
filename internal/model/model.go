@@ -130,9 +130,10 @@ type LocomotiveControlTransferred struct {
 }
 
 type Block struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Occupied bool   `json:"occupied"`
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Occupied  bool           `json:"occupied"`
+	Occupancy BlockOccupancy `json:"occupancy"`
 }
 
 // BlockDefinition describes the physical resources assigned to a block.

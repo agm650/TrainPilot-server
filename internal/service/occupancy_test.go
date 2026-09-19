@@ -366,3 +366,87 @@ func TestOccupancyConcurrentProviders(t *testing.T) {
 		t.Fatalf("provider states = %d", len(states))
 	}
 }
+
+func TestOccupancyConcurrentSnapshotAndFeedbackAcrossBlocks(t *testing.T) {
+	fixture := newOccupancyTestFixture(t,
+		[]model.OccupancyProvider{
+			occupancyProvider("rbus", 100, true, 0),
+			occupancyProvider("camera", 10, false, time.Minute),
+		},
+		[]model.OccupancySensorMapping{
+			occupancyMapping("rbus", "1", "block-a"),
+			occupancyMapping("rbus", "2", "block-b"),
+			occupancyMapping("camera", "a", "block-a"),
+			occupancyMapping("camera", "b", "block-b"),
+		},
+	)
+	const observations = 100
+	errorsChannel := make(chan error, 2)
+	go func() {
+		for sequence := uint64(1); sequence <= observations; sequence++ {
+			for _, sensorID := range []string{"1", "2"} {
+				if err := fixture.service.Observe(context.Background(), model.OccupancyObservation{
+					ProviderID: "rbus", SensorID: sensorID, State: model.OccupancyFree, Sequence: sequence,
+				}); err != nil {
+					errorsChannel <- err
+					return
+				}
+			}
+		}
+		errorsChannel <- nil
+	}()
+	go func() {
+		for sequence := uint64(1); sequence <= observations; sequence++ {
+			if err := fixture.service.ObserveBatch(context.Background(), []model.OccupancyObservation{
+				{ProviderID: "camera", SensorID: "a", State: model.OccupancyOccupied, Sequence: sequence},
+				{ProviderID: "camera", SensorID: "b", State: model.OccupancyFree, Sequence: sequence},
+			}); err != nil {
+				errorsChannel <- err
+				return
+			}
+		}
+		errorsChannel <- nil
+	}()
+	for range 2 {
+		if err := <-errorsChannel; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := fixture.service.BlockState("block-a").State; got != model.OccupancyOccupied {
+		t.Fatalf("block-a state=%q", got)
+	}
+	if got := fixture.service.BlockState("block-b").State; got != model.OccupancyFree {
+		t.Fatalf("block-b state=%q", got)
+	}
+}
+
+func TestOccupancyExpirationConcurrentWithFreshObservation(t *testing.T) {
+	fixture := newOccupancyTestFixture(t,
+		[]model.OccupancyProvider{occupancyProvider("required", 100, true, time.Minute)},
+		[]model.OccupancySensorMapping{occupancyMapping("required", "1", "block")},
+	)
+	observeOccupancy(t, fixture.service, "required", "1", model.OccupancyFree, 1, nil)
+	fixture.clock.Advance(2 * time.Minute)
+	start := make(chan struct{})
+	errorsChannel := make(chan error, 2)
+	go func() {
+		<-start
+		errorsChannel <- fixture.service.Recompute(context.Background())
+	}()
+	go func() {
+		<-start
+		errorsChannel <- fixture.service.Observe(context.Background(), model.OccupancyObservation{
+			ProviderID: "required", SensorID: "1", State: model.OccupancyFree,
+			Sequence: 2, ObservedAt: fixture.clock.Now(),
+		})
+	}()
+	close(start)
+	for range 2 {
+		if err := <-errorsChannel; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := fixture.service.BlockState("block").State; got != model.OccupancyFree {
+		t.Fatalf("state=%q", got)
+	}
+}

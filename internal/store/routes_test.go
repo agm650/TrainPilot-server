@@ -38,18 +38,6 @@ func TestValidateRouteActivation(t *testing.T) {
 			},
 		},
 		{
-			name:      "occupied block",
-			routeID:   "route-a-b",
-			sessionID: "owner",
-			setup: func(t *testing.T, store *Store) {
-				reserveRouteForValidation(t, store)
-				if err := store.SetBlockOccupied(context.Background(), "block-a", true); err != nil {
-					t.Fatal(err)
-				}
-			},
-			wantErr: ErrRouteOccupied,
-		},
-		{
 			name:      "reserved conflict",
 			routeID:   "route-a-b",
 			sessionID: "owner",
