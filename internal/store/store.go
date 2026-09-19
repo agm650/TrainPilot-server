@@ -119,6 +119,24 @@ func (s *Store) Migrate(ctx context.Context) error {
 			block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
 			PRIMARY KEY(provider, address)
 		)`,
+		`CREATE TABLE IF NOT EXISTS occupancy_providers (
+			id TEXT PRIMARY KEY,
+			type TEXT NOT NULL,
+			priority INTEGER NOT NULL CHECK(priority BETWEEN 0 AND 100),
+			required INTEGER NOT NULL CHECK(required IN (0,1)),
+			stale_after_ns INTEGER NOT NULL CHECK(stale_after_ns >= 0),
+			freshness_required INTEGER NOT NULL CHECK(freshness_required IN (0,1)),
+			CHECK(freshness_required = 0 OR stale_after_ns > 0)
+		)`,
+		`CREATE TABLE IF NOT EXISTS occupancy_sensor_mappings (
+			provider_id TEXT NOT NULL REFERENCES occupancy_providers(id) ON DELETE CASCADE,
+			sensor_id TEXT NOT NULL,
+			block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+			required INTEGER CHECK(required IN (0,1)),
+			priority INTEGER CHECK(priority BETWEEN 0 AND 100),
+			PRIMARY KEY(provider_id, sensor_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_occupancy_sensor_mappings_block ON occupancy_sensor_mappings(block_id, provider_id, sensor_id)`,
 		`CREATE TABLE IF NOT EXISTS turnouts (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
