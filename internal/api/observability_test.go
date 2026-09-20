@@ -32,12 +32,20 @@ func TestWebSocketConnectionGaugeAndSnapshotMetrics(t *testing.T) {
 	client.writeJSON(t, map[string]any{"type": "client.snapshot_request"})
 	readTestSnapshot(t, client)
 
-	body := scrapeAPIMetrics(t, metrics)
+	deadline := time.Now().Add(time.Second)
+	var body string
+	for {
+		body = scrapeAPIMetrics(t, metrics)
+		if strings.Contains(body, "trainpilot_websocket_snapshot_generation_duration_seconds_count 2") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("snapshot metric missing:\n%s", body)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	if !strings.Contains(body, "trainpilot_websocket_connections 1") {
 		t.Fatalf("connected gauge missing:\n%s", body)
-	}
-	if !strings.Contains(body, "trainpilot_websocket_snapshot_generation_duration_seconds_count 2") {
-		t.Fatalf("snapshot metric missing:\n%s", body)
 	}
 	if !strings.Contains(body, "trainpilot_websocket_snapshot_requests_total 1") {
 		t.Fatalf("snapshot request metric missing:\n%s", body)
@@ -47,7 +55,7 @@ func TestWebSocketConnectionGaugeAndSnapshotMetrics(t *testing.T) {
 	}
 	client.close()
 
-	deadline := time.Now().Add(time.Second)
+	deadline = time.Now().Add(time.Second)
 	for {
 		body = scrapeAPIMetrics(t, metrics)
 		if strings.Contains(body, "trainpilot_websocket_connections 0") {
