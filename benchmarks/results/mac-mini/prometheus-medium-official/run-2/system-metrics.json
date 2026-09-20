@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "source": "Prometheus 3.14.0 archive prometheus-medium-official/run-2, 2s scrape, exact measurement window",
+  "databaseInitialBytes": 3321856,
+  "databaseFinalBytes": 3555328,
+  "processCpuMaxPercent": 104.40659264878276,
+  "processRssMaxBytes": 47284224,
+  "hostCpuMaxPercent": 63.9581393745032,
+  "hostRamMaxBytes": 590745600,
+  "swapMaxBytes": 0,
+  "sqliteErrors": 0,
+  "networkDrops": 0,
+  "webSocketQueueOverflows": 0,
+  "temperatureMaxCelsius": 80,
+  "thermalThrottlingEvents": 0
+}

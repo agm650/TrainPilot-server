@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "hardware": {
+    "model": "Apple Mac mini Macmini3,1 (version 1.0)",
+    "cpu": "Intel Core 2 Duo P7350 @ 2.00 GHz",
+    "cores": 2,
+    "ramBytes": 3844476928,
+    "storage": "Fanxiang S101 256GB SATA SSD (238.5 GiB usable)",
+    "os": "Debian GNU/Linux 13 (trixie)",
+    "kernel": "6.12.107+deb13-amd64",
+    "arch": "amd64",
+    "network": "enp0s10, 100 Mb/s full duplex Ethernet, benchmark address 192.168.0.60/24",
+    "notes": "Cooling configuration not recorded. node_cpu_core_throttles_total remained 0 on both cores and no critical thermal alarm was observed during all three runs."
+  },
+  "server": {
+    "gitCommit": "35858bfd09bee3e0bd81860b5768611622d9be01",
+    "goVersion": "go1.27.1",
+    "os": "linux",
+    "arch": "amd64",
+    "configuration": {
+      "binaryVCSModified": "false",
+      "cgoEnabled": "false",
+      "stationDriver": "simulator",
+      "publicEndpointObserved": "192.168.0.60:8080",
+      "diagnosticsEndpointObserved": "192.168.0.60:6060",
+      "prometheusScrapeInterval": "2s",
+      "benchmarkNetworkInterface": "enp0s10",
+      "databaseDriver": "modernc.org/sqlite",
+      "databaseJournalMode": "WAL",
+      "databaseMaxOpenConnections": "1",
+      "databaseForeignKeys": "enabled",
+      "databaseBusyTimeout": "5s"
+    }
+  }
+}

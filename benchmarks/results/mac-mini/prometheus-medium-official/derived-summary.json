@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "profileSha256": "4628824a1769e250701c358da1a98bc437a2a7ab16cb20e854a540f30a125e3f",
+  "fixtureSha256": "d5fb8c02e8f82fd6b932dc8d855c95850eb8bb6d8654c666436930bb2929c949",
+  "seed": 650,
+  "qualifiedRuns": 3,
+  "publicationValidation": "PASS",
+  "medians": {
+    "maximumCommandP95Milliseconds": 40.274541,
+    "maximumCommandP99Milliseconds": 68.412291,
+    "feedbackToWebSocketP95Milliseconds": 31.034791,
+    "processCpuP95Percent": 104.13712308170683,
+    "hostCpuP95Percent": 63.05263018003424,
+    "processRssMaxMiB": 45.09375,
+    "temperatureMaxCelsius": 80,
+    "sqliteWaitCount": 79550,
+    "sqliteWaitSeconds": 62.603464046,
+    "webSocketSequenceGaps": 16,
+    "webSocketEventsDropped": 2,
+    "webSocketQueueOverflows": 0,
+    "networkDropsOnBenchmarkInterface": 0,
+    "thermalThrottlingEvents": 0
+  },
+  "alerts": {
+    "firing": 0,
+    "note": "Only pending alert series were observed during the short runs."
+  },
+  "notes": [
+    "All three benchmark reports are PASS with no unexpected errors, timeouts, or invariant violations.",
+    "All WebSocket sequence gaps were resynchronized and no server queue overflow occurred.",
+    "CPU p95 uses a one-minute rate window and two-second subquery step over the final nine minutes of each exact measurement phase.",
+    "The raw exports include setup, warm-up, and measurement; system metrics use the exact measurement phase."
+  ]
+}
