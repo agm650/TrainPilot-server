@@ -31,6 +31,21 @@ type webSocketClient struct {
 	writeMu sync.Mutex
 }
 
+type webSocketHandshakeError struct {
+	StatusCode int
+	Status     string
+}
+
+func (e *webSocketHandshakeError) Error() string {
+	return fmt.Sprintf("WebSocket upgrade returned %s", e.Status)
+}
+
+func isWebSocketAuthenticationError(err error) bool {
+	var handshakeError *webSocketHandshakeError
+	return errors.As(err, &handshakeError) &&
+		(handshakeError.StatusCode == http.StatusUnauthorized || handshakeError.StatusCode == http.StatusForbidden)
+}
+
 func dialWebSocket(ctx context.Context, serverURL, accessToken string, timeout time.Duration) (*webSocketClient, error) {
 	parsed, err := url.Parse(serverURL)
 	if err != nil {
@@ -93,7 +108,8 @@ func dialWebSocket(ctx context.Context, serverURL, accessToken string, timeout t
 		return nil, fmt.Errorf("read WebSocket handshake: %w", err)
 	}
 	if response.StatusCode != http.StatusSwitchingProtocols {
-		return nil, fmt.Errorf("WebSocket upgrade returned %s", response.Status)
+		_ = response.Body.Close()
+		return nil, &webSocketHandshakeError{StatusCode: response.StatusCode, Status: response.Status}
 	}
 	expectedHash := sha1.Sum([]byte(key + webSocketGUID))
 	expectedAccept := base64.StdEncoding.EncodeToString(expectedHash[:])

@@ -135,6 +135,11 @@ behavior:
 Rates are operations per second. `warmup` runs the same workload without adding
 operation samples to measured percentiles. `duration` is the measured
 phase. `operation_timeout` applies to individual HTTP and connection attempts.
+The runner refreshes each virtual user's access token before expiry. These
+maintenance refreshes are separate from the scheduled `refresh_per_second`
+operations, which remain part of the measured workload. An authentication
+failure during a WebSocket handshake triggers one forced refresh. Reconnection
+failures use bounded exponential backoff.
 
 Fixtures select stable locomotive IDs, map simulator feedback addresses to
 expected block events, and may declare incompatible route pairs. The broader

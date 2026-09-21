@@ -13,6 +13,11 @@ import (
 
 var errPlannedReconnect = errors.New("planned WebSocket reconnect")
 
+const (
+	webSocketRetryInitial = 100 * time.Millisecond
+	webSocketRetryMaximum = 5 * time.Second
+)
+
 type wireMessage struct {
 	Type       string         `json:"type"`
 	Sequence   uint64         `json:"sequence"`
@@ -27,19 +32,22 @@ func (e *runEngine) runWebSocket(ctx context.Context, index int, ready chan<- st
 	firstConnection := true
 	readySent := false
 	awaitingResync := false
+	retryDelay := webSocketRetryInitial
 	for ctx.Err() == nil {
 		started := time.Now()
-		client, err := dialWebSocket(ctx, e.options.Server, session.accessToken(), e.profile.OperationTimeout.Duration)
+		client, err := session.connectWebSocket(ctx, e.options.Server, e.profile.OperationTimeout.Duration)
 		if e.isExpectedErrorAt("websocket_connect", err, started) {
 			err = expectedError(err)
 		}
 		e.recorder.Record("websocket_connect", time.Since(started), err)
 		if err != nil {
-			if !waitRetry(ctx) {
+			if !waitRetry(ctx, retryDelay) {
 				return
 			}
+			retryDelay = nextWebSocketRetryDelay(retryDelay)
 			continue
 		}
+		retryDelay = webSocketRetryInitial
 		e.wsMetrics.connected()
 		if !firstConnection {
 			e.wsMetrics.reconnected()
@@ -66,7 +74,7 @@ func (e *runEngine) runWebSocket(ctx context.Context, index int, ready chan<- st
 			e.wsMetrics.invalidMessage()
 			e.invariants.Violate(invariantValidJSON, fmt.Sprintf("WebSocket %d: %v", index, err))
 		}
-		if !waitRetry(ctx) {
+		if !waitRetry(ctx, retryDelay) {
 			break
 		}
 	}
@@ -167,8 +175,8 @@ func closeWebSocketOnContext(ctx context.Context, done <-chan struct{}, client *
 	}
 }
 
-func waitRetry(ctx context.Context) bool {
-	timer := time.NewTimer(100 * time.Millisecond)
+func waitRetry(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
@@ -176,6 +184,17 @@ func waitRetry(ctx context.Context) bool {
 	case <-timer.C:
 		return true
 	}
+}
+
+func nextWebSocketRetryDelay(current time.Duration) time.Duration {
+	if current <= 0 {
+		return webSocketRetryInitial
+	}
+	next := current * 2
+	if next > webSocketRetryMaximum {
+		return webSocketRetryMaximum
+	}
+	return next
 }
 
 func isNetworkError(err error) bool {

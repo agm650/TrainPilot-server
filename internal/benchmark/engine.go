@@ -44,22 +44,89 @@ type RunOptions struct {
 }
 
 type benchSession struct {
-	mu         sync.Mutex
-	credential Credential
-	client     *client.Client
-	clientID   string
+	mu              sync.Mutex
+	credential      Credential
+	client          *client.Client
+	clientID        string
+	accessExpiresAt time.Time
+	accessRefreshAt time.Time
 }
 
 func (s *benchSession) withClient(ctx context.Context, operation func(*client.Client) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.refreshIfNeededLocked(ctx, time.Now()); err != nil {
+		return err
+	}
 	return operation(s.client)
 }
 
-func (s *benchSession) accessToken() string {
+func (s *benchSession) refresh(ctx context.Context, force bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.client.AccessToken
+	if !force && !s.needsRefreshLocked(time.Now()) {
+		return nil
+	}
+	return s.refreshLocked(ctx, time.Now())
+}
+
+func (s *benchSession) dialWebSocket(ctx context.Context, server string, timeout time.Duration) (*webSocketClient, error) {
+	s.mu.Lock()
+	if err := s.refreshIfNeededLocked(ctx, time.Now()); err != nil {
+		s.mu.Unlock()
+		return nil, err
+	}
+	accessToken := s.client.AccessToken
+	s.mu.Unlock()
+	return dialWebSocket(ctx, server, accessToken, timeout)
+}
+
+func (s *benchSession) connectWebSocket(ctx context.Context, server string, timeout time.Duration) (*webSocketClient, error) {
+	websocket, err := s.dialWebSocket(ctx, server, timeout)
+	if !isWebSocketAuthenticationError(err) {
+		return websocket, err
+	}
+	if refreshErr := s.refresh(ctx, true); refreshErr != nil {
+		return nil, fmt.Errorf("%w; refresh session: %v", err, refreshErr)
+	}
+	return s.dialWebSocket(ctx, server, timeout)
+}
+
+func (s *benchSession) refreshIfNeededLocked(ctx context.Context, now time.Time) error {
+	if !s.needsRefreshLocked(now) {
+		return nil
+	}
+	return s.refreshLocked(ctx, now)
+}
+
+func (s *benchSession) needsRefreshLocked(now time.Time) bool {
+	return !s.accessRefreshAt.IsZero() && !now.Before(s.accessRefreshAt)
+}
+
+func (s *benchSession) refreshLocked(ctx context.Context, now time.Time) error {
+	pair, err := s.client.Refresh(ctx, s.client.RefreshToken)
+	if err != nil {
+		return err
+	}
+	s.setTokenExpiryLocked(now, pair.AccessExpiresAt)
+	return nil
+}
+
+func (s *benchSession) setTokenExpiryLocked(now, expiresAt time.Time) {
+	s.accessExpiresAt = expiresAt
+	s.accessRefreshAt = tokenRefreshAt(now, expiresAt)
+}
+
+func tokenRefreshAt(now, expiresAt time.Time) time.Time {
+	remaining := expiresAt.Sub(now)
+	if remaining <= 0 {
+		return now
+	}
+	lead := remaining / 3
+	if lead > time.Minute {
+		lead = time.Minute
+	}
+	return expiresAt.Add(-lead)
 }
 
 type leaseBinding struct {
@@ -380,17 +447,18 @@ func (e *runEngine) loginSessions(ctx context.Context) error {
 		}
 		session.client.HTTP.Timeout = e.profile.OperationTimeout.Duration
 		loginCtx, cancel := context.WithTimeout(ctx, e.profile.OperationTimeout.Duration)
-		err := loginClient(loginCtx, session.client, credential, session.clientID)
+		pair, err := loginClient(loginCtx, session.client, credential, session.clientID)
 		cancel()
 		if err != nil {
 			return fmt.Errorf("login virtual user %d (%s): %w", index, credential.Username, err)
 		}
+		session.setTokenExpiryLocked(time.Now(), pair.AccessExpiresAt)
 		e.sessions = append(e.sessions, session)
 	}
 	return nil
 }
 
-func loginClient(ctx context.Context, c *client.Client, credential Credential, clientID string) error {
+func loginClient(ctx context.Context, c *client.Client, credential Credential, clientID string) (service.TokenPair, error) {
 	var pair service.TokenPair
 	_, err := c.Do(ctx, http.MethodPost, "/api/v1/auth/login", map[string]any{
 		"username": credential.Username, "password": credential.Password,
@@ -400,7 +468,7 @@ func loginClient(ctx context.Context, c *client.Client, credential Credential, c
 		c.AccessToken = pair.AccessToken
 		c.RefreshToken = pair.RefreshToken
 	}
-	return err
+	return pair, err
 }
 
 func (e *runEngine) loadResources(ctx context.Context) error {
@@ -767,7 +835,7 @@ func (e *runEngine) performLogin(ctx context.Context, random *rand.Rand) error {
 	credential := e.options.Credentials[random.Intn(len(e.options.Credentials))]
 	c := client.New(e.options.Server)
 	c.HTTP.Timeout = e.profile.OperationTimeout.Duration
-	if err := loginClient(ctx, c, credential, fmt.Sprintf("trainpilot-bench-transient-%d", random.Uint64())); err != nil {
+	if _, err := loginClient(ctx, c, credential, fmt.Sprintf("trainpilot-bench-transient-%d", random.Uint64())); err != nil {
 		return err
 	}
 	return c.Logout(ctx)
@@ -775,10 +843,7 @@ func (e *runEngine) performLogin(ctx context.Context, random *rand.Rand) error {
 
 func (e *runEngine) performRefresh(ctx context.Context, random *rand.Rand) error {
 	session := e.sessions[random.Intn(len(e.sessions))]
-	return session.withClient(ctx, func(c *client.Client) error {
-		_, err := c.Refresh(ctx, c.RefreshToken)
-		return err
-	})
+	return session.refresh(ctx, true)
 }
 
 func (e *runEngine) performAcquire(ctx context.Context, random *rand.Rand) error {

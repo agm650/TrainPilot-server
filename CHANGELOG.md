@@ -25,6 +25,8 @@ All notable changes to this project will be documented in this file.
   platform-dependent compressed bytes.
 - The 50-WebSocket benchmark integration test now scales its scenario windows
   and operation timeout under the race detector.
+- Long-running benchmarks now refresh virtual-user sessions before access-token
+  expiry and recover authenticated WebSocket handshakes with bounded retry.
 
 ### Added
 

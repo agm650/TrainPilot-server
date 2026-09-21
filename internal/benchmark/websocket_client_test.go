@@ -65,8 +65,41 @@ func TestWebSocketClientRejectsHTTPResponse(t *testing.T) {
 		http.Error(w, "unavailable", http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
-	if _, err := dialWebSocket(context.Background(), server.URL, "token", time.Second); err == nil {
+	_, err := dialWebSocket(context.Background(), server.URL, "token", time.Second)
+	if err == nil {
 		t.Fatal("expected handshake error")
+	}
+	var handshakeError *webSocketHandshakeError
+	if !errors.As(err, &handshakeError) || handshakeError.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("error=%T %v", err, err)
+	}
+}
+
+func TestWebSocketAuthenticationError(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		if !isWebSocketAuthenticationError(&webSocketHandshakeError{StatusCode: status}) {
+			t.Fatalf("status %d should be an authentication error", status)
+		}
+	}
+	if isWebSocketAuthenticationError(&webSocketHandshakeError{StatusCode: http.StatusServiceUnavailable}) {
+		t.Fatal("service unavailable should not be an authentication error")
+	}
+}
+
+func TestNextWebSocketRetryDelay(t *testing.T) {
+	tests := []struct {
+		current time.Duration
+		want    time.Duration
+	}{
+		{0, webSocketRetryInitial},
+		{webSocketRetryInitial, 200 * time.Millisecond},
+		{4 * time.Second, webSocketRetryMaximum},
+		{webSocketRetryMaximum, webSocketRetryMaximum},
+	}
+	for _, test := range tests {
+		if got := nextWebSocketRetryDelay(test.current); got != test.want {
+			t.Fatalf("nextWebSocketRetryDelay(%s)=%s, want %s", test.current, got, test.want)
+		}
 	}
 }
 
