@@ -152,7 +152,18 @@ func waitForScenario(ctx context.Context, duration time.Duration, done <-chan sc
 				return result, current.err
 			}
 		case <-timer.C:
-			return result, nil
+			if done == nil {
+				return result, nil
+			}
+			select {
+			case current := <-done:
+				if current.err != nil {
+					return current, current.err
+				}
+				return current, nil
+			default:
+				return result, fmt.Errorf("simulator scenario did not complete within %s", duration)
+			}
 		}
 	}
 }

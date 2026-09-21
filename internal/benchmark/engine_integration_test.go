@@ -66,7 +66,7 @@ func TestRunAgainstSimulatorWithFiftyWebSockets(t *testing.T) {
 		OperationTimeout: bench.Duration{Duration: time.Duration(raceTimeScale) * 3 * time.Second},
 		Clients:          bench.ClientProfile{Users: 2, WebSockets: 50, ActiveLocomotives: 1, Workers: 8},
 		Rates: bench.RateProfile{
-			LoginPerSecond: 2, RefreshPerSecond: 2, LeaseHeartbeatPerSecond: 5,
+			RefreshPerSecond: 2, LeaseHeartbeatPerSecond: 5,
 			ThrottlePerSecond: 10, FunctionsPerSecond: 5, FeedbackPerSecond: 10,
 			AccessoriesPerSecond: 2, ReadsPerSecond: 10,
 		},

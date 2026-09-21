@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Simulator scenarios that miss the measurement deadline now fail explicitly instead of producing an empty summary.
+
 - Concurrent event publishers now preserve sequence order for every subscriber.
 - Benchmark resynchronization snapshots supersede pending action expectations
   that can no longer be proven by an incremental event.
