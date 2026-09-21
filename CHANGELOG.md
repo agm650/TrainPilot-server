@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Concurrent event publishers now preserve sequence order for every subscriber.
+- Benchmark resynchronization snapshots supersede pending action expectations
+  that can no longer be proven by an incremental event.
+- Benchmark reports retain bounded, sanitized classifications for unexpected
+  operation errors without storing raw messages or credentials.
 - WebSocket snapshots now use the current event bus sequence instead of a constant value.
 - Client WebSocket heartbeats no longer consume server event sequence numbers.
 - Emergency stops, track power cuts, and zero-speed commands now preempt queued throttle or function commands.

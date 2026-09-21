@@ -7,7 +7,11 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/agm650/TrainPilot-server/internal/client"
 )
+
+const maxUnexpectedErrorDetails = 8
 
 type operationRecorder struct {
 	measuring atomic.Bool
@@ -18,13 +22,20 @@ type operationRecorder struct {
 }
 
 type operationStats struct {
-	Count            int64
-	Successes        int64
-	ExpectedErrors   int64
-	UnexpectedErrors int64
-	Timeouts         int64
-	Skipped          int64
-	Latencies        []time.Duration
+	Count                    int64
+	Successes                int64
+	ExpectedErrors           int64
+	UnexpectedErrors         int64
+	Timeouts                 int64
+	Skipped                  int64
+	Latencies                []time.Duration
+	UnexpectedErrorsByDetail map[operationErrorDetailKey]int64
+}
+
+type operationErrorDetailKey struct {
+	Kind        string
+	HTTPStatus  int
+	ProblemCode string
 }
 
 type expectedOperationError struct {
@@ -77,12 +88,60 @@ func (r *operationRecorder) Record(name string, latency time.Duration, err error
 			stats.ExpectedErrors++
 		} else {
 			stats.UnexpectedErrors++
+			stats.recordUnexpectedError(err)
 		}
 		if contextCanceledOrDeadline(err) {
 			stats.Timeouts++
 		}
 	}
 	stats.Latencies = append(stats.Latencies, latency)
+}
+
+func (s *operationStats) recordUnexpectedError(err error) {
+	if s.UnexpectedErrorsByDetail == nil {
+		s.UnexpectedErrorsByDetail = make(map[operationErrorDetailKey]int64)
+	}
+	detail := classifyUnexpectedError(err)
+	if _, exists := s.UnexpectedErrorsByDetail[detail]; !exists && len(s.UnexpectedErrorsByDetail) >= maxUnexpectedErrorDetails-1 {
+		detail = operationErrorDetailKey{Kind: "other"}
+	}
+	s.UnexpectedErrorsByDetail[detail]++
+}
+
+func classifyUnexpectedError(err error) operationErrorDetailKey {
+	var httpError *client.HTTPError
+	if errors.As(err, &httpError) {
+		detail := operationErrorDetailKey{Kind: "http", HTTPStatus: httpError.StatusCode}
+		if httpError.Problem != nil {
+			detail.ProblemCode = sanitizedProblemCode(httpError.Problem.Code)
+		}
+		return detail
+	}
+	if contextCanceledOrDeadline(err) {
+		return operationErrorDetailKey{Kind: "timeout"}
+	}
+	if isNetworkError(err) {
+		return operationErrorDetailKey{Kind: "network"}
+	}
+	if isJSONError(err) {
+		return operationErrorDetailKey{Kind: "invalid_json"}
+	}
+	return operationErrorDetailKey{Kind: "other"}
+}
+
+func sanitizedProblemCode(value string) string {
+	if value == "" || len(value) > 128 {
+		return ""
+	}
+	for _, character := range value {
+		if (character < 'a' || character > 'z') &&
+			(character < 'A' || character > 'Z') &&
+			(character < '0' || character > '9') &&
+			character != '_' && character != '-' && character != '.' {
+			return ""
+		}
+	}
+	return value
 }
 
 func (r *operationRecorder) Skip(name string) {
@@ -133,6 +192,7 @@ func (r *operationRecorder) Summaries(measured time.Duration, requestedRates map
 			RequestedBurstCount: requestedBursts[name], Count: stats.Count, Successes: stats.Successes,
 			ExpectedErrors: stats.ExpectedErrors, UnexpectedErrors: stats.UnexpectedErrors,
 			Timeouts: stats.Timeouts, Skipped: stats.Skipped, Latency: latencyPercentiles(latencies),
+			UnexpectedErrorDetails: summarizeUnexpectedErrors(stats.UnexpectedErrorsByDetail),
 		}
 		if rate, ok := requestedRates[name]; ok && rate > 0 {
 			rateCopy := rate
@@ -143,6 +203,25 @@ func (r *operationRecorder) Summaries(measured time.Duration, requestedRates map
 		}
 		result[name] = summary
 	}
+	return result
+}
+
+func summarizeUnexpectedErrors(values map[operationErrorDetailKey]int64) []OperationErrorDetail {
+	result := make([]OperationErrorDetail, 0, len(values))
+	for detail, count := range values {
+		result = append(result, OperationErrorDetail{
+			Kind: detail.Kind, HTTPStatus: detail.HTTPStatus, ProblemCode: detail.ProblemCode, Count: count,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Kind != result[j].Kind {
+			return result[i].Kind < result[j].Kind
+		}
+		if result[i].HTTPStatus != result[j].HTTPStatus {
+			return result[i].HTTPStatus < result[j].HTTPStatus
+		}
+		return result[i].ProblemCode < result[j].ProblemCode
+	})
 	return result
 }
 

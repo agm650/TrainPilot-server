@@ -32,6 +32,7 @@ func (e *runEngine) runWebSocket(ctx context.Context, index int, ready chan<- st
 	firstConnection := true
 	readySent := false
 	awaitingResync := false
+	var resyncStartedAt time.Time
 	retryDelay := webSocketRetryInitial
 	for ctx.Err() == nil {
 		started := time.Now()
@@ -57,7 +58,7 @@ func (e *runEngine) runWebSocket(ctx context.Context, index int, ready chan<- st
 		go closeWebSocketOnContext(ctx, closed, client)
 		heartbeatDone := make(chan struct{})
 		go e.writeWebSocketHeartbeats(ctx, heartbeatDone, client)
-		err = e.consumeWebSocket(ctx, client, random, &awaitingResync, func() {
+		err = e.consumeWebSocket(ctx, client, random, &awaitingResync, &resyncStartedAt, func() {
 			if !readySent {
 				ready <- struct{}{}
 				readySent = true
@@ -83,7 +84,7 @@ func (e *runEngine) runWebSocket(ctx context.Context, index int, ready chan<- st
 	}
 }
 
-func (e *runEngine) consumeWebSocket(ctx context.Context, client *webSocketClient, random *rand.Rand, awaitingResync *bool, ready func()) error {
+func (e *runEngine) consumeWebSocket(ctx context.Context, client *webSocketClient, random *rand.Rand, awaitingResync *bool, resyncStartedAt *time.Time, ready func()) error {
 	var lastSequence uint64
 	for {
 		var message wireMessage
@@ -101,9 +102,11 @@ func (e *runEngine) consumeWebSocket(ctx context.Context, client *webSocketClien
 			e.wsMetrics.snapshot()
 			lastSequence = message.Sequence
 			if *awaitingResync {
+				e.wsMetrics.actionExpectationsSuperseded(e.expectations.SupersedeBefore(*resyncStartedAt))
 				e.invariants.Observe(invariantWebSocketResync)
 				e.wsMetrics.resynchronized()
 				*awaitingResync = false
+				*resyncStartedAt = time.Time{}
 			}
 			ready()
 			continue
@@ -121,6 +124,7 @@ func (e *runEngine) consumeWebSocket(ctx context.Context, client *webSocketClien
 		if !*awaitingResync && lastSequence > 0 && message.Sequence > lastSequence+1 {
 			e.wsMetrics.sequenceGap()
 			*awaitingResync = true
+			*resyncStartedAt = time.Now()
 			if err := client.WriteJSON(map[string]any{"type": "client.snapshot_request", "lastSequence": lastSequence}, e.profile.OperationTimeout.Duration); err != nil {
 				return err
 			}

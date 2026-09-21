@@ -179,6 +179,28 @@ func (t *expectationTracker) Expire(now time.Time) {
 	}
 }
 
+func (t *expectationTracker) SupersedeBefore(cutoff time.Time) int64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var superseded int64
+	for key, items := range t.pending {
+		remaining := items[:0]
+		for _, item := range items {
+			if !item.started.After(cutoff) {
+				superseded++
+				continue
+			}
+			remaining = append(remaining, item)
+		}
+		if len(remaining) == 0 {
+			delete(t.pending, key)
+		} else {
+			t.pending[key] = remaining
+		}
+	}
+	return superseded
+}
+
 func (t *expectationTracker) Pending() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -200,6 +222,7 @@ type webSocketMetrics struct {
 	snapshotRequests atomic.Int64
 	eventsReceived   atomic.Int64
 	invalidMessages  atomic.Int64
+	actionSuperseded atomic.Int64
 	feedbackMu       sync.Mutex
 	feedbackLatency  []time.Duration
 }
@@ -255,6 +278,14 @@ func (m *webSocketMetrics) invalidMessage() {
 	m.live.observeWebSocket("invalid_messages")
 }
 
+func (m *webSocketMetrics) actionExpectationsSuperseded(count int64) {
+	if count <= 0 {
+		return
+	}
+	m.actionSuperseded.Add(count)
+	m.live.observeWebSocketCount("action_expectations_superseded", count)
+}
+
 func (m *webSocketMetrics) observeFeedbackLatency(latency time.Duration) {
 	m.feedbackMu.Lock()
 	m.feedbackLatency = append(m.feedbackLatency, latency)
@@ -273,7 +304,8 @@ func (m *webSocketMetrics) summary() WebSocketSummary {
 		UnresolvedSequenceGaps: m.unresolvedGaps.Load(),
 		Snapshots:              m.snapshots.Load(), SnapshotRequests: m.snapshotRequests.Load(),
 		EventsReceived: m.eventsReceived.Load(), InvalidMessages: m.invalidMessages.Load(),
-		FeedbackLatency: latencyPercentiles(latencies),
+		ActionExpectationsSuperseded: m.actionSuperseded.Load(),
+		FeedbackLatency:              latencyPercentiles(latencies),
 	}
 }
 

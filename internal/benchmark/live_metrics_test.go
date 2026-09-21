@@ -28,6 +28,7 @@ func TestLiveMetricsExposeAllBenchmarkPhasesAndResults(t *testing.T) {
 	metrics.startWebSocketResync()
 	metrics.completeWebSocketResync()
 	metrics.observeWebSocket("events_received")
+	metrics.observeWebSocketCount("action_expectations_superseded", 3)
 	metrics.setPhase(phaseStopping)
 	metrics.setPhase(phaseCleanup)
 	metrics.setPhase(phaseFinished)
@@ -48,6 +49,7 @@ func TestLiveMetricsExposeAllBenchmarkPhasesAndResults(t *testing.T) {
 		`trainpilot_benchmark_operations_skipped_total{operation="route",phase="warmup"} 1`,
 		`trainpilot_benchmark_websocket_resynchronizations_total{phase="measurement",state="completed"} 1`,
 		`trainpilot_benchmark_websocket_events_received_total{phase="measurement"} 1`,
+		`trainpilot_benchmark_websocket_action_expectations_superseded_total{phase="measurement"} 3`,
 	} {
 		if !strings.Contains(body, expected) {
 			t.Errorf("metrics do not contain %q", expected)

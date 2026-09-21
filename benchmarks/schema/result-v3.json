@@ -73,7 +73,19 @@
         "count": {"type": "integer", "minimum": 0}, "successes": {"type": "integer", "minimum": 0},
         "expectedErrors": {"type": "integer", "minimum": 0}, "unexpectedErrors": {"type": "integer", "minimum": 0},
         "timeouts": {"type": "integer", "minimum": 0}, "skipped": {"type": "integer", "minimum": 0},
-        "achievedRatePerSecond": {"type": "number", "minimum": 0}, "latency": {"$ref": "#/$defs/latency"}
+        "achievedRatePerSecond": {"type": "number", "minimum": 0}, "latency": {"$ref": "#/$defs/latency"},
+        "unexpectedErrorDetails": {
+          "type": "array", "maxItems": 8,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["kind", "count"],
+            "properties": {
+              "kind": {"enum": ["http", "timeout", "network", "invalid_json", "other"]},
+              "httpStatus": {"type": "integer", "minimum": 100, "maximum": 599},
+              "problemCode": {"type": "string", "maxLength": 128, "pattern": "^[A-Za-z0-9_.-]*$"},
+              "count": {"type": "integer", "minimum": 1}
+            }
+          }
+        }
       }
     },
     "webSocket": {
@@ -85,6 +97,7 @@
         "snapshots": {"type": "integer", "minimum": 0}, "snapshotRequests": {"type": "integer", "minimum": 0},
         "eventsReceived": {"type": "integer", "minimum": 0}, "invalidMessages": {"type": "integer", "minimum": 0},
         "unresolvedSequenceGaps": {"type": "integer", "minimum": 0}, "queueOverflows": {"type": "integer", "minimum": 0},
+        "actionExpectationsSuperseded": {"type": "integer", "minimum": 0},
         "feedbackLatency": {"$ref": "#/$defs/latency"}
       }
     },

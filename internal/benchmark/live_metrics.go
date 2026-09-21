@@ -133,6 +133,10 @@ func NewLiveMetrics() *LiveMetrics {
 				Name: "trainpilot_benchmark_websocket_invalid_messages_total",
 				Help: "Invalid WebSocket messages observed by benchmark clients.",
 			}, []string{"phase"}),
+			"action_expectations_superseded": prometheus.NewCounterVec(prometheus.CounterOpts{
+				Name: "trainpilot_benchmark_websocket_action_expectations_superseded_total",
+				Help: "Pending action-state expectations superseded by an authoritative recovery snapshot.",
+			}, []string{"phase"}),
 		},
 		webSocketResync: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "trainpilot_benchmark_websocket_resynchronizations_total",
@@ -261,11 +265,15 @@ func (m *LiveMetrics) skipOperation(operation string) {
 }
 
 func (m *LiveMetrics) observeWebSocket(name string) {
+	m.observeWebSocketCount(name, 1)
+}
+
+func (m *LiveMetrics) observeWebSocketCount(name string, count int64) {
 	if m == nil {
 		return
 	}
 	if counter := m.webSocketCounters[name]; counter != nil {
-		counter.WithLabelValues(m.phaseName()).Inc()
+		counter.WithLabelValues(m.phaseName()).Add(float64(count))
 	}
 }
 

@@ -110,16 +110,24 @@ func currentHostMetadata() ClientHostMetadata {
 }
 
 type OperationSummary struct {
-	RequestedRatePerSecond *float64       `json:"requestedRatePerSecond,omitempty"`
-	RequestedBurstCount    int64          `json:"requestedBurstCount,omitempty"`
-	Count                  int64          `json:"count"`
-	Successes              int64          `json:"successes"`
-	ExpectedErrors         int64          `json:"expectedErrors"`
-	UnexpectedErrors       int64          `json:"unexpectedErrors"`
-	Timeouts               int64          `json:"timeouts"`
-	Skipped                int64          `json:"skipped"`
-	AchievedRatePerSecond  float64        `json:"achievedRatePerSecond"`
-	Latency                LatencySummary `json:"latency"`
+	RequestedRatePerSecond *float64               `json:"requestedRatePerSecond,omitempty"`
+	RequestedBurstCount    int64                  `json:"requestedBurstCount,omitempty"`
+	Count                  int64                  `json:"count"`
+	Successes              int64                  `json:"successes"`
+	ExpectedErrors         int64                  `json:"expectedErrors"`
+	UnexpectedErrors       int64                  `json:"unexpectedErrors"`
+	Timeouts               int64                  `json:"timeouts"`
+	Skipped                int64                  `json:"skipped"`
+	AchievedRatePerSecond  float64                `json:"achievedRatePerSecond"`
+	Latency                LatencySummary         `json:"latency"`
+	UnexpectedErrorDetails []OperationErrorDetail `json:"unexpectedErrorDetails,omitempty"`
+}
+
+type OperationErrorDetail struct {
+	Kind        string `json:"kind"`
+	HTTPStatus  int    `json:"httpStatus,omitempty"`
+	ProblemCode string `json:"problemCode,omitempty"`
+	Count       int64  `json:"count"`
 }
 
 type LatencySummary struct {
@@ -131,17 +139,18 @@ type LatencySummary struct {
 }
 
 type WebSocketSummary struct {
-	Connections            int64          `json:"connections"`
-	Disconnections         int64          `json:"disconnections"`
-	Reconnects             int64          `json:"reconnects"`
-	SequenceGaps           int64          `json:"sequenceGaps"`
-	Snapshots              int64          `json:"snapshots"`
-	SnapshotRequests       int64          `json:"snapshotRequests"`
-	EventsReceived         int64          `json:"eventsReceived"`
-	InvalidMessages        int64          `json:"invalidMessages"`
-	UnresolvedSequenceGaps int64          `json:"unresolvedSequenceGaps"`
-	QueueOverflows         *int64         `json:"queueOverflows,omitempty"`
-	FeedbackLatency        LatencySummary `json:"feedbackLatency"`
+	Connections                  int64          `json:"connections"`
+	Disconnections               int64          `json:"disconnections"`
+	Reconnects                   int64          `json:"reconnects"`
+	SequenceGaps                 int64          `json:"sequenceGaps"`
+	Snapshots                    int64          `json:"snapshots"`
+	SnapshotRequests             int64          `json:"snapshotRequests"`
+	EventsReceived               int64          `json:"eventsReceived"`
+	InvalidMessages              int64          `json:"invalidMessages"`
+	UnresolvedSequenceGaps       int64          `json:"unresolvedSequenceGaps"`
+	ActionExpectationsSuperseded int64          `json:"actionExpectationsSuperseded,omitempty"`
+	QueueOverflows               *int64         `json:"queueOverflows,omitempty"`
+	FeedbackLatency              LatencySummary `json:"feedbackLatency"`
 }
 
 type AvailabilitySummary struct {
@@ -264,6 +273,17 @@ func ValidateReport(report Report) error {
 		if summary.Timeouts > summary.ExpectedErrors+summary.UnexpectedErrors {
 			return fmt.Errorf("operation %q has more timeouts than errors", name)
 		}
+		var detailedUnexpectedErrors int64
+		for _, detail := range summary.UnexpectedErrorDetails {
+			if !validOperationErrorDetail(detail) {
+				return fmt.Errorf("operation %q contains an invalid unexpected error detail", name)
+			}
+			detailedUnexpectedErrors += detail.Count
+		}
+		if len(summary.UnexpectedErrorDetails) > maxUnexpectedErrorDetails ||
+			(len(summary.UnexpectedErrorDetails) > 0 && detailedUnexpectedErrors != summary.UnexpectedErrors) {
+			return fmt.Errorf("operation %q unexpected error details do not match its counter", name)
+		}
 		if (summary.RequestedRatePerSecond != nil && *summary.RequestedRatePerSecond < 0) || summary.AchievedRatePerSecond < 0 {
 			return fmt.Errorf("operation %q contains a negative rate", name)
 		}
@@ -278,6 +298,7 @@ func ValidateReport(report Report) error {
 		report.WebSocket.Connections, report.WebSocket.Disconnections, report.WebSocket.Reconnects,
 		report.WebSocket.SequenceGaps, report.WebSocket.Snapshots, report.WebSocket.SnapshotRequests,
 		report.WebSocket.EventsReceived, report.WebSocket.InvalidMessages, report.WebSocket.UnresolvedSequenceGaps,
+		report.WebSocket.ActionExpectationsSuperseded,
 	} {
 		if value < 0 {
 			return errors.New("WebSocket summary contains a negative counter")
@@ -364,6 +385,20 @@ func ValidateReport(report Report) error {
 	return nil
 }
 
+func validOperationErrorDetail(detail OperationErrorDetail) bool {
+	if detail.Count <= 0 || len(detail.ProblemCode) > 128 || sanitizedProblemCode(detail.ProblemCode) != detail.ProblemCode {
+		return false
+	}
+	switch detail.Kind {
+	case "http":
+		return detail.HTTPStatus >= 100 && detail.HTTPStatus <= 599
+	case "timeout", "network", "invalid_json", "other":
+		return detail.HTTPStatus == 0 && detail.ProblemCode == ""
+	default:
+		return false
+	}
+}
+
 func validLatency(latency LatencySummary) bool {
 	return latency.P50Milliseconds >= 0 &&
 		latency.P50Milliseconds <= latency.P90Milliseconds &&
@@ -397,6 +432,10 @@ func WriteConsoleSummary(w io.Writer, report Report) {
 			name, requested, summary.AchievedRatePerSecond, summary.Count, summary.Successes,
 			summary.ExpectedErrors, summary.UnexpectedErrors, summary.Latency.P50Milliseconds,
 			summary.Latency.P95Milliseconds, summary.Latency.P99Milliseconds)
+		for _, detail := range summary.UnexpectedErrorDetails {
+			fmt.Fprintf(w, "  unexpected_error kind=%s status=%d code=%s count=%d\n",
+				detail.Kind, detail.HTTPStatus, detail.ProblemCode, detail.Count)
+		}
 	}
 	var violationCount int64
 	for _, invariant := range report.Invariants {
@@ -412,7 +451,8 @@ func WriteConsoleSummary(w io.Writer, report Report) {
 	if report.WebSocket.QueueOverflows != nil {
 		overflows = fmt.Sprintf("%d", *report.WebSocket.QueueOverflows)
 	}
-	fmt.Fprintf(w, "WebSocket: overflows=%s sequence_gaps=%d unresolved=%d\n", overflows, report.WebSocket.SequenceGaps, report.WebSocket.UnresolvedSequenceGaps)
+	fmt.Fprintf(w, "WebSocket: overflows=%s sequence_gaps=%d unresolved=%d action_expectations_superseded=%d\n",
+		overflows, report.WebSocket.SequenceGaps, report.WebSocket.UnresolvedSequenceGaps, report.WebSocket.ActionExpectationsSuperseded)
 	fmt.Fprintf(w, "Availability: expected_outages=%d unexpected_outages=%d recoveries=%d unavailable=%.0fms max=%.0fms unrecovered=%d\n",
 		report.Availability.ExpectedOutages, report.Availability.UnexpectedOutages, report.Availability.Recoveries,
 		report.Availability.TotalUnavailableMilliseconds, report.Availability.MaxUnavailableMilliseconds, report.Availability.UnrecoveredOutages)

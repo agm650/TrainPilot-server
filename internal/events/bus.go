@@ -16,10 +16,11 @@ type Event struct {
 }
 
 type Bus struct {
-	seq     atomic.Uint64
-	mu      sync.RWMutex
-	subs    map[*subscription]struct{}
-	metrics *observability.Metrics
+	seq       atomic.Uint64
+	publishMu sync.Mutex
+	mu        sync.RWMutex
+	subs      map[*subscription]struct{}
+	metrics   *observability.Metrics
 }
 
 type subscription struct {
@@ -37,6 +38,11 @@ func (b *Bus) CurrentSequence() uint64 {
 }
 
 func (b *Bus) Publish(eventType string, payload any) Event {
+	// Sequence allocation and subscriber delivery must remain one ordered
+	// operation. Otherwise concurrent publishers can allocate N and N+1, then
+	// deliver N+1 first while contending on a subscriber lock.
+	b.publishMu.Lock()
+	defer b.publishMu.Unlock()
 	e := Event{Type: eventType, Sequence: b.seq.Add(1), Timestamp: time.Now().UTC(), Payload: payload}
 	b.mu.RLock()
 	defer b.mu.RUnlock()

@@ -1,6 +1,7 @@
 package events
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -24,6 +25,43 @@ func TestPublishDeliversOrderedEvents(t *testing.T) {
 	}
 	if got := <-ch; got.Type != "second" || got.Payload != "payload" {
 		t.Fatalf("second event=%+v", got)
+	}
+}
+
+func TestConcurrentPublishDeliversMonotonicSequences(t *testing.T) {
+	const (
+		publishers       = 64
+		eventsPerPublish = 128
+		totalEvents      = publishers * eventsPerPublish
+	)
+	bus := New()
+	events, unsubscribe := bus.Subscribe(totalEvents)
+	defer unsubscribe()
+
+	start := make(chan struct{})
+	var publishersDone sync.WaitGroup
+	publishersDone.Add(publishers)
+	for publisher := 0; publisher < publishers; publisher++ {
+		go func() {
+			defer publishersDone.Done()
+			<-start
+			for event := 0; event < eventsPerPublish; event++ {
+				bus.Publish("concurrent", nil)
+			}
+		}()
+	}
+	close(start)
+	publishersDone.Wait()
+
+	for want := uint64(1); want <= totalEvents; want++ {
+		select {
+		case event := <-events:
+			if event.Sequence != want {
+				t.Fatalf("sequence=%d, want %d", event.Sequence, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for sequence %d", want)
+		}
 	}
 }
 

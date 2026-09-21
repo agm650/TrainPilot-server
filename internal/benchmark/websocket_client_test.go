@@ -110,7 +110,7 @@ func TestWebSocketSequenceGapRequestsAndAppliesSnapshot(t *testing.T) {
 			return
 		}
 		defer connection.Close()
-		_ = connection.WriteJSON(map[string]any{"type": "system.snapshot", "sequence": 1, "payload": map[string]any{"routes": []any{}}})
+		_ = connection.WriteJSON(map[string]any{"type": "system.snapshot", "sequence": 1, "capturedAt": time.Now(), "payload": map[string]any{"routes": []any{}}})
 		_ = connection.WriteJSON(map[string]any{"type": "block.occupancy.changed", "sequence": 3, "payload": map[string]any{"blockId": "block-a", "occupied": true}})
 		var request struct {
 			Type string `json:"type"`
@@ -118,7 +118,7 @@ func TestWebSocketSequenceGapRequestsAndAppliesSnapshot(t *testing.T) {
 		if err := connection.ReadJSON(&request); err != nil || request.Type != "client.snapshot_request" {
 			return
 		}
-		_ = connection.WriteJSON(map[string]any{"type": "system.snapshot", "sequence": 3, "payload": map[string]any{"routes": []any{}}})
+		_ = connection.WriteJSON(map[string]any{"type": "system.snapshot", "sequence": 3, "capturedAt": time.Now(), "payload": map[string]any{"routes": []any{}}})
 	}))
 	defer server.Close()
 	client, err := dialWebSocket(context.Background(), server.URL, "token", time.Second)
@@ -134,13 +134,15 @@ func TestWebSocketSequenceGapRequestsAndAppliesSnapshot(t *testing.T) {
 		invariants: invariants, expectations: expectations, wsMetrics: metrics,
 	}
 	engine.monitor = newEventMonitor(invariants, expectations, metrics, Fixture{})
+	expectations.Begin("throttle:loco:50", time.Second)
 	awaiting := false
+	var resyncStartedAt time.Time
 	ready := false
-	err = engine.consumeWebSocket(context.Background(), client, rand.New(rand.NewSource(650)), &awaiting, func() { ready = true })
+	err = engine.consumeWebSocket(context.Background(), client, rand.New(rand.NewSource(650)), &awaiting, &resyncStartedAt, func() { ready = true })
 	if err != nil && !errors.Is(err, io.EOF) {
 		t.Fatal(err)
 	}
-	if !ready || awaiting || metrics.sequenceGaps.Load() != 1 || metrics.snapshotRequests.Load() != 1 || metrics.snapshots.Load() != 2 {
+	if !ready || awaiting || metrics.sequenceGaps.Load() != 1 || metrics.snapshotRequests.Load() != 1 || metrics.snapshots.Load() != 2 || metrics.actionSuperseded.Load() != 1 {
 		t.Fatalf("ready=%t awaiting=%t summary=%+v", ready, awaiting, metrics.summary())
 	}
 	results, failed := invariants.Results()

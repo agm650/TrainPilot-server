@@ -33,6 +33,26 @@ func TestExpectationExpiryIsAnInvariantViolation(t *testing.T) {
 	}
 }
 
+func TestRecoverySnapshotSupersedesOnlyEarlierExpectations(t *testing.T) {
+	invariants := newInvariantTracker()
+	expectations := newExpectationTracker(invariants)
+	expectations.Begin("throttle:loco:50", time.Second)
+	cutoff := time.Now()
+	expectations.Begin("function:loco:1:true", time.Second)
+
+	if got := expectations.SupersedeBefore(cutoff); got != 1 {
+		t.Fatalf("superseded=%d, want 1", got)
+	}
+	if got := expectations.Pending(); got != 1 {
+		t.Fatalf("pending=%d, want 1", got)
+	}
+	expectations.Expire(time.Now().Add(2 * time.Second))
+	_, failed := invariants.Results()
+	if !failed {
+		t.Fatal("expectation created after the snapshot cutoff must still fail")
+	}
+}
+
 func TestImplicitRestartRequiresExplicitThrottle(t *testing.T) {
 	invariants := newInvariantTracker()
 	expectations := newExpectationTracker(invariants)

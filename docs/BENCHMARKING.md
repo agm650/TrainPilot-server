@@ -293,9 +293,11 @@ migrated in memory. The report includes:
 - the full effective profile and profile/fixture SHA-256 hashes;
 - seed and client host metadata;
 - requested and achieved rates, counts, successes, expected and unexpected
-  errors, timeouts, skipped schedules, and latency percentiles per operation;
+  errors, bounded sanitized unexpected-error details, timeouts, skipped
+  schedules, and latency percentiles per operation;
 - WebSocket connections, reconnects, sequence gaps, snapshots, events, and
-  feedback-to-event latency;
+  feedback-to-event latency, including action expectations superseded by a
+  recovery snapshot;
 - expected and unexpected availability outages, recoveries, and downtime;
 - synchronized simulator scenario identity, timestamps, status, and steps;
 - invariant observations, informational threshold warnings, and the overall
