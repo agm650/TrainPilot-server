@@ -1,1 +1,0 @@
-{"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"trainpilot_sqlite_file_size_bytes","environment":"benchmark","file":"database","instance":"192.168.0.60:6060","job":"trainpilot"},"value":[1789930434.633,"3321856"]}]}}

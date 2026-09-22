@@ -22,3 +22,5 @@ behavior: {reconnect_probability: 0.001, snapshot_probability: 0.001}
 expected_errors:
   - {operation: lease_acquire, http_statuses: [409]}
   - {operation: route, http_statuses: [409]}
+  - {operation: throttle, problem_codes: [safety_command_preempted]}
+  - {operation: function, problem_codes: [safety_command_preempted]}
