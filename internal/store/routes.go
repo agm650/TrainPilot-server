@@ -176,6 +176,10 @@ func (s *Store) ExportLayout(ctx context.Context) (model.LayoutDefinition, error
 	if err != nil {
 		return model.LayoutDefinition{}, err
 	}
+	presentation, err := s.GetLayoutPresentation(ctx)
+	if err != nil {
+		return model.LayoutDefinition{}, err
+	}
 	routes, err := s.ListRoutes(ctx)
 	if err != nil {
 		return model.LayoutDefinition{}, err
@@ -227,6 +231,7 @@ func (s *Store) ExportLayout(ctx context.Context) (model.LayoutDefinition, error
 		defs = append(defs, def)
 	}
 	return model.LayoutDefinition{
+		Presentation:            &presentation,
 		Blocks:                  blocks,
 		Turnouts:                turnouts,
 		Routes:                  defs,
@@ -314,6 +319,15 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 		}
 		if err := replaceBlockMemberships(ctx, tx, layout.Blocks); err != nil {
 			return err
+		}
+		if layout.Presentation != nil {
+			if err := replaceLayoutPresentation(ctx, tx, *layout.Presentation); err != nil {
+				return err
+			}
+		} else if replace {
+			if err := replaceLayoutPresentation(ctx, tx, model.EmptyLayoutPresentation()); err != nil {
+				return err
+			}
 		}
 		for _, m := range layout.FeedbackMappings {
 			providerType := "current-detection"

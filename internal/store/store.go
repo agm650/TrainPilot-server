@@ -235,6 +235,32 @@ func (s *Store) Migrate(ctx context.Context) error {
 			PRIMARY KEY(block_id, turnout_id),
 			UNIQUE(turnout_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS layout_presentation (
+			id INTEGER PRIMARY KEY CHECK(id = 1),
+			coordinate_system TEXT NOT NULL,
+			grid_spacing REAL NOT NULL CHECK(grid_spacing > 0)
+		)`,
+		`CREATE TABLE IF NOT EXISTS layout_node_positions (
+			node_id TEXT PRIMARY KEY REFERENCES topology_nodes(id) ON DELETE CASCADE,
+			x REAL NOT NULL,
+			y REAL NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS layout_track_paths (
+			track_section_id TEXT PRIMARY KEY REFERENCES track_sections(id) ON DELETE CASCADE,
+			segments_json TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS layout_turnout_positions (
+			turnout_id TEXT PRIMARY KEY REFERENCES turnouts(id) ON DELETE CASCADE,
+			x REAL NOT NULL,
+			y REAL NOT NULL,
+			rotation_degrees REAL NOT NULL,
+			mirrored INTEGER NOT NULL CHECK(mirrored IN (0,1))
+		)`,
+		`CREATE TABLE IF NOT EXISTS layout_block_styles (
+			block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
+			color TEXT NOT NULL,
+			opacity REAL NOT NULL CHECK(opacity BETWEEN 0 AND 1)
+		)`,
 		`CREATE TABLE IF NOT EXISTS routes (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,

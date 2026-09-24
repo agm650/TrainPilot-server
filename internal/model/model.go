@@ -485,6 +485,7 @@ type RouteDefinition struct {
 }
 
 type LayoutDefinition struct {
+	Presentation            *LayoutPresentation      `json:"presentation,omitempty"`
 	Blocks                  []BlockDefinition        `json:"blocks"`
 	Turnouts                []Turnout                `json:"turnouts"`
 	Routes                  []RouteDefinition        `json:"routes"`

@@ -290,10 +290,17 @@ is held during hardware confirmation waits.
 
 ## Limitations of topology V1
 
-Topology V1 stores logical connectivity only. It has no screen coordinates,
-curves, radii, drawing geometry, operating direction, signaling rules,
-resource reservation, train location, or progressive route release. Physical
-pathfinding is descriptive only and makes no operating or safety decision.
+Topology V1 stores logical connectivity only. Graphical presentation is stored
+separately in abstract layout units: node positions, line and cubic track paths,
+turnout placement, and block styling. It does not change physical connectivity.
+The coordinate system is `layout-units`; omitted grid spacing defaults to 20
+layout units and defines the layout grid interval. Zoom and viewport offsets
+stay in the client. Block colors use `#RRGGBB`, with opacity from 0 to 1.
+The store can persist this presentation, but archive transfer and a public read
+API are separate follow-up work. Topology V1 has no operating direction,
+signaling rules, resource reservation, train location, or progressive route
+release. Physical pathfinding is descriptive only and makes no operating or
+safety decision.
 
 ## Preparation for train localization
 
