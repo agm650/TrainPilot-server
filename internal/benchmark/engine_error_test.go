@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/client"
+	"github.com/agm650/TrainPilot-server/internal/service"
 )
 
 func TestRunRejectsInvalidServerJSON(t *testing.T) {
@@ -43,5 +45,49 @@ func TestExpectedErrorsAreExplicitlyMatchedByOperation(t *testing.T) {
 	engine.profile.ExpectedErrors = []ExpectedErrorRule{{Operation: "throttle", Kinds: []string{"timeout"}}}
 	if !engine.isExpectedError("throttle", context.DeadlineExceeded) {
 		t.Fatal("declared timeout was not expected")
+	}
+}
+
+func TestExecuteLoginUsesDedicatedTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			timer := time.NewTimer(50 * time.Millisecond)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+			case <-r.Context().Done():
+				return
+			}
+			_ = json.NewEncoder(w).Encode(service.TokenPair{
+				AccessToken: "access", RefreshToken: "refresh",
+				AccessExpiresAt: time.Now().Add(time.Minute),
+			})
+		case "/api/v1/auth/logout":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	recorder := newOperationRecorder()
+	recorder.StartMeasurement(time.Now())
+	engine := &runEngine{
+		options: RunOptions{
+			Server:      server.URL,
+			Credentials: []Credential{{Username: "benchmark", Password: "benchmark-secret"}},
+		},
+		profile: Profile{
+			OperationTimeout: Duration{Duration: 10 * time.Millisecond},
+			LoginTimeout:     Duration{Duration: 200 * time.Millisecond},
+		},
+		recorder: recorder,
+	}
+	engine.executeJob(context.Background(), scheduledJob{operation: "login", seed: 650})
+
+	stats := recorder.stats["login"]
+	if stats == nil || stats.Successes != 1 || stats.UnexpectedErrors != 0 {
+		t.Fatalf("login stats=%+v", stats)
 	}
 }

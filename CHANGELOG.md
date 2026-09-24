@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Benchmark profiles can set a dedicated login timeout without relaxing
+  command and WebSocket deadlines.
 - Simulator scenarios that miss the measurement deadline now fail explicitly instead of producing an empty summary.
 
 - Concurrent event publishers now preserve sequence order for every subscriber.

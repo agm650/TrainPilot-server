@@ -52,6 +52,7 @@ type Profile struct {
 	Seed             int64               `yaml:"seed" json:"seed"`
 	Fixture          string              `yaml:"fixture,omitempty" json:"fixture,omitempty"`
 	OperationTimeout Duration            `yaml:"operation_timeout,omitempty" json:"operationTimeout"`
+	LoginTimeout     Duration            `yaml:"login_timeout,omitempty" json:"loginTimeout"`
 	Clients          ClientProfile       `yaml:"clients" json:"clients"`
 	Rates            RateProfile         `yaml:"rates" json:"rates"`
 	Behavior         BehaviorProfile     `yaml:"behavior" json:"behavior"`
@@ -139,6 +140,9 @@ func (p *Profile) setDefaults() {
 	if p.OperationTimeout.Duration == 0 {
 		p.OperationTimeout.Duration = 5 * time.Second
 	}
+	if p.LoginTimeout.Duration == 0 {
+		p.LoginTimeout.Duration = p.OperationTimeout.Duration
+	}
 	if p.Clients.Workers == 0 {
 		p.Clients.Workers = 16
 	}
@@ -159,6 +163,9 @@ func (p Profile) Validate() error {
 	}
 	if p.OperationTimeout.Duration <= 0 {
 		return errors.New("operation_timeout must be greater than zero")
+	}
+	if p.LoginTimeout.Duration <= 0 {
+		return errors.New("login_timeout must be greater than zero")
 	}
 	if p.Clients.Users <= 0 {
 		return errors.New("clients.users must be greater than zero")
@@ -277,6 +284,13 @@ func (p Profile) Validate() error {
 		return errors.New("WebSocket behavior probabilities require clients.websockets")
 	}
 	return nil
+}
+
+func (p Profile) operationTimeout(operation string) time.Duration {
+	if operation == "login" && p.LoginTimeout.Duration > 0 {
+		return p.LoginTimeout.Duration
+	}
+	return p.OperationTimeout.Duration
 }
 
 func (p Profile) HasActiveOperations() bool {

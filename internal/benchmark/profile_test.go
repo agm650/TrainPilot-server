@@ -30,12 +30,26 @@ func TestDecodeProfileAppliesDefaultsAndRejectsUnknownFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if profile.SchemaVersion != ProfileSchemaVersion || profile.OperationTimeout.Duration != 5*time.Second || profile.Clients.Workers != 16 {
+	if profile.SchemaVersion != ProfileSchemaVersion || profile.OperationTimeout.Duration != 5*time.Second || profile.LoginTimeout.Duration != 5*time.Second || profile.Clients.Workers != 16 {
 		t.Fatalf("profile=%+v", profile)
 	}
 	_, err = DecodeProfile(strings.NewReader(validProfileYAML + "unknown: true\n"))
 	if err == nil || !strings.Contains(err.Error(), "field unknown not found") {
 		t.Fatalf("unknown field error=%v", err)
+	}
+}
+
+func TestDecodeProfileAppliesDedicatedLoginTimeout(t *testing.T) {
+	yaml := strings.Replace(validProfileYAML, "clients:\n", "operation_timeout: 4s\nlogin_timeout: 10s\nclients:\n", 1)
+	profile, err := DecodeProfile(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := profile.operationTimeout("login"); got != 10*time.Second {
+		t.Fatalf("login timeout=%v", got)
+	}
+	if got := profile.operationTimeout("throttle"); got != 4*time.Second {
+		t.Fatalf("throttle timeout=%v", got)
 	}
 }
 
@@ -50,6 +64,7 @@ func TestProfileValidation(t *testing.T) {
 	}{
 		{"schema", func(p *Profile) { p.SchemaVersion = 2 }},
 		{"duration", func(p *Profile) { p.Duration.Duration = 0 }},
+		{"login timeout", func(p *Profile) { p.LoginTimeout.Duration = -time.Second }},
 		{"users", func(p *Profile) { p.Clients.Users = 0 }},
 		{"rate", func(p *Profile) { p.Rates.ThrottlePerSecond = -1 }},
 		{"probability", func(p *Profile) { p.Behavior.ReconnectProbability = 2 }},

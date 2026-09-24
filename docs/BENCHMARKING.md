@@ -107,6 +107,7 @@ duration: 60s
 seed: 650
 fixture: ../fixtures/simulator-default.json
 operation_timeout: 5s
+login_timeout: 10s
 
 clients:
   users: 4
@@ -135,6 +136,10 @@ behavior:
 Rates are operations per second. `warmup` runs the same workload without adding
 operation samples to measured percentiles. `duration` is the measured
 phase. `operation_timeout` applies to individual HTTP and connection attempts.
+`login_timeout` applies to initial and scheduled logins, including the
+scheduled logout, and defaults to `operation_timeout` when omitted. A distinct
+login timeout preserves strict command deadlines on hosts where password
+verification is intentionally expensive.
 The runner refreshes each virtual user's access token before expiry. These
 maintenance refreshes are separate from the scheduled `refresh_per_second`
 operations, which remain part of the measured workload. An authentication

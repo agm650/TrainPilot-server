@@ -445,8 +445,9 @@ func (e *runEngine) loginSessions(ctx context.Context) error {
 			credential: credential, client: client.New(e.options.Server),
 			clientID: fmt.Sprintf("trainpilot-bench-%d-%d", e.profile.Seed, index),
 		}
-		session.client.HTTP.Timeout = e.profile.OperationTimeout.Duration
-		loginCtx, cancel := context.WithTimeout(ctx, e.profile.OperationTimeout.Duration)
+		loginTimeout := e.profile.operationTimeout("login")
+		session.client.HTTP.Timeout = loginTimeout
+		loginCtx, cancel := context.WithTimeout(ctx, loginTimeout)
 		pair, err := loginClient(loginCtx, session.client, credential, session.clientID)
 		cancel()
 		if err != nil {
@@ -648,7 +649,7 @@ func (e *runEngine) operationRates() map[string]float64 {
 }
 
 func (e *runEngine) executeJob(parent context.Context, job scheduledJob) {
-	ctx, cancel := context.WithTimeout(parent, e.profile.OperationTimeout.Duration)
+	ctx, cancel := context.WithTimeout(parent, e.profile.operationTimeout(job.operation))
 	defer cancel()
 	started := time.Now()
 	random := rand.New(rand.NewSource(job.seed))
@@ -834,7 +835,7 @@ func (e *runEngine) performRouteContention(ctx context.Context, random *rand.Ran
 func (e *runEngine) performLogin(ctx context.Context, random *rand.Rand) error {
 	credential := e.options.Credentials[random.Intn(len(e.options.Credentials))]
 	c := client.New(e.options.Server)
-	c.HTTP.Timeout = e.profile.OperationTimeout.Duration
+	c.HTTP.Timeout = e.profile.operationTimeout("login")
 	if _, err := loginClient(ctx, c, credential, fmt.Sprintf("trainpilot-bench-transient-%d", random.Uint64())); err != nil {
 		return err
 	}
