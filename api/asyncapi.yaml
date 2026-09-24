@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: DCC Control Server Events
-  version: 1.11.0
+  version: 1.12.0
   description: >-
     WebSocket event contract for native clients, including complete sequenced
     snapshots and explicit resynchronization requests. After a snapshot, clients
@@ -269,6 +269,8 @@ components:
         availability for all currently controlled locomotives, including
         leases owned by other sessions. Absence from locomotiveControlStates
         means that the locomotive is free.
+        topologyRevision and layoutPresentationRevision are independent cache
+        keys for GET /api/v1/topology and GET /api/v1/layout/presentation.
       payload:
         type: object
         required: [type, sequence, capturedAt, payload]
@@ -281,7 +283,7 @@ components:
           capturedAt: { type: string, format: date-time }
           payload:
             type: object
-            required: [station, stationStatus, locomotives, controlLeases, locomotiveControlStates, blocks, turnouts, routes, topologyRevision]
+            required: [station, stationStatus, locomotives, controlLeases, locomotiveControlStates, blocks, turnouts, routes, topologyRevision, layoutPresentationRevision]
             properties:
               station: { $ref: '#/components/schemas/StationCapabilities' }
               stationStatus: { $ref: '#/components/schemas/StationStatus' }
@@ -312,7 +314,16 @@ components:
                 pattern: '^[0-9a-f]{64}$'
                 description: >-
                   Revision returned by GET /api/v1/topology. Reload that resource
-                  when this value changes or after layout.imported.
+                  when this value changes. After layout.imported, compare both
+                  revisions and reload only the changed resources.
+              layoutPresentationRevision:
+                type: string
+                pattern: '^[0-9a-f]{64}$'
+                examples: [66d1f79391497b6a68e617899f73e89ea16d900720a765039a2a15203677ad97]
+                description: >-
+                  Revision returned by GET /api/v1/layout/presentation. Reload
+                  that resource when this value changes, including after
+                  layout.imported. Runtime state does not affect this value.
     StationStatusChanged:
       name: station.status.changed
       payload:

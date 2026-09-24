@@ -28,6 +28,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Authenticated graphical layout presentation read API with an independent
+  SHA-256 revision in REST responses and WebSocket snapshots.
 - Conservative multi-source block occupancy with persisted providers and
   sensor mappings, R-BUS adaptation, and authenticated single/batch external
   observations through the restricted `sensor` role. REST, WebSocket snapshots

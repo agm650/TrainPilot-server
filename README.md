@@ -568,6 +568,8 @@ blocks. It supports fixed track, simple and compound turnouts, active and
 static graphs, block membership, pathfinding, and route-definition validation.
 Topology support is not train localization and does not provide interlocking.
 See [`docs/TOPOLOGY.md`](docs/TOPOLOGY.md) for the model and its limits.
+Authenticated clients read the separate graphical drawing with
+`GET /api/v1/layout/presentation`.
 
 Inspect or validate the persisted physical topology without sending a railway
 command:
@@ -646,17 +648,19 @@ When a WebSocket connection opens, the server sends a complete
 `system.snapshot` whose `sequence` is the event bus's current sequence. It
 contains station status, locomotives, full leases for the connected session,
 public ownership state for all controlled locomotives, blocks, turnouts, and
-routes. It also contains `topologyRevision`. The full static definition is read
-from authenticated `GET /api/v1/topology`; it is not duplicated in every
-snapshot. `controlLeases` remains private to the session.
+routes. It also contains `topologyRevision` and
+`layoutPresentationRevision`. The full static topology and graphical definition
+are read from authenticated `GET /api/v1/topology` and
+`GET /api/v1/layout/presentation`; they are not duplicated in every snapshot.
+`controlLeases` remains private to the session.
 `locomotiveControlStates` distinguishes `mine`,
 `same_user_other_session`, and `other` without exposing lease identifiers from
 other sessions. A locomotive absent from that array is free.
 
-Clients cache the topology by its revision. They reload
-`GET /api/v1/topology` when the snapshot revision changes or after a
-`layout.imported` event. The event is emitted only after the layout transaction
-commits successfully.
+Clients cache topology and presentation by their separate revisions. They reload
+only the resource whose revision changes. After `layout.imported`, they compare
+both revisions and reload changed resources. The event is emitted only after
+the layout transaction commits successfully.
 
 The client ignores events with a sequence less than or equal to the snapshot.
 The server also filters old or duplicate events generated while building the

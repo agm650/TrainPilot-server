@@ -60,6 +60,12 @@ type LayoutPresentation struct {
 	Blocks           []LayoutBlockStyle      `json:"blocks"`
 }
 
+// LayoutPresentationDefinition is the public, revisioned read model.
+type LayoutPresentationDefinition struct {
+	Revision string `json:"revision"`
+	LayoutPresentation
+}
+
 var ErrInvalidLayoutPresentation = errors.New("invalid layout presentation")
 
 func EmptyLayoutPresentation() LayoutPresentation {

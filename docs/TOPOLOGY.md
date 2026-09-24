@@ -240,14 +240,21 @@ reported positions, pending commands, or occupancy.
 
 The response also contains a `revision`: a lowercase SHA-256 of the canonical
 topology JSON. The digest covers physical topology, names, and block membership.
-It excludes runtime block and turnout state. `system.snapshot` carries only this
-value as `topologyRevision`, keeping resynchronization snapshots small.
+It excludes runtime block and turnout state.
 
-A client loads the topology through REST and caches it by revision. It reloads
-when a later snapshot has a different `topologyRevision` or after
-`layout.imported`. That event is published only after a successful layout
-transaction. V1 intentionally exposes no topology CRUD; changes use the
-validated, atomic layout import pipeline.
+Every authenticated role can read the separate graphical definition with
+`GET /api/v1/layout/presentation`. Its arrays are ordered by resource ID. Its
+`revision` is a lowercase SHA-256 of canonical presentation JSON without the
+revision field. It excludes physical topology, runtime state, zoom, and viewport
+offset. Existing layouts return empty arrays, `layout-units`, and grid spacing
+20. A presentation-only edit leaves `topologyRevision` unchanged.
+
+`system.snapshot` carries `topologyRevision` and
+`layoutPresentationRevision`, keeping resynchronization snapshots small.
+Clients cache the two resources independently and reload only the one whose
+revision changed. After `layout.imported`, they compare both revisions. That
+event is published only after a successful layout transaction. V1 exposes no
+topology CRUD; changes use the validated, atomic layout import pipeline.
 
 `dccctl topology` prints counts and the static connected-component count.
 `dccctl topology --json` emits the canonical response. `dccctl topology

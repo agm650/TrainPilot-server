@@ -233,6 +233,12 @@ func (c *Client) Topology(ctx context.Context) (model.TopologyDefinition, error)
 	return out, err
 }
 
+func (c *Client) LayoutPresentation(ctx context.Context) (model.LayoutPresentationDefinition, error) {
+	var out model.LayoutPresentationDefinition
+	_, err := c.Do(ctx, http.MethodGet, "/api/v1/layout/presentation", nil, &out)
+	return out, err
+}
+
 func (c *Client) Turnouts(ctx context.Context) ([]model.Turnout, error) {
 	var out struct {
 		Items []model.Turnout `json:"items"`

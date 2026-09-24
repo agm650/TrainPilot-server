@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/agm650/TrainPilot-server/internal/model"
+	"github.com/agm650/TrainPilot-server/internal/presentation"
 	"github.com/agm650/TrainPilot-server/internal/topology"
 )
 
@@ -34,4 +35,21 @@ func (s *Server) topologyDefinition(ctx context.Context, turnouts []model.Turnou
 	layout.Turnouts = turnouts
 	layout.Blocks = blocks
 	return topology.DefinitionFromLayout(layout)
+}
+
+func (s *Server) getLayoutPresentation(w http.ResponseWriter, r *http.Request) {
+	definition, err := s.layoutPresentationDefinition(r.Context())
+	if err != nil {
+		writeOperationProblem(w, err, "layout_presentation_read_failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, definition)
+}
+
+func (s *Server) layoutPresentationDefinition(ctx context.Context) (model.LayoutPresentationDefinition, error) {
+	value, err := s.store.GetLayoutPresentation(ctx)
+	if err != nil {
+		return model.LayoutPresentationDefinition{}, err
+	}
+	return presentation.Definition(value)
 }

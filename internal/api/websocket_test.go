@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/auth"
+	restclient "github.com/agm650/TrainPilot-server/internal/client"
 	"github.com/agm650/TrainPilot-server/internal/clock"
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
@@ -258,8 +259,24 @@ func TestSystemSnapshotContainsCompleteClientState(t *testing.T) {
 			t.Fatalf("startup block occupancy=%+v", block)
 		}
 	}
-	if snapshot.Payload.TopologyRevision == "" {
-		t.Fatal("topology revision is missing")
+	if snapshot.Payload.TopologyRevision == "" || snapshot.Payload.LayoutPresentationRevision == "" {
+		t.Fatal("snapshot revisions are missing")
+	}
+	encoded, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var serialized struct {
+		Payload struct {
+			TopologyRevision           string `json:"topologyRevision"`
+			LayoutPresentationRevision string `json:"layoutPresentationRevision"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(encoded, &serialized); err != nil {
+		t.Fatal(err)
+	}
+	if serialized.Payload.TopologyRevision != snapshot.Payload.TopologyRevision || serialized.Payload.LayoutPresentationRevision != snapshot.Payload.LayoutPresentationRevision {
+		t.Fatalf("serialized snapshot revisions = %+v", serialized.Payload)
 	}
 	turnout := snapshot.Payload.Turnouts[0]
 	if turnout.Kind != model.TurnoutKindSimple || len(turnout.Endpoints) != 1 || len(turnout.Positions) != 2 || turnout.DesiredPosition != "straight" || turnout.ReportedPosition != "straight" {
@@ -328,6 +345,9 @@ func TestSystemSnapshotTopologyRevisionChangesOnlyWithLayout(t *testing.T) {
 	if runtimeChanged.Payload.TopologyRevision != before.Payload.TopologyRevision {
 		t.Fatal("runtime block state changed topology revision")
 	}
+	if runtimeChanged.Payload.LayoutPresentationRevision != before.Payload.LayoutPresentationRevision {
+		t.Fatal("runtime block state changed presentation revision")
+	}
 	if err := fixture.api.store.ImportLayout(ctx, topologyfixture.PassingStation(), true); err != nil {
 		t.Fatal(err)
 	}
@@ -337,6 +357,93 @@ func TestSystemSnapshotTopologyRevisionChangesOnlyWithLayout(t *testing.T) {
 	}
 	if layoutChanged.Payload.TopologyRevision == before.Payload.TopologyRevision {
 		t.Fatal("layout import did not change topology revision")
+	}
+	if layoutChanged.Payload.LayoutPresentationRevision != before.Payload.LayoutPresentationRevision {
+		t.Fatal("topology-only import changed presentation revision")
+	}
+	p := model.LayoutPresentation{Nodes: []model.LayoutNodePosition{{NodeID: "west-boundary", X: 120, Y: 80}}}
+	if err := fixture.api.store.ReplaceLayoutPresentation(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	presentationChanged, err := fixture.api.buildSystemSnapshot(ctx, fixture.session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if presentationChanged.Payload.TopologyRevision != layoutChanged.Payload.TopologyRevision || presentationChanged.Payload.LayoutPresentationRevision == layoutChanged.Payload.LayoutPresentationRevision {
+		t.Fatal("presentation-only change did not isolate cache invalidation")
+	}
+	renamed := topologyfixture.PassingStation()
+	renamed.TopologyNodes[0].Name = "Renamed boundary"
+	if err := fixture.api.store.ImportLayout(ctx, renamed, false); err != nil {
+		t.Fatal(err)
+	}
+	topologyChanged, err := fixture.api.buildSystemSnapshot(ctx, fixture.session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if topologyChanged.Payload.TopologyRevision == presentationChanged.Payload.TopologyRevision || topologyChanged.Payload.LayoutPresentationRevision != presentationChanged.Payload.LayoutPresentationRevision {
+		t.Fatal("topology-only change did not isolate cache invalidation")
+	}
+	if err := fixture.api.store.SetTurnoutDesiredPosition(ctx, "station-west", "diverging", false); err != nil {
+		t.Fatal(err)
+	}
+	turnoutChanged, err := fixture.api.buildSystemSnapshot(ctx, fixture.session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if turnoutChanged.Payload.TopologyRevision != topologyChanged.Payload.TopologyRevision || turnoutChanged.Payload.LayoutPresentationRevision != topologyChanged.Payload.LayoutPresentationRevision {
+		t.Fatal("runtime turnout state changed a static revision")
+	}
+}
+
+func TestLayoutImportedEventAndSnapshotUseIndependentCacheKeys(t *testing.T) {
+	ctx := context.Background()
+	fixture := newWebsocketFixture(t)
+	client := dialTestWebSocket(t, fixture.server.URL, fixture.accessToken)
+	defer client.close()
+	initial := readTestSnapshot(t, client)
+
+	archive, err := transfer.BuildLayoutArchive(time.Now(), topologyfixture.PassingStation())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.api.transfer.ImportLayout(ctx, model.User{ID: "admin", Role: model.RoleAdministrator}, archive, true); err != nil {
+		t.Fatal(err)
+	}
+	var imported struct {
+		Type string `json:"type"`
+	}
+	client.readJSON(t, &imported)
+	if imported.Type != "layout.imported" {
+		t.Fatalf("event type = %q, want layout.imported", imported.Type)
+	}
+	client.writeJSON(t, map[string]any{"type": "client.snapshot_request"})
+	afterImport := readTestSnapshot(t, client)
+	if afterImport.Payload.TopologyRevision == initial.Payload.TopologyRevision || afterImport.Payload.LayoutPresentationRevision != initial.Payload.LayoutPresentationRevision {
+		t.Fatal("layout import did not identify only the changed topology cache")
+	}
+
+	p := model.LayoutPresentation{Nodes: []model.LayoutNodePosition{{NodeID: "west-boundary", X: 120, Y: 80}}}
+	if err := fixture.api.store.ReplaceLayoutPresentation(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	client.writeJSON(t, map[string]any{"type": "client.snapshot_request"})
+	afterPresentation := readTestSnapshot(t, client)
+	if afterPresentation.Payload.TopologyRevision != afterImport.Payload.TopologyRevision || afterPresentation.Payload.LayoutPresentationRevision == afterImport.Payload.LayoutPresentationRevision {
+		t.Fatal("presentation change did not identify only the changed drawing cache")
+	}
+	reader := restclient.New(fixture.server.URL)
+	reader.AccessToken = fixture.accessToken
+	topologyDefinition, err := reader.Topology(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	presentationDefinition, err := reader.LayoutPresentation(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if topologyDefinition.Revision != afterPresentation.Payload.TopologyRevision || presentationDefinition.Revision != afterPresentation.Payload.LayoutPresentationRevision {
+		t.Fatal("snapshot cache keys do not match REST resource revisions")
 	}
 }
 

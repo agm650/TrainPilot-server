@@ -19,6 +19,7 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/model/topologyfixture"
+	"github.com/agm650/TrainPilot-server/internal/presentation"
 	"github.com/agm650/TrainPilot-server/internal/service"
 	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/agm650/TrainPilot-server/internal/station/simulator"
@@ -361,6 +362,51 @@ func TestTopologyHTTPReturnsCanonicalEmptyAndCompleteDefinitions(t *testing.T) {
 	}
 	if complete.TurnoutTopologies[0].TurnoutID == "" || len(complete.TurnoutTopologies[0].Ports) != 3 {
 		t.Fatalf("turnout topology=%+v", complete.TurnoutTopologies[0])
+	}
+}
+
+func TestLayoutPresentationHTTPIsAvailableToAuthenticatedRoles(t *testing.T) {
+	ctx := context.Background()
+	fixture := newDetailedHTTPFixture(t)
+	assertStatus(t, fixture.server.URL, http.MethodGet, "/api/v1/layout/presentation", "", nil, http.StatusUnauthorized)
+	empty, err := fixture.viewer.LayoutPresentation(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.Revision != "66d1f79391497b6a68e617899f73e89ea16d900720a765039a2a15203677ad97" || empty.CoordinateSystem != model.LayoutCoordinateSystem || empty.GridSpacing != 20 || empty.Nodes == nil || empty.TrackSections == nil || empty.Turnouts == nil || empty.Blocks == nil {
+		t.Fatalf("empty presentation response = %#v", empty)
+	}
+
+	layout := topologyfixture.PassingStation()
+	p := model.LayoutPresentation{
+		Nodes:    []model.LayoutNodePosition{{NodeID: "west-boundary", X: 120, Y: 80}},
+		Turnouts: []model.LayoutTurnoutPosition{{TurnoutID: "station-west", X: 160, Y: 80, RotationDegrees: 90, Mirrored: true}},
+		Blocks:   []model.LayoutBlockStyle{{BlockID: "block-west", Color: "#33AADD", Opacity: 0.3}},
+	}
+	layout.Presentation = &p
+	if err := fixture.db.ImportLayout(ctx, layout, true); err != nil {
+		t.Fatal(err)
+	}
+	viewer, err := fixture.viewer.LayoutPresentation(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := presentation.Definition(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if viewer.Revision != canonical.Revision || len(viewer.Nodes) != 1 || len(viewer.Turnouts) != 1 || !viewer.Turnouts[0].Mirrored || len(viewer.Blocks) != 1 {
+		t.Fatalf("populated presentation response = %#v", viewer)
+	}
+	driver := client.New(fixture.server.URL)
+	if _, err := driver.Login(ctx, "driver", "correct-horse-1", "presentation-driver"); err != nil {
+		t.Fatal(err)
+	}
+	for role, reader := range map[string]*client.Client{"driver": driver, "administrator": fixture.administrator, "sensor": fixture.sensor} {
+		got, err := reader.LayoutPresentation(ctx)
+		if err != nil || got.Revision != viewer.Revision {
+			t.Fatalf("%s presentation revision = %q, error = %v", role, got.Revision, err)
+		}
 	}
 }
 

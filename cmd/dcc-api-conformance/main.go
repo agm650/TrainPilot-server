@@ -12,6 +12,7 @@ import (
 
 	"github.com/agm650/TrainPilot-server/internal/client"
 	"github.com/agm650/TrainPilot-server/internal/model"
+	"github.com/agm650/TrainPilot-server/internal/presentation"
 	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/agm650/TrainPilot-server/internal/topology"
 )
@@ -130,6 +131,16 @@ func run(ctx context.Context, cfg configuration, output io.Writer) int {
 		topologyValidationErr = validateTopologyResponse(topologyDefinition, turnouts)
 	}
 	add("physical topology and revision are valid", topologyValidationErr)
+	presentationDefinition, presentationErr := c1.LayoutPresentation(ctx)
+	if presentationErr == nil {
+		canonical, err := presentation.Definition(presentationDefinition.LayoutPresentation)
+		if err != nil {
+			presentationErr = err
+		} else if canonical.Revision != presentationDefinition.Revision {
+			presentationErr = errors.New("layout presentation revision does not match its content")
+		}
+	}
+	add("authenticated client reads graphical layout presentation", presentationErr)
 	_, err = c1.Routes(ctx)
 	add("authenticated client lists routes", err)
 	_, err = c1.StationStatus(ctx)

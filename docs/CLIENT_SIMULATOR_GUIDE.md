@@ -2,11 +2,11 @@
 
 Dernière validation : 18 septembre 2026.
 
-Versions du contrat au moment de cette validation :
+Versions du contrat actuellement documentées :
 
 - serveur : `0.2.0` ;
-- API HTTP : `1.10.0` ;
-- API événementielle : `1.11.0` ;
+- API HTTP : `1.11.0` ;
+- API événementielle : `1.12.0` ;
 - format des scénarios du simulateur : `1`.
 
 Ce guide explique comment utiliser TrainPilot-server comme banc virtuel pour
@@ -256,9 +256,9 @@ Exemple :
 ```json
 {
   "serverVersion": "0.2.0",
-  "apiVersion": "1.10.0",
+  "apiVersion": "1.11.0",
   "minimumClientApiVersion": "1.0.0",
-  "eventApiVersion": "1.11.0",
+  "eventApiVersion": "1.12.0",
   "minimumClientEventApiVersion": "1.3.0",
   "station": {
     "driver": "simulator",
@@ -467,7 +467,9 @@ Le premier message est toujours `system.snapshot` :
     "locomotiveControlStates": [],
     "blocks": [],
     "turnouts": [],
-    "routes": []
+    "routes": [],
+    "topologyRevision": "<sha256-topologie>",
+    "layoutPresentationRevision": "<sha256-presentation>"
   }
 }
 ```
@@ -564,17 +566,18 @@ sur la même connexion. Une écriture dépassant cinq secondes ferme la connexio
 | `turnout.command.failed` | cible non confirmée et raison publique |
 | `route.reserved/activated/released` | état de l'itinéraire |
 | `rolling-stock.imported` | recharger la bibliothèque concernée |
-| `layout.imported` | recharger `GET /api/v1/topology` et le réseau concerné |
+| `layout.imported` | comparer les deux révisions et recharger les ressources modifiées |
 
 Le client doit tolérer un type futur inconnu, le journaliser, puis continuer en
 respectant sa séquence. Une modification incompatible du contrat doit être
 détectée auparavant via `/api/v1/system/info`.
 
-Le snapshot expose `topologyRevision`, pas la définition statique complète. Le
-client charge `GET /api/v1/topology` à l'ouverture, conserve sa `revision`, puis
-recharge cette ressource si une révision de snapshot diffère ou après
-`layout.imported`. L'occupation et l'état rapporté des aiguillages restent dans
-les ressources runtime du snapshot.
+Le snapshot expose `topologyRevision` et `layoutPresentationRevision`, sans les
+définitions complètes. Le client charge `GET /api/v1/topology` et
+`GET /api/v1/layout/presentation` à l'ouverture. Il conserve leurs révisions et
+ne recharge que la ressource modifiée, y compris après `layout.imported`.
+L'occupation et l'état rapporté des aiguillages restent dans les ressources
+runtime du snapshot.
 
 ## 7. Conduite et leases
 

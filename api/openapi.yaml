@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: DCC Control Server API
-  version: 1.10.0
+  version: 1.11.0
   description: >-
     Contract for native DCC clients. User administration is deliberately absent
     from this public API and is available only over the local administration socket.
@@ -427,6 +427,27 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TopologyDefinition' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/layout/presentation:
+    get:
+      operationId: getLayoutPresentation
+      description: >-
+        Returns persisted drawing data and its independent deterministic revision.
+        Every authenticated role may read it. Coordinates use abstract layout units.
+      responses:
+        '200':
+          description: Canonical graphical layout presentation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LayoutPresentationDefinition' }
+              example:
+                revision: 66d1f79391497b6a68e617899f73e89ea16d900720a765039a2a15203677ad97
+                coordinateSystem: layout-units
+                gridSpacing: 20
+                nodes: []
+                trackSections: []
+                turnouts: []
+                blocks: []
         '401': { $ref: '#/components/responses/Unauthorized' }
   /api/v1/turnouts:
     get:
@@ -916,6 +937,91 @@ components:
         blocks:
           type: array
           items: { $ref: '#/components/schemas/BlockDefinition' }
+    LayoutPresentationDefinition:
+      type: object
+      additionalProperties: false
+      required: [revision, coordinateSystem, gridSpacing, nodes, trackSections, turnouts, blocks]
+      properties:
+        revision:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: SHA-256 of canonical persisted graphical presentation only.
+        coordinateSystem: { const: layout-units }
+        gridSpacing:
+          type: number
+          exclusiveMinimum: 0
+          description: Layout grid interval in abstract layout units; defaults to 20.
+        nodes:
+          type: array
+          items: { $ref: '#/components/schemas/LayoutNodePosition' }
+        trackSections:
+          type: array
+          items: { $ref: '#/components/schemas/LayoutTrackPath' }
+        turnouts:
+          type: array
+          items: { $ref: '#/components/schemas/LayoutTurnoutPosition' }
+        blocks:
+          type: array
+          items: { $ref: '#/components/schemas/LayoutBlockStyle' }
+    LayoutPoint:
+      type: object
+      additionalProperties: false
+      required: [x, y]
+      properties:
+        x: { type: number }
+        y: { type: number }
+    LayoutNodePosition:
+      type: object
+      additionalProperties: false
+      required: [nodeId, x, y]
+      properties:
+        nodeId: { type: string, minLength: 1 }
+        x: { type: number }
+        y: { type: number }
+    LayoutTrackPath:
+      type: object
+      additionalProperties: false
+      required: [trackSectionId, segments]
+      properties:
+        trackSectionId: { type: string, minLength: 1 }
+        segments:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/LayoutTrackSegment' }
+    LayoutTrackSegment:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [type, to]
+          properties:
+            type: { const: line }
+            to: { $ref: '#/components/schemas/LayoutPoint' }
+        - type: object
+          additionalProperties: false
+          required: [type, control1, control2, to]
+          properties:
+            type: { const: cubic }
+            control1: { $ref: '#/components/schemas/LayoutPoint' }
+            control2: { $ref: '#/components/schemas/LayoutPoint' }
+            to: { $ref: '#/components/schemas/LayoutPoint' }
+    LayoutTurnoutPosition:
+      type: object
+      additionalProperties: false
+      required: [turnoutId, x, y, rotationDegrees, mirrored]
+      properties:
+        turnoutId: { type: string, minLength: 1 }
+        x: { type: number }
+        y: { type: number }
+        rotationDegrees: { type: number }
+        mirrored: { type: boolean }
+    LayoutBlockStyle:
+      type: object
+      additionalProperties: false
+      required: [blockId, color, opacity]
+      properties:
+        blockId: { type: string, minLength: 1 }
+        color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        opacity: { type: number, minimum: 0, maximum: 1 }
     TopologyNode:
       type: object
       additionalProperties: false

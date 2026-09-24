@@ -91,6 +91,7 @@ func (s *Server) register(testAPI bool) {
 	s.mux.Handle("POST /api/v1/occupancy/observations", s.requireAuth(http.HandlerFunc(s.postOccupancyObservation)))
 	s.mux.Handle("POST /api/v1/occupancy/snapshot", s.requireAuth(http.HandlerFunc(s.postOccupancySnapshot)))
 	s.mux.Handle("GET /api/v1/topology", s.requireAuth(http.HandlerFunc(s.getTopology)))
+	s.mux.Handle("GET /api/v1/layout/presentation", s.requireAuth(http.HandlerFunc(s.getLayoutPresentation)))
 	s.mux.Handle("GET /api/v1/turnouts", s.requireAuth(http.HandlerFunc(s.listTurnouts)))
 	s.mux.Handle("PUT /api/v1/turnouts/{id}", s.requireAuth(http.HandlerFunc(s.setTurnout)))
 	s.mux.Handle("GET /api/v1/exports/rolling-stock", s.requireAuth(http.HandlerFunc(s.exportRollingStock)))
