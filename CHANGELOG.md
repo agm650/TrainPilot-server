@@ -28,6 +28,10 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Editor-facing turnout diagnostics now identify invalid endpoint vectors,
+  duplicate addresses, simple-turnout shape, and topology position mismatches.
+  Graphical rotation and mirroring remain separate from DCC endpoint inversion.
+  The HTTP contract is now version 1.13.0.
 - Administrator-only layout archive dry-run endpoint with structured diagnostics,
   import-equivalent validation, and transaction rollback before publication.
 - Layout archives version 7 include graphical presentation and import it

@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -71,6 +72,20 @@ type PortConnection struct {
 
 var ErrInvalidTopology = errors.New("invalid topology definition")
 
+// TurnoutTopologyValidationError identifies a turnout topology problem for
+// editor diagnostics while preserving ErrInvalidTopology for existing callers.
+type TurnoutTopologyValidationError struct {
+	Code      string
+	TurnoutID string
+	Message   string
+}
+
+func (e *TurnoutTopologyValidationError) Error() string {
+	return ErrInvalidTopology.Error() + ": " + e.Message
+}
+
+func (e *TurnoutTopologyValidationError) Unwrap() error { return ErrInvalidTopology }
+
 // ValidateTopologyDefinition validates the static physical topology of a layout.
 // It does not inspect turnout runtime state or build an active connectivity graph.
 func ValidateTopologyDefinition(layout LayoutDefinition) error {
@@ -132,7 +147,7 @@ func ValidateTopologyDefinition(layout LayoutDefinition) error {
 		if !exists {
 			return invalid("topology references unknown turnout %q", topology.TurnoutID)
 		}
-		if err := validateTurnoutTopology(topology, turnout, nodes, invalid); err != nil {
+		if err := validateTurnoutTopology(topology, turnout, nodes); err != nil {
 			return err
 		}
 	}
@@ -144,22 +159,24 @@ func validateTurnoutTopology(
 	topology TurnoutTopology,
 	turnout Turnout,
 	nodes map[string]TopologyNode,
-	invalid func(string, ...any) error,
 ) error {
+	invalid := func(code, format string, args ...any) error {
+		return &TurnoutTopologyValidationError{Code: code, TurnoutID: topology.TurnoutID, Message: fmt.Sprintf(format, args...)}
+	}
 	if len(topology.Ports) < 2 {
-		return invalid("turnout %q topology requires at least two ports", topology.TurnoutID)
+		return invalid("turnout_topology_invalid", "turnout %q topology requires at least two ports", topology.TurnoutID)
 	}
 	ports := make(map[string]bool, len(topology.Ports))
 	for _, port := range topology.Ports {
 		if strings.TrimSpace(port.ID) == "" {
-			return invalid("turnout %q topology has a port without id", topology.TurnoutID)
+			return invalid("turnout_topology_invalid", "turnout %q topology has a port without id", topology.TurnoutID)
 		}
 		if ports[port.ID] {
-			return invalid("turnout %q topology has duplicate port id %q", topology.TurnoutID, port.ID)
+			return invalid("turnout_topology_invalid", "turnout %q topology has duplicate port id %q", topology.TurnoutID, port.ID)
 		}
 		ports[port.ID] = true
 		if _, exists := nodes[port.NodeID]; !exists {
-			return invalid("turnout %q port %q references unknown node %q", topology.TurnoutID, port.ID, port.NodeID)
+			return invalid("turnout_topology_invalid", "turnout %q port %q references unknown node %q", topology.TurnoutID, port.ID, port.NodeID)
 		}
 	}
 
@@ -170,38 +187,43 @@ func validateTurnoutTopology(
 	topologyPositions := make(map[string]bool, len(topology.Positions))
 	for _, position := range topology.Positions {
 		if strings.TrimSpace(position.PositionID) == "" {
-			return invalid("turnout %q topology has a position without id", topology.TurnoutID)
+			return invalid("turnout_topology_position_invalid", "turnout %q topology has a position without id", topology.TurnoutID)
 		}
 		if topologyPositions[position.PositionID] {
-			return invalid("turnout %q topology has duplicate position %q", topology.TurnoutID, position.PositionID)
+			return invalid("turnout_topology_position_invalid", "turnout %q topology has duplicate position %q", topology.TurnoutID, position.PositionID)
 		}
 		topologyPositions[position.PositionID] = true
 		if !turnoutPositions[position.PositionID] {
-			return invalid("turnout %q topology references unknown position %q", topology.TurnoutID, position.PositionID)
+			return invalid("turnout_topology_position_undeclared", "turnout %q topology references unknown position %q", topology.TurnoutID, position.PositionID)
 		}
 
 		connections := make(map[portConnectionKey]bool, len(position.Connections))
 		for _, connection := range position.Connections {
 			if !ports[connection.PortAID] {
-				return invalid("turnout %q position %q references unknown port %q", topology.TurnoutID, position.PositionID, connection.PortAID)
+				return invalid("turnout_topology_invalid", "turnout %q position %q references unknown port %q", topology.TurnoutID, position.PositionID, connection.PortAID)
 			}
 			if !ports[connection.PortBID] {
-				return invalid("turnout %q position %q references unknown port %q", topology.TurnoutID, position.PositionID, connection.PortBID)
+				return invalid("turnout_topology_invalid", "turnout %q position %q references unknown port %q", topology.TurnoutID, position.PositionID, connection.PortBID)
 			}
 			if connection.PortAID == connection.PortBID {
-				return invalid("turnout %q position %q connects port %q to itself", topology.TurnoutID, position.PositionID, connection.PortAID)
+				return invalid("turnout_topology_invalid", "turnout %q position %q connects port %q to itself", topology.TurnoutID, position.PositionID, connection.PortAID)
 			}
 			key := newPortConnectionKey(connection.PortAID, connection.PortBID)
 			if connections[key] {
-				return invalid("turnout %q position %q has duplicate connection %q to %q", topology.TurnoutID, position.PositionID, key.a, key.b)
+				return invalid("turnout_topology_invalid", "turnout %q position %q has duplicate connection %q to %q", topology.TurnoutID, position.PositionID, key.a, key.b)
 			}
 			connections[key] = true
 		}
 	}
 
+	positionIDs := make([]string, 0, len(turnoutPositions))
 	for positionID := range turnoutPositions {
+		positionIDs = append(positionIDs, positionID)
+	}
+	sort.Strings(positionIDs)
+	for _, positionID := range positionIDs {
 		if !topologyPositions[positionID] {
-			return invalid("turnout %q topology does not define position %q", topology.TurnoutID, positionID)
+			return invalid("turnout_topology_position_missing", "turnout %q topology does not define position %q", topology.TurnoutID, positionID)
 		}
 	}
 	return nil

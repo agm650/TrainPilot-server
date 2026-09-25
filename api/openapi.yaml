@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: DCC Control Server API
-  version: 1.12.0
+  version: 1.13.0
   description: >-
     Contract for native DCC clients. User administration is deliberately absent
     from this public API and is available only over the local administration socket.
@@ -1056,6 +1056,7 @@ components:
       type: object
       additionalProperties: false
       required: [turnoutId, x, y, rotationDegrees, mirrored]
+      description: Visual placement only. Rotation and mirroring never invert DCC commands.
       properties:
         turnoutId: { type: string, minLength: 1 }
         x: { type: number }
@@ -1092,6 +1093,10 @@ components:
       type: object
       additionalProperties: false
       required: [turnoutId, ports, positions]
+      description: >-
+        Physical ports and connections keyed by logical turnout position.
+        When topology is supplied, every declared logical position must be
+        represented, and every topology position must be declared by the turnout.
       properties:
         turnoutId: { type: string, minLength: 1 }
         ports:
@@ -1151,7 +1156,9 @@ components:
         inverted:
           type: boolean
           default: false
-          description: Swaps position1 and position2 at the driver boundary.
+          description: >-
+            Swaps position1 and position2 at the driver boundary and when
+            resolving reports. Independent of graphical rotation and mirroring.
     TurnoutPositionDefinition:
       type: object
       required: [id, endpoints]
@@ -1173,7 +1180,9 @@ components:
         kind:
           type: string
           enum: [simple, three_way, double_slip, single_slip, custom]
-          description: UI and domain classification. Positions remain the source of truth.
+          description: >-
+            UI and domain classification. A simple turnout has one endpoint
+            and two positions. Declared vectors remain the source of truth.
         endpoints:
           type: array
           minItems: 1

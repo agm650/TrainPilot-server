@@ -47,6 +47,31 @@ func TestValidateTurnoutDefinitions(t *testing.T) {
 	}
 }
 
+func TestTurnoutEditorValidationCodes(t *testing.T) {
+	cases := []struct {
+		name    string
+		turnout Turnout
+		code    string
+	}{
+		{"missing endpoint", mutateTurnout(simpleTurnoutFixture(), func(t *Turnout) { t.Endpoints = nil }), "turnout_endpoint_missing"},
+		{"missing vector", mutateTurnout(threeWayTurnoutFixture(), func(t *Turnout) { delete(t.Positions[0].Endpoints, "B") }), "turnout_position_vector_missing"},
+		{"undeclared endpoint", mutateTurnout(simpleTurnoutFixture(), func(t *Turnout) { t.Positions[0].Endpoints = positions("missing", AccessoryPosition1) }), "turnout_endpoint_undeclared"},
+		{"duplicate position", mutateTurnout(simpleTurnoutFixture(), func(t *Turnout) { t.Positions[1].ID = "straight" }), "turnout_position_duplicate"},
+		{"duplicate address", mutateTurnout(threeWayTurnoutFixture(), func(t *Turnout) { t.Endpoints[1].LinearAddress = t.Endpoints[0].LinearAddress }), "accessory_address_conflict"},
+		{"invalid simple endpoints", mutateTurnout(simpleTurnoutFixture(), func(t *Turnout) { t.Endpoints = append(t.Endpoints, AccessoryEndpoint{ID: "B", LinearAddress: 11}) }), "turnout_simple_invalid"},
+		{"invalid simple positions", mutateTurnout(simpleTurnoutFixture(), func(t *Turnout) { t.Positions = t.Positions[:1] }), "turnout_simple_invalid"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateTurnout(test.turnout)
+			var validation *TurnoutValidationError
+			if !errors.As(err, &validation) || !errors.Is(err, ErrInvalidTurnout) || validation.Code != test.code || validation.TurnoutID != test.turnout.ID {
+				t.Fatalf("error=%v diagnostic=%+v", err, validation)
+			}
+		})
+	}
+}
+
 func TestResolveTurnoutPosition(t *testing.T) {
 	tests := []struct {
 		name    string

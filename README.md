@@ -755,6 +755,9 @@ A `204` response means every step was confirmed. Clients read valid choices
 from `positions` and then follow `desiredPosition`, `reportedPosition`,
 `pending`, `reportedStatus`, `reportQuality`, and `commandStatus`. The legacy
 `state` request field is accepted only for a `simple` turnout and is deprecated.
+For graphical editor configuration, see the simple, inverted, and topology
+examples in [`docs/TURNOUTS.md`](docs/TURNOUTS.md). Screen rotation and mirror
+settings are presentation data; decoder polarity uses endpoint `inverted`.
 
 The CLI uses the same contract:
 

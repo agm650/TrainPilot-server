@@ -85,7 +85,7 @@ func TestCompoundTurnoutContractsAreDocumented(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, fragment := range []string{
-		"version: 1.12.0",
+		"version: 1.13.0",
 		"operationId: validateLayoutArchive",
 		"TopologyDefinition:",
 		"LayoutPresentationDefinition:",

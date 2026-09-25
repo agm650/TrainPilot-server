@@ -224,6 +224,20 @@ type Turnout struct {
 
 var ErrInvalidTurnout = errors.New("invalid turnout definition")
 
+// TurnoutValidationError carries a stable editor diagnostic code while
+// retaining ErrInvalidTurnout for existing callers.
+type TurnoutValidationError struct {
+	Code      string
+	TurnoutID string
+	Message   string
+}
+
+func (e *TurnoutValidationError) Error() string {
+	return ErrInvalidTurnout.Error() + ": " + e.Message
+}
+
+func (e *TurnoutValidationError) Unwrap() error { return ErrInvalidTurnout }
+
 func NewSimpleTurnout(id, name string, linearAddress int, desired, reported string) Turnout {
 	return Turnout{
 		ID:   id,
@@ -277,86 +291,92 @@ func NormalizeTurnout(t Turnout) (Turnout, error) {
 }
 
 func ValidateTurnout(t Turnout) error {
-	invalid := func(format string, args ...any) error {
-		return fmt.Errorf("%w: %s", ErrInvalidTurnout, fmt.Sprintf(format, args...))
+	invalid := func(code, format string, args ...any) error {
+		return &TurnoutValidationError{Code: code, TurnoutID: t.ID, Message: fmt.Sprintf(format, args...)}
 	}
 	if strings.TrimSpace(t.ID) == "" {
-		return invalid("id is required")
+		return invalid("turnout_definition_invalid", "id is required")
 	}
 	if strings.TrimSpace(t.Name) == "" {
-		return invalid("turnout %q requires a name", t.ID)
+		return invalid("turnout_definition_invalid", "turnout %q requires a name", t.ID)
 	}
 	if !t.Kind.Valid() {
-		return invalid("turnout %q has invalid kind %q", t.ID, t.Kind)
+		return invalid("turnout_definition_invalid", "turnout %q has invalid kind %q", t.ID, t.Kind)
 	}
 	if len(t.Endpoints) == 0 {
-		return invalid("turnout %q requires at least one endpoint", t.ID)
+		return invalid("turnout_endpoint_missing", "turnout %q requires at least one endpoint", t.ID)
+	}
+	if t.Kind == TurnoutKindSimple && len(t.Endpoints) != 1 {
+		return invalid("turnout_simple_invalid", "simple turnout %q requires exactly one endpoint", t.ID)
 	}
 	endpointIDs := make(map[string]AccessoryEndpoint, len(t.Endpoints))
 	addresses := make(map[int]string, len(t.Endpoints))
 	for _, endpoint := range t.Endpoints {
 		if strings.TrimSpace(endpoint.ID) == "" {
-			return invalid("turnout %q has an endpoint without id", t.ID)
+			return invalid("turnout_endpoint_invalid", "turnout %q has an endpoint without id", t.ID)
 		}
 		if endpoint.LinearAddress < station.MinBasicAccessoryAddress || endpoint.LinearAddress > station.MaxBasicAccessoryAddress {
-			return invalid("turnout %q endpoint %q has invalid linear address %d", t.ID, endpoint.ID, endpoint.LinearAddress)
+			return invalid("turnout_endpoint_invalid", "turnout %q endpoint %q has invalid linear address %d", t.ID, endpoint.ID, endpoint.LinearAddress)
 		}
 		if _, exists := endpointIDs[endpoint.ID]; exists {
-			return invalid("turnout %q has duplicate endpoint id %q", t.ID, endpoint.ID)
+			return invalid("turnout_endpoint_invalid", "turnout %q has duplicate endpoint id %q", t.ID, endpoint.ID)
 		}
 		if other, exists := addresses[endpoint.LinearAddress]; exists {
-			return invalid("turnout %q endpoints %q and %q share linear address %d", t.ID, other, endpoint.ID, endpoint.LinearAddress)
+			return invalid("accessory_address_conflict", "turnout %q endpoints %q and %q share linear address %d", t.ID, other, endpoint.ID, endpoint.LinearAddress)
 		}
 		endpointIDs[endpoint.ID] = endpoint
 		addresses[endpoint.LinearAddress] = endpoint.ID
 	}
 	if len(t.Positions) == 0 {
-		return invalid("turnout %q requires at least one position", t.ID)
+		return invalid("turnout_position_missing", "turnout %q requires at least one position", t.ID)
+	}
+	if t.Kind == TurnoutKindSimple && len(t.Positions) != 2 {
+		return invalid("turnout_simple_invalid", "simple turnout %q requires exactly two positions", t.ID)
 	}
 	positionIDs := make(map[string]bool, len(t.Positions))
 	vectors := make(map[string]string, len(t.Positions))
 	for _, position := range t.Positions {
 		if strings.TrimSpace(position.ID) == "" {
-			return invalid("turnout %q has a position without id", t.ID)
+			return invalid("turnout_position_invalid", "turnout %q has a position without id", t.ID)
 		}
 		if position.ID == "unknown" || position.ID == "invalid" {
-			return invalid("turnout %q position id %q is reserved", t.ID, position.ID)
+			return invalid("turnout_position_invalid", "turnout %q position id %q is reserved", t.ID, position.ID)
 		}
 		if positionIDs[position.ID] {
-			return invalid("turnout %q has duplicate position id %q", t.ID, position.ID)
+			return invalid("turnout_position_duplicate", "turnout %q has duplicate position id %q", t.ID, position.ID)
 		}
 		positionIDs[position.ID] = true
 		if len(position.Endpoints) != len(endpointIDs) {
-			return invalid("turnout %q position %q must define every endpoint", t.ID, position.ID)
+			return invalid("turnout_position_vector_missing", "turnout %q position %q must define every endpoint", t.ID, position.ID)
 		}
 		for endpointID, value := range position.Endpoints {
 			if _, exists := endpointIDs[endpointID]; !exists {
-				return invalid("turnout %q position %q references unknown endpoint %q", t.ID, position.ID, endpointID)
+				return invalid("turnout_endpoint_undeclared", "turnout %q position %q references unknown endpoint %q", t.ID, position.ID, endpointID)
 			}
 			if !value.Valid() {
-				return invalid("turnout %q position %q has invalid value %q for endpoint %q", t.ID, position.ID, value, endpointID)
+				return invalid("turnout_position_invalid", "turnout %q position %q has invalid value %q for endpoint %q", t.ID, position.ID, value, endpointID)
 			}
 		}
 		vector := turnoutVectorKey(t.Endpoints, position.Endpoints)
 		if other, exists := vectors[vector]; exists {
-			return invalid("turnout %q positions %q and %q use the same endpoint vector", t.ID, other, position.ID)
+			return invalid("turnout_position_vector_duplicate", "turnout %q positions %q and %q use the same endpoint vector", t.ID, other, position.ID)
 		}
 		vectors[vector] = position.ID
 	}
 	if t.DesiredPosition != "" && !positionIDs[t.DesiredPosition] {
-		return invalid("turnout %q has unknown desired position %q", t.ID, t.DesiredPosition)
+		return invalid("turnout_position_invalid", "turnout %q has unknown desired position %q", t.ID, t.DesiredPosition)
 	}
 	if t.ReportedPosition != "" && !positionIDs[t.ReportedPosition] {
-		return invalid("turnout %q has unknown reported position %q", t.ID, t.ReportedPosition)
+		return invalid("turnout_position_invalid", "turnout %q has unknown reported position %q", t.ID, t.ReportedPosition)
 	}
 	if t.ReportedStatus != "" && !t.ReportedStatus.Valid() {
-		return invalid("turnout %q has invalid reported status %q", t.ID, t.ReportedStatus)
+		return invalid("turnout_state_invalid", "turnout %q has invalid reported status %q", t.ID, t.ReportedStatus)
 	}
 	if t.Quality != "" && !t.Quality.Valid() {
-		return invalid("turnout %q has invalid quality %q", t.ID, t.Quality)
+		return invalid("turnout_state_invalid", "turnout %q has invalid quality %q", t.ID, t.Quality)
 	}
 	if t.CommandStatus != "" && !t.CommandStatus.Valid() {
-		return invalid("turnout %q has invalid command status %q", t.ID, t.CommandStatus)
+		return invalid("turnout_state_invalid", "turnout %q has invalid command status %q", t.ID, t.CommandStatus)
 	}
 	return nil
 }

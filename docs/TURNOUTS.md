@@ -210,6 +210,78 @@ diverging -> main=position2
 
 Un aiguillage enroulé, symétrique ou courbe reste généralement `simple`.
 Ses libellés peuvent être adaptés à l'interface.
+Un `simple` déclare exactement un endpoint et deux positions logiques distinctes.
+Pour plusieurs sorties ou une autre cardinalité, utiliser `three_way`,
+`double_slip`, `single_slip` ou `custom` avec les seuls vecteurs réellement
+commandables.
+
+### Configuration dans l'éditeur graphique
+
+Pour initialiser l'éditeur, `GET /api/v1/turnouts` fournit les définitions
+logiques, `GET /api/v1/topology` les ports et connexions, et
+`GET /api/v1/layout/presentation` les placements graphiques.
+L'éditeur exporte un `.dcclayout` version 7. Un aiguillage simple se définit
+par ses champs de configuration, sans `dccAddress` ni état runtime :
+
+```json
+{
+  "id": "T1",
+  "name": "Entrée gare",
+  "kind": "simple",
+  "endpoints": [{ "id": "A", "linearAddress": 20, "inverted": false }],
+  "positions": [
+    { "id": "straight", "label": "Directe", "endpoints": { "A": "position1" } },
+    { "id": "diverging", "label": "Déviée", "endpoints": { "A": "position2" } }
+  ]
+}
+```
+
+Si la polarité réelle du décodeur est inverse, garder les mêmes positions et
+ne changer que l'endpoint :
+
+```json
+{
+  "id": "T1",
+  "name": "Entrée gare",
+  "kind": "simple",
+  "endpoints": [{ "id": "A", "linearAddress": 20, "inverted": true }],
+  "positions": [
+    { "id": "straight", "label": "Directe", "endpoints": { "A": "position1" } },
+    { "id": "diverging", "label": "Déviée", "endpoints": { "A": "position2" } }
+  ]
+}
+```
+
+Dans ce second cas, `straight` commande physiquement `position2` et
+`diverging` commande `position1`. Les étiquettes logiques restent identiques.
+L'adresse `20` est l'adresse linéaire TrainPilot, sans conversion propre à z21
+ou DCC-EX dans l'éditeur.
+
+Dans le même `layout.json`, `layout.turnoutTopologies` relie chaque position
+logique aux ports physiques :
+
+```json
+{
+  "turnoutId": "T1",
+  "ports": [
+    { "id": "stem", "nodeId": "N1" },
+    { "id": "straight", "nodeId": "N2" },
+    { "id": "diverging", "nodeId": "N3" }
+  ],
+  "positions": [
+    { "positionId": "straight", "connections": [{ "portAId": "stem", "portBId": "straight" }] },
+    { "positionId": "diverging", "connections": [{ "portAId": "stem", "portBId": "diverging" }] }
+  ]
+}
+```
+
+Les nœuds `N1`, `N2` et `N3` doivent aussi être définis dans `layout.nodes`.
+Une position présente seulement dans la topologie, ou seulement dans le
+turnout, est refusée. `layout.presentation.turnouts` stocke séparément
+`turnoutId`, `x`, `y`, `rotationDegrees` et `mirrored`. Tourner ou refléter
+le symbole change uniquement son affichage : l'endpoint `inverted` et les
+vecteurs `positions[].endpoints` continuent à déterminer les commandes DCC.
+Le client peut appeler `/api/v1/layout/validate` avant l'import explicite.
 
 ## 8. Aiguillage triple
 
@@ -312,6 +384,12 @@ Une définition est refusée si :
 - l'état demandé ou rapporté référence une position absente.
 
 Les erreurs incluent l'identifiant de l'appareil et la cause exploitable.
+Le dry run retourne des codes stables, notamment
+`accessory_address_conflict`, `turnout_endpoint_missing`,
+`turnout_position_vector_missing`, `turnout_endpoint_undeclared`,
+`turnout_position_duplicate`, `turnout_simple_invalid`,
+`turnout_topology_position_missing` et
+`turnout_topology_position_undeclared`.
 
 ## 13. Persistance et migration
 

@@ -68,6 +68,40 @@ func TestRailwayServiceComposesEveryDoubleSlipPosition(t *testing.T) {
 	}
 }
 
+func TestGraphicalTurnoutRotationDoesNotChangeInvertedCommand(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	turnout := turnoutfixture.Simple()
+	turnout.Endpoints[0].Inverted = true
+	db, sim, railway := newAccessoryRailwayService(t, ctx, turnout)
+	defer db.Close()
+	placement := model.EmptyLayoutPresentation()
+	placement.Turnouts = []model.LayoutTurnoutPosition{{TurnoutID: turnout.ID, X: 10, Y: 20}}
+	if err := db.ReplaceLayoutPresentation(ctx, placement); err != nil {
+		t.Fatal(err)
+	}
+	dispatcher := model.User{Role: model.RoleDispatcher}
+	if err := railway.SetTurnout(ctx, dispatcher, turnout.ID, "diverging"); err != nil {
+		t.Fatal(err)
+	}
+	waitForTurnoutPosition(t, ctx, db, turnout.ID, "diverging", false)
+	if got := sim.Accessory(turnout.Endpoints[0].LinearAddress).Reported; got != station.AccessoryPosition1 {
+		t.Fatalf("inverted diverging command sent %q", got)
+	}
+	placement.Turnouts[0].RotationDegrees = 270
+	placement.Turnouts[0].Mirrored = true
+	if err := db.ReplaceLayoutPresentation(ctx, placement); err != nil {
+		t.Fatal(err)
+	}
+	if err := railway.SetTurnout(ctx, dispatcher, turnout.ID, "straight"); err != nil {
+		t.Fatal(err)
+	}
+	waitForTurnoutPosition(t, ctx, db, turnout.ID, "straight", false)
+	if got := sim.Accessory(turnout.Endpoints[0].LinearAddress).Reported; got != station.AccessoryPosition2 {
+		t.Fatalf("rotated inverted straight command sent %q", got)
+	}
+}
+
 func TestRailwayServiceRejectsUndefinedSingleSlipCombinationWithoutCommand(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

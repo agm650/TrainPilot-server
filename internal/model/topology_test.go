@@ -176,6 +176,31 @@ func TestValidateTopologyDefinitionRejectsInvalidTurnoutTopologies(t *testing.T)
 	}
 }
 
+func TestTurnoutTopologyEditorValidationCodes(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		code   string
+		mutate func(*model.LayoutDefinition)
+	}{
+		{"missing logical position", "turnout_topology_position_missing", func(layout *model.LayoutDefinition) {
+			layout.TurnoutTopologies[0].Positions = layout.TurnoutTopologies[0].Positions[:1]
+		}},
+		{"undeclared topology position", "turnout_topology_position_undeclared", func(layout *model.LayoutDefinition) {
+			layout.TurnoutTopologies[0].Positions[0].PositionID = "undefined"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			layout := topologyfixture.Simple()
+			test.mutate(&layout)
+			err := model.ValidateTopologyDefinition(layout)
+			var validation *model.TurnoutTopologyValidationError
+			if !errors.As(err, &validation) || !errors.Is(err, model.ErrInvalidTopology) || validation.Code != test.code || validation.TurnoutID != layout.Turnouts[0].ID {
+				t.Fatalf("error=%v diagnostic=%+v", err, validation)
+			}
+		})
+	}
+}
+
 func assertInvalidTopology(t *testing.T, layout model.LayoutDefinition) {
 	t.Helper()
 	if err := model.ValidateTopologyDefinition(layout); !errors.Is(err, model.ErrInvalidTopology) {

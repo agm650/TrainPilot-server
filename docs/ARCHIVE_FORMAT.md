@@ -241,6 +241,8 @@ que l'import dans une transaction annulée : aucune révision, donnée runtime,
 commande DCC ni événement `layout.imported` ne change. Un import explicite reste
 nécessaire après validation ; un état concurrent peut rendre sa validation
 différente.
+Pour les aiguillages, voir les exemples complets et les codes de validation
+dans [`TURNOUTS.md`](TURNOUTS.md).
 
 ## Limites et sécurité
 

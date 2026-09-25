@@ -82,6 +82,14 @@ func isLayoutValidationError(err error) bool {
 }
 
 func layoutDiagnostics(err error) []LayoutDiagnostic {
+	var turnoutErr *model.TurnoutValidationError
+	if errors.As(err, &turnoutErr) {
+		return []LayoutDiagnostic{{Code: turnoutErr.Code, ResourceType: "turnout", ResourceID: turnoutErr.TurnoutID, Message: turnoutErr.Message}}
+	}
+	var turnoutTopologyErr *model.TurnoutTopologyValidationError
+	if errors.As(err, &turnoutTopologyErr) {
+		return []LayoutDiagnostic{{Code: turnoutTopologyErr.Code, ResourceType: "turnout", ResourceID: turnoutTopologyErr.TurnoutID, Message: turnoutTopologyErr.Message}}
+	}
 	var presentationErr *model.LayoutPresentationValidationError
 	if errors.As(err, &presentationErr) {
 		return []LayoutDiagnostic{{Code: presentationErr.Code, ResourceType: presentationErr.ResourceType, ResourceID: presentationErr.ResourceID, Message: presentationErr.Message}}
