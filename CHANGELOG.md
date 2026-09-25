@@ -28,6 +28,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Administrator-only layout archive dry-run endpoint with structured diagnostics,
+  import-equivalent validation, and transaction rollback before publication.
 - Layout archives version 7 include graphical presentation and import it
   atomically, with ID-based merge and compatibility with older archives.
 - Authenticated graphical layout presentation read API with an independent

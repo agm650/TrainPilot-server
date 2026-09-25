@@ -5,7 +5,7 @@ Dernière validation : 18 septembre 2026.
 Versions du contrat actuellement documentées :
 
 - serveur : `0.2.0` ;
-- API HTTP : `1.11.0` ;
+- API HTTP : `1.12.0` ;
 - API événementielle : `1.12.0` ;
 - format des scénarios du simulateur : `1`.
 
@@ -256,7 +256,7 @@ Exemple :
 ```json
 {
   "serverVersion": "0.2.0",
-  "apiVersion": "1.11.0",
+  "apiVersion": "1.12.0",
   "minimumClientApiVersion": "1.0.0",
   "eventApiVersion": "1.12.0",
   "minimumClientEventApiVersion": "1.3.0",

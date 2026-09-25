@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: DCC Control Server API
-  version: 1.11.0
+  version: 1.12.0
   description: >-
     Contract for native DCC clients. User administration is deliberately absent
     from this public API and is available only over the local administration socket.
@@ -613,6 +613,33 @@ paths:
             application/vnd.dcc-control.package+zip:
               schema: { type: string, format: binary }
         '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/layout/validate:
+    post:
+      operationId: validateLayoutArchive
+      description: >-
+        Validates a native layout archive against current server state using the
+        selected import mode. Requires the administrator role. All database
+        changes are rolled back; no station command or layout event is sent.
+      parameters:
+        - $ref: '#/components/parameters/ImportMode'
+      requestBody:
+        required: true
+        content:
+          application/vnd.dcc-control.package+zip:
+            schema: { type: string, format: binary }
+          application/zip:
+            schema: { type: string, format: binary }
+      responses:
+        '200':
+          description: >-
+            Validation result. Invalid archive content is reported with
+            valid=false and structured errors.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LayoutValidationResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/layout/import:
     post:
       operationId: importLayout
@@ -709,6 +736,27 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
   schemas:
+    LayoutValidationResult:
+      type: object
+      additionalProperties: false
+      required: [valid, errors, warnings]
+      properties:
+        valid: { type: boolean }
+        errors:
+          type: array
+          items: { $ref: '#/components/schemas/LayoutValidationDiagnostic' }
+        warnings:
+          type: array
+          items: { $ref: '#/components/schemas/LayoutValidationDiagnostic' }
+    LayoutValidationDiagnostic:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code: { type: string }
+        resourceType: { type: string }
+        resourceId: { type: string }
+        message: { type: string }
     Problem:
       type: object
       required: [type, title, status, code, category]

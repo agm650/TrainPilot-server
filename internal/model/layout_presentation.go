@@ -68,6 +68,21 @@ type LayoutPresentationDefinition struct {
 
 var ErrInvalidLayoutPresentation = errors.New("invalid layout presentation")
 
+// LayoutPresentationValidationError keeps drawing diagnostics independent of
+// their human-readable wording.
+type LayoutPresentationValidationError struct {
+	Code         string
+	ResourceType string
+	ResourceID   string
+	Message      string
+}
+
+func (e *LayoutPresentationValidationError) Error() string {
+	return ErrInvalidLayoutPresentation.Error() + ": " + e.Message
+}
+
+func (e *LayoutPresentationValidationError) Unwrap() error { return ErrInvalidLayoutPresentation }
+
 func EmptyLayoutPresentation() LayoutPresentation {
 	return LayoutPresentation{
 		CoordinateSystem: LayoutCoordinateSystem,
@@ -105,7 +120,10 @@ func NormalizeLayoutPresentation(p LayoutPresentation) LayoutPresentation {
 
 func ValidateLayoutPresentation(p LayoutPresentation, layout LayoutDefinition) error {
 	invalid := func(format string, args ...any) error {
-		return fmt.Errorf("%w: %s", ErrInvalidLayoutPresentation, fmt.Sprintf(format, args...))
+		return &LayoutPresentationValidationError{Code: "layout_presentation_invalid", Message: fmt.Sprintf(format, args...)}
+	}
+	invalidResource := func(code, resourceType, resourceID, format string, args ...any) error {
+		return &LayoutPresentationValidationError{Code: code, ResourceType: resourceType, ResourceID: resourceID, Message: fmt.Sprintf(format, args...)}
 	}
 	p = NormalizeLayoutPresentation(p)
 	if p.CoordinateSystem != LayoutCoordinateSystem {
@@ -135,14 +153,14 @@ func ValidateLayoutPresentation(p LayoutPresentation, layout LayoutDefinition) e
 	positions := make(map[string]LayoutPoint, len(p.Nodes))
 	for _, node := range p.Nodes {
 		if strings.TrimSpace(node.NodeID) == "" || !nodes[node.NodeID] {
-			return invalid("unknown node %q", node.NodeID)
+			return invalidResource("layout_presentation_reference_invalid", "node", node.NodeID, "unknown node %q", node.NodeID)
 		}
 		if _, exists := positions[node.NodeID]; exists {
-			return invalid("duplicate node %q", node.NodeID)
+			return invalidResource("layout_node_position_invalid", "node", node.NodeID, "duplicate node %q", node.NodeID)
 		}
 		position := LayoutPoint{X: node.X, Y: node.Y}
 		if !finitePoint(position) {
-			return invalid("node %q has non-finite coordinates", node.NodeID)
+			return invalidResource("layout_node_position_invalid", "node", node.NodeID, "node %q has non-finite coordinates", node.NodeID)
 		}
 		positions[node.NodeID] = position
 	}
@@ -151,72 +169,72 @@ func ValidateLayoutPresentation(p LayoutPresentation, layout LayoutDefinition) e
 	for _, path := range p.TrackSections {
 		section, exists := sections[path.TrackSectionID]
 		if !exists || strings.TrimSpace(path.TrackSectionID) == "" {
-			return invalid("unknown track section %q", path.TrackSectionID)
+			return invalidResource("layout_presentation_reference_invalid", "trackSection", path.TrackSectionID, "unknown track section %q", path.TrackSectionID)
 		}
 		if paths[path.TrackSectionID] {
-			return invalid("duplicate track section %q", path.TrackSectionID)
+			return invalidResource("layout_track_path_invalid", "trackSection", path.TrackSectionID, "duplicate track section %q", path.TrackSectionID)
 		}
 		paths[path.TrackSectionID] = true
 		if _, exists := positions[section.NodeAID]; !exists {
-			return invalid("track section %q requires node %q position", path.TrackSectionID, section.NodeAID)
+			return invalidResource("layout_node_position_missing", "node", section.NodeAID, "track section %q requires node %q position", path.TrackSectionID, section.NodeAID)
 		}
 		end, exists := positions[section.NodeBID]
 		if !exists {
-			return invalid("track section %q requires node %q position", path.TrackSectionID, section.NodeBID)
+			return invalidResource("layout_node_position_missing", "node", section.NodeBID, "track section %q requires node %q position", path.TrackSectionID, section.NodeBID)
 		}
 		if len(path.Segments) == 0 {
-			return invalid("track section %q requires a segment", path.TrackSectionID)
+			return invalidResource("layout_track_path_invalid", "trackSection", path.TrackSectionID, "track section %q requires a segment", path.TrackSectionID)
 		}
 		for index, segment := range path.Segments {
 			if segment.To == nil || !finitePoint(*segment.To) {
-				return invalid("track section %q segment %d has invalid endpoint", path.TrackSectionID, index)
+				return invalidResource("layout_track_path_invalid", "trackSection", path.TrackSectionID, "track section %q segment %d has invalid endpoint", path.TrackSectionID, index)
 			}
 			switch segment.Type {
 			case "line":
 				if segment.Control1 != nil || segment.Control2 != nil {
-					return invalid("track section %q line segment %d has controls", path.TrackSectionID, index)
+					return invalidResource("layout_track_path_invalid", "trackSection", path.TrackSectionID, "track section %q line segment %d has controls", path.TrackSectionID, index)
 				}
 			case "cubic":
 				if segment.Control1 == nil || segment.Control2 == nil || !finitePoint(*segment.Control1) || !finitePoint(*segment.Control2) {
-					return invalid("track section %q cubic segment %d has invalid controls", path.TrackSectionID, index)
+					return invalidResource("layout_track_path_invalid", "trackSection", path.TrackSectionID, "track section %q cubic segment %d has invalid controls", path.TrackSectionID, index)
 				}
 			default:
-				return invalid("track section %q segment %d has unknown type %q", path.TrackSectionID, index, segment.Type)
+				return invalidResource("layout_track_path_invalid", "trackSection", path.TrackSectionID, "track section %q segment %d has unknown type %q", path.TrackSectionID, index, segment.Type)
 			}
 		}
 		if *path.Segments[len(path.Segments)-1].To != end {
-			return invalid("track section %q path does not end at node %q", path.TrackSectionID, section.NodeBID)
+			return invalidResource("layout_track_path_invalid", "trackSection", path.TrackSectionID, "track section %q path does not end at node %q", path.TrackSectionID, section.NodeBID)
 		}
 	}
 
 	placedTurnouts := make(map[string]bool, len(p.Turnouts))
 	for _, turnout := range p.Turnouts {
 		if strings.TrimSpace(turnout.TurnoutID) == "" || !turnouts[turnout.TurnoutID] {
-			return invalid("unknown turnout %q", turnout.TurnoutID)
+			return invalidResource("layout_presentation_reference_invalid", "turnout", turnout.TurnoutID, "unknown turnout %q", turnout.TurnoutID)
 		}
 		if placedTurnouts[turnout.TurnoutID] {
-			return invalid("duplicate turnout %q", turnout.TurnoutID)
+			return invalidResource("layout_turnout_presentation_invalid", "turnout", turnout.TurnoutID, "duplicate turnout %q", turnout.TurnoutID)
 		}
 		placedTurnouts[turnout.TurnoutID] = true
 		if !finite(turnout.X) || !finite(turnout.Y) || !finite(turnout.RotationDegrees) {
-			return invalid("turnout %q has non-finite placement", turnout.TurnoutID)
+			return invalidResource("layout_turnout_presentation_invalid", "turnout", turnout.TurnoutID, "turnout %q has non-finite placement", turnout.TurnoutID)
 		}
 	}
 
 	styledBlocks := make(map[string]bool, len(p.Blocks))
 	for _, block := range p.Blocks {
 		if strings.TrimSpace(block.BlockID) == "" || !blocks[block.BlockID] {
-			return invalid("unknown block %q", block.BlockID)
+			return invalidResource("layout_presentation_reference_invalid", "block", block.BlockID, "unknown block %q", block.BlockID)
 		}
 		if styledBlocks[block.BlockID] {
-			return invalid("duplicate block %q", block.BlockID)
+			return invalidResource("layout_block_style_invalid", "block", block.BlockID, "duplicate block %q", block.BlockID)
 		}
 		styledBlocks[block.BlockID] = true
 		if !validLayoutColor(block.Color) {
-			return invalid("block %q has invalid color %q", block.BlockID, block.Color)
+			return invalidResource("layout_block_style_invalid", "block", block.BlockID, "block %q has invalid color %q", block.BlockID, block.Color)
 		}
 		if !finite(block.Opacity) || block.Opacity < 0 || block.Opacity > 1 {
-			return invalid("block %q opacity is outside 0..1", block.BlockID)
+			return invalidResource("layout_block_style_invalid", "block", block.BlockID, "block %q opacity is outside 0..1", block.BlockID)
 		}
 	}
 	return nil

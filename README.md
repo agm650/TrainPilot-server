@@ -592,6 +592,19 @@ Imports use `merge` by default. `--replace` replaces the corresponding library
 after validation. Layout merge updates graphical resources by ID; replace
 replaces the entire presentation.
 
+Administrators can check an archive before publishing it:
+
+```bash
+curl -X POST 'http://127.0.0.1:8080/api/v1/layout/validate?mode=replace' \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/vnd.dcc-control.package+zip' \
+  --data-binary @layout.dcclayout
+```
+
+The JSON result has `valid`, `errors`, and `warnings`. Validation runs the
+same checks as import but rolls back all database changes. Publishing still
+requires an explicit `import-layout` request.
+
 ```bash
 # Export is available to every authenticated user
 DCC_PASSWORD='correct-horse-1' go run ./cmd/dccctl \

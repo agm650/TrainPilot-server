@@ -42,6 +42,8 @@ type Tx struct {
 	finished bool
 }
 
+var ErrRollbackFailed = errors.New("sqlite transaction rollback failed")
+
 func Open(path string) (*DB, error) {
 	sqlDB, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -147,14 +149,14 @@ func (d *DB) WithTransaction(ctx context.Context, fn func(*Tx) error) (err error
 
 	if err := fn(tx); err != nil {
 		if rollbackErr := rollback(); rollbackErr != nil {
-			return errors.Join(err, fmt.Errorf("rollback sqlite transaction: %w", rollbackErr))
+			return errors.Join(err, fmt.Errorf("%w: %w", ErrRollbackFailed, rollbackErr))
 		}
 		return err
 	}
 
 	if err := ctx.Err(); err != nil {
 		if rollbackErr := rollback(); rollbackErr != nil {
-			return errors.Join(err, fmt.Errorf("rollback sqlite transaction: %w", rollbackErr))
+			return errors.Join(err, fmt.Errorf("%w: %w", ErrRollbackFailed, rollbackErr))
 		}
 		return err
 	}

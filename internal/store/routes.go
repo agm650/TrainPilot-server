@@ -245,6 +245,22 @@ func (s *Store) ExportLayout(ctx context.Context) (model.LayoutDefinition, error
 }
 
 func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition, replace bool) error {
+	return s.importLayout(ctx, layout, replace, false)
+}
+
+var errLayoutDryRun = errors.New("layout dry run completed")
+
+// ValidateLayoutImport executes the same statements as ImportLayout and rolls
+// them back. This also checks constraints that depend on current store state.
+func (s *Store) ValidateLayoutImport(ctx context.Context, layout model.LayoutDefinition, replace bool) error {
+	err := s.importLayout(ctx, layout, replace, true)
+	if err == errLayoutDryRun {
+		return nil
+	}
+	return err
+}
+
+func (s *Store) importLayout(ctx context.Context, layout model.LayoutDefinition, replace, dryRun bool) error {
 	normalizedTurnouts := make([]model.Turnout, len(layout.Turnouts))
 	for index, turnout := range layout.Turnouts {
 		normalized, err := model.NormalizeTurnout(turnout)
@@ -396,6 +412,9 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 					return err
 				}
 			}
+		}
+		if dryRun {
+			return errLayoutDryRun
 		}
 		return nil
 	})

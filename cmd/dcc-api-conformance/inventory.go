@@ -52,6 +52,7 @@ var publicEndpointInventory = []endpointDefinition{
 	{"GET", "/api/v1/exports/rolling-stock", "passive"},
 	{"POST", "/api/v1/imports/rolling-stock", "configuration"},
 	{"GET", "/api/v1/layout/export", "passive"},
+	{"POST", "/api/v1/layout/validate", "passive"},
 	{"POST", "/api/v1/layout/import", "configuration"},
 	{"GET", "/api/v1/events", "websocket"},
 }

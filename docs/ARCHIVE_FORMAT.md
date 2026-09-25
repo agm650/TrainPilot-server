@@ -225,6 +225,23 @@ effacées avec elles. L'export complet conserve les routes et les mappings de
 rétrosignalisation si un éditeur ne modifie que la topologie, les aiguillages,
 les cantons et la présentation.
 
+## Validation avant publication
+
+`POST /api/v1/layout/validate?mode=merge|replace` accepte la même archive
+que l'import. Le rôle `administrator` est requis. Une réponse HTTP 200 contient
+`valid`, `errors` et `warnings`. Chaque diagnostic porte un `code` stable, un
+`message` et, si connu, `resourceType` et `resourceId`. Un document invalide
+donne `valid: false` ; une requête non autorisée conserve le format `Problem`.
+Les codes incluent `invalid_archive`, `topology_invalid`,
+`block_membership_invalid`, `accessory_address_conflict`,
+`layout_presentation_reference_invalid`, `layout_node_position_missing`,
+`layout_track_path_invalid` et `layout_block_style_invalid`. Les avertissements
+de route existants gardent leurs codes. Le serveur exécute les mêmes contrôles
+que l'import dans une transaction annulée : aucune révision, donnée runtime,
+commande DCC ni événement `layout.imported` ne change. Un import explicite reste
+nécessaire après validation ; un état concurrent peut rendre sa validation
+différente.
+
 ## Limites et sécurité
 
 - archive complète : 25 Mio maximum ;
