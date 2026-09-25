@@ -20,11 +20,12 @@ import (
 )
 
 const (
-	FormatID       = "org.dcc-control.package"
-	FormatVersion  = 6
-	OldestVersion  = 1
-	MaxArchiveSize = 25 << 20
-	MaxEntrySize   = 10 << 20
+	FormatID            = "org.dcc-control.package"
+	FormatVersion       = 6 // rolling-stock archives
+	LayoutFormatVersion = 7
+	OldestVersion       = 1
+	MaxArchiveSize      = 25 << 20
+	MaxEntrySize        = 10 << 20
 )
 
 var ErrInvalidArchive = errors.New("invalid archive")
@@ -60,6 +61,7 @@ type layoutArchiveBlockDefinition struct {
 }
 
 type layoutArchiveDefinition struct {
+	Presentation            model.LayoutPresentation       `json:"presentation"`
 	Nodes                   []model.TopologyNode           `json:"nodes"`
 	TrackSections           []model.TrackSection           `json:"trackSections"`
 	TurnoutTopologies       []model.TurnoutTopology        `json:"turnoutTopologies"`
@@ -84,6 +86,10 @@ type occupancyArchiveProvider struct {
 // operational state. A layout archive must not restore a pending command or a
 // last observed position when imported on another server.
 func (d LayoutDocument) MarshalJSON() ([]byte, error) {
+	presentation := model.EmptyLayoutPresentation()
+	if d.Layout.Presentation != nil {
+		presentation = model.NormalizeLayoutPresentation(*d.Layout.Presentation)
+	}
 	blocks := make([]layoutArchiveBlockDefinition, 0, len(d.Layout.Blocks))
 	for _, block := range d.Layout.Blocks {
 		blocks = append(blocks, layoutArchiveBlockDefinition{
@@ -109,7 +115,8 @@ func (d LayoutDocument) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Layout layoutArchiveDefinition `json:"layout"`
 	}{Layout: layoutArchiveDefinition{
-		Nodes: d.Layout.TopologyNodes, TrackSections: d.Layout.TrackSections,
+		Presentation: presentation,
+		Nodes:        d.Layout.TopologyNodes, TrackSections: d.Layout.TrackSections,
 		TurnoutTopologies: d.Layout.TurnoutTopologies,
 		Blocks:            blocks, Turnouts: turnouts, Routes: d.Layout.Routes,
 		FeedbackMappings:        d.Layout.FeedbackMappings,
@@ -121,6 +128,7 @@ func (d LayoutDocument) MarshalJSON() ([]byte, error) {
 func (d *LayoutDocument) UnmarshalJSON(data []byte) error {
 	var document struct {
 		Layout struct {
+			Presentation            *model.LayoutPresentation      `json:"presentation"`
 			Nodes                   []model.TopologyNode           `json:"nodes"`
 			TrackSections           []model.TrackSection           `json:"trackSections"`
 			TurnoutTopologies       []model.TurnoutTopology        `json:"turnoutTopologies"`
@@ -157,6 +165,7 @@ func (d *LayoutDocument) UnmarshalJSON(data []byte) error {
 		})
 	}
 	d.Layout = model.LayoutDefinition{
+		Presentation:            document.Layout.Presentation,
 		TopologyNodes:           document.Layout.Nodes,
 		TrackSections:           document.Layout.TrackSections,
 		TurnoutTopologies:       document.Layout.TurnoutTopologies,
@@ -205,8 +214,13 @@ func BuildLayoutArchive(createdAt time.Time, layout model.LayoutDefinition) ([]b
 	if err := validateLayout(&layout); err != nil {
 		return nil, err
 	}
+	if layout.Presentation != nil {
+		if err := model.ValidateLayoutPresentation(*layout.Presentation, layout); err != nil {
+			return nil, err
+		}
+	}
 	return writeArchive(Manifest{
-		Format: FormatID, Version: FormatVersion, PackageType: "layout", CreatedAt: createdAt,
+		Format: FormatID, Version: LayoutFormatVersion, PackageType: "layout", CreatedAt: createdAt,
 	}, "layout.json", LayoutDocument{Layout: layout})
 }
 
@@ -215,7 +229,7 @@ func (s *Service) ExportLayout(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return writeArchive(Manifest{Format: FormatID, Version: FormatVersion, PackageType: "layout", CreatedAt: s.clock.Now()}, "layout.json", LayoutDocument{Layout: layout})
+	return writeArchive(Manifest{Format: FormatID, Version: LayoutFormatVersion, PackageType: "layout", CreatedAt: s.clock.Now()}, "layout.json", LayoutDocument{Layout: layout})
 }
 
 func (s *Service) ImportRollingStock(ctx context.Context, user model.User, data []byte, replace bool) error {
@@ -247,6 +261,9 @@ func (s *Service) ImportLayout(ctx context.Context, user model.User, data []byte
 		return fmt.Errorf("%w: %v", ErrInvalidArchive, err)
 	}
 	if err := s.store.ImportLayout(ctx, doc.Layout, replace); err != nil {
+		if errors.Is(err, model.ErrInvalidLayoutPresentation) {
+			return fmt.Errorf("%w: %v", ErrInvalidArchive, err)
+		}
 		return err
 	}
 	s.events.Publish("layout.imported", map[string]any{"blocks": len(doc.Layout.Blocks), "turnouts": len(doc.Layout.Turnouts), "routes": len(doc.Layout.Routes), "replace": replace, "userId": user.ID})
@@ -303,7 +320,11 @@ func readArchive(data []byte, packageType, documentName string, target any) erro
 	if err := decodeZipJSON(manifestFile, &manifest); err != nil {
 		return err
 	}
-	if manifest.Format != FormatID || manifest.Version < OldestVersion || manifest.Version > FormatVersion || manifest.PackageType != packageType {
+	maxVersion := FormatVersion
+	if packageType == "layout" {
+		maxVersion = LayoutFormatVersion
+	}
+	if manifest.Format != FormatID || manifest.Version < OldestVersion || manifest.Version > maxVersion || manifest.PackageType != packageType {
 		return fmt.Errorf("unsupported archive format %q version %d type %q", manifest.Format, manifest.Version, manifest.PackageType)
 	}
 	return decodeZipJSON(docFile, target)

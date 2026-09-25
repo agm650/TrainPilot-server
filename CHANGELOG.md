@@ -28,6 +28,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Layout archives version 7 include graphical presentation and import it
+  atomically, with ID-based merge and compatibility with older archives.
 - Authenticated graphical layout presentation read API with an independent
   SHA-256 revision in REST responses and WebSocket snapshots.
 - Conservative multi-source block occupancy with persisted providers and

@@ -267,6 +267,25 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 	}
 
 	return s.DB.WithTransaction(ctx, func(tx *sqlite.Tx) error {
+		currentResources, err := layoutPresentationResources(ctx, tx)
+		if err != nil {
+			return err
+		}
+		resources, err := effectivePresentationResources(currentResources, validatedLayout, replace)
+		if err != nil {
+			return err
+		}
+		currentPresentation, err := readLayoutPresentation(ctx, tx)
+		if err != nil {
+			return err
+		}
+		presentation, err := effectiveLayoutPresentation(currentPresentation, layout.Presentation, replace)
+		if err != nil {
+			return err
+		}
+		if err := model.ValidateLayoutPresentation(presentation, resources); err != nil {
+			return err
+		}
 		if err := rejectPendingTurnoutConfiguration(ctx, tx, normalizedTurnouts, replace); err != nil {
 			return err
 		}
@@ -320,12 +339,8 @@ func (s *Store) ImportLayout(ctx context.Context, layout model.LayoutDefinition,
 		if err := replaceBlockMemberships(ctx, tx, layout.Blocks); err != nil {
 			return err
 		}
-		if layout.Presentation != nil {
-			if err := replaceLayoutPresentation(ctx, tx, *layout.Presentation); err != nil {
-				return err
-			}
-		} else if replace {
-			if err := replaceLayoutPresentation(ctx, tx, model.EmptyLayoutPresentation()); err != nil {
+		if layout.Presentation != nil || replace {
+			if err := replaceLayoutPresentation(ctx, tx, presentation); err != nil {
 				return err
 			}
 		}

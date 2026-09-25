@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/agm650/TrainPilot-server/internal/model"
@@ -13,13 +12,32 @@ import (
 
 // GetLayoutPresentation returns a stable, empty definition for older layouts.
 func (s *Store) GetLayoutPresentation(ctx context.Context) (model.LayoutPresentation, error) {
+	return readLayoutPresentation(ctx, s.DB)
+}
+
+type presentationReader interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+func readLayoutPresentation(ctx context.Context, reader presentationReader) (model.LayoutPresentation, error) {
 	p := model.EmptyLayoutPresentation()
-	err := s.DB.QueryRowContext(ctx, `SELECT coordinate_system,grid_spacing FROM layout_presentation WHERE id=1`).Scan(&p.CoordinateSystem, &p.GridSpacing)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	rows, err := reader.QueryContext(ctx, `SELECT coordinate_system,grid_spacing FROM layout_presentation WHERE id=1`)
+	if err != nil {
 		return model.LayoutPresentation{}, fmt.Errorf("read layout presentation: %w", err)
 	}
+	if rows.Next() {
+		if err := rows.Scan(&p.CoordinateSystem, &p.GridSpacing); err != nil {
+			rows.Close()
+			return model.LayoutPresentation{}, err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return model.LayoutPresentation{}, err
+	}
+	rows.Close()
 
-	rows, err := s.DB.QueryContext(ctx, `SELECT node_id,x,y FROM layout_node_positions ORDER BY node_id`)
+	rows, err = reader.QueryContext(ctx, `SELECT node_id,x,y FROM layout_node_positions ORDER BY node_id`)
 	if err != nil {
 		return model.LayoutPresentation{}, err
 	}
@@ -37,7 +55,7 @@ func (s *Store) GetLayoutPresentation(ctx context.Context) (model.LayoutPresenta
 	}
 	rows.Close()
 
-	rows, err = s.DB.QueryContext(ctx, `SELECT track_section_id,segments_json FROM layout_track_paths ORDER BY track_section_id`)
+	rows, err = reader.QueryContext(ctx, `SELECT track_section_id,segments_json FROM layout_track_paths ORDER BY track_section_id`)
 	if err != nil {
 		return model.LayoutPresentation{}, err
 	}
@@ -60,7 +78,7 @@ func (s *Store) GetLayoutPresentation(ctx context.Context) (model.LayoutPresenta
 	}
 	rows.Close()
 
-	rows, err = s.DB.QueryContext(ctx, `SELECT turnout_id,x,y,rotation_degrees,mirrored FROM layout_turnout_positions ORDER BY turnout_id`)
+	rows, err = reader.QueryContext(ctx, `SELECT turnout_id,x,y,rotation_degrees,mirrored FROM layout_turnout_positions ORDER BY turnout_id`)
 	if err != nil {
 		return model.LayoutPresentation{}, err
 	}
@@ -80,7 +98,7 @@ func (s *Store) GetLayoutPresentation(ctx context.Context) (model.LayoutPresenta
 	}
 	rows.Close()
 
-	rows, err = s.DB.QueryContext(ctx, `SELECT block_id,color,opacity FROM layout_block_styles ORDER BY block_id`)
+	rows, err = reader.QueryContext(ctx, `SELECT block_id,color,opacity FROM layout_block_styles ORDER BY block_id`)
 	if err != nil {
 		return model.LayoutPresentation{}, err
 	}
@@ -226,4 +244,81 @@ func layoutPresentationResources(ctx context.Context, tx *sqlite.Tx) (model.Layo
 	}
 	rows.Close()
 	return layout, nil
+}
+
+func effectivePresentationResources(current, incoming model.LayoutDefinition, replace bool) (model.LayoutDefinition, error) {
+	if replace {
+		return incoming, nil
+	}
+	var err error
+	current.TopologyNodes, err = mergePresentationItems(current.TopologyNodes, incoming.TopologyNodes, "node", func(item model.TopologyNode) string { return item.ID })
+	if err != nil {
+		return model.LayoutDefinition{}, err
+	}
+	current.TrackSections, err = mergePresentationItems(current.TrackSections, incoming.TrackSections, "track section", func(item model.TrackSection) string { return item.ID })
+	if err != nil {
+		return model.LayoutDefinition{}, err
+	}
+	current.Turnouts, err = mergePresentationItems(current.Turnouts, incoming.Turnouts, "turnout", func(item model.Turnout) string { return item.ID })
+	if err != nil {
+		return model.LayoutDefinition{}, err
+	}
+	current.Blocks, err = mergePresentationItems(current.Blocks, incoming.Blocks, "block", func(item model.BlockDefinition) string { return item.ID })
+	return current, err
+}
+
+func effectiveLayoutPresentation(current model.LayoutPresentation, incoming *model.LayoutPresentation, replace bool) (model.LayoutPresentation, error) {
+	if replace {
+		if incoming == nil {
+			return model.EmptyLayoutPresentation(), nil
+		}
+		return model.NormalizeLayoutPresentation(*incoming), nil
+	}
+	if incoming == nil {
+		return current, nil
+	}
+	if incoming.CoordinateSystem != "" {
+		current.CoordinateSystem = incoming.CoordinateSystem
+	}
+	if incoming.GridSpacing != 0 {
+		current.GridSpacing = incoming.GridSpacing
+	}
+	var err error
+	current.Nodes, err = mergePresentationItems(current.Nodes, incoming.Nodes, "node", func(item model.LayoutNodePosition) string { return item.NodeID })
+	if err != nil {
+		return model.LayoutPresentation{}, err
+	}
+	current.TrackSections, err = mergePresentationItems(current.TrackSections, incoming.TrackSections, "track section", func(item model.LayoutTrackPath) string { return item.TrackSectionID })
+	if err != nil {
+		return model.LayoutPresentation{}, err
+	}
+	current.Turnouts, err = mergePresentationItems(current.Turnouts, incoming.Turnouts, "turnout", func(item model.LayoutTurnoutPosition) string { return item.TurnoutID })
+	if err != nil {
+		return model.LayoutPresentation{}, err
+	}
+	current.Blocks, err = mergePresentationItems(current.Blocks, incoming.Blocks, "block", func(item model.LayoutBlockStyle) string { return item.BlockID })
+	return current, err
+}
+
+func mergePresentationItems[T any](current, incoming []T, kind string, id func(T) string) ([]T, error) {
+	merged := append([]T{}, current...)
+	index := make(map[string]int, len(merged))
+	for i, item := range merged {
+		index[id(item)] = i
+	}
+	seen := make(map[string]bool, len(incoming))
+	for _, item := range incoming {
+		key := id(item)
+		if seen[key] {
+			return nil, fmt.Errorf("%w: duplicate %s %q", model.ErrInvalidLayoutPresentation, kind, key)
+		}
+		seen[key] = true
+		if i, exists := index[key]; exists {
+			merged[i] = item
+		} else {
+			index[key] = len(merged)
+			merged = append(merged, item)
+		}
+	}
+	return merged, nil
 }

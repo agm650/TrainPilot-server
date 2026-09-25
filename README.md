@@ -41,9 +41,8 @@ Included features:
 
 Known MVP limitations:
 
-- full graphical layout editing is not implemented. Archives currently cover
-  locomotives, blocks, turnouts, routes, and feedback mappings, but not
-  graphical resources;
+- full graphical layout editing is not implemented. Layout archives include
+  graphical presentation; images and client viewport settings are not archived;
 - R-BUS decoding still requires validation with a real white z21 and the
   selected modules;
 - z21 accessory commands and reports are covered by a fake UDP server, but
@@ -586,9 +585,12 @@ revision.
 
 ## Import and export
 
-Exports are version 6 ZIP archives containing `manifest.json` and a JSON
-document. Versions 1 through 5 remain importable. Imports use `merge` by
-default. `--replace` replaces the corresponding library after validation.
+Exports are ZIP archives containing `manifest.json` and a JSON document.
+Layout archives use version 7 and include graphical presentation; rolling stock
+archives remain version 6. Layout versions 1 through 6 remain importable.
+Imports use `merge` by default. `--replace` replaces the corresponding library
+after validation. Layout merge updates graphical resources by ID; replace
+replaces the entire presentation.
 
 ```bash
 # Export is available to every authenticated user
@@ -876,8 +878,7 @@ decimal JSON value `432` represents octal mode `0660`.
 
 1. Validate both drivers with real DCC-EX and white z21 hardware.
 2. Extend rolling stock beyond locomotives and complete layout editing.
-3. Extend archives with graphical resources, images, and future format
-   migrations.
+3. Extend archives with images and future format migrations.
 4. Add signals, explicit route conflicts, and progressive route release.
 5. Add hardware tests that run only on a dedicated test bench.
 6. Build Swift and Linux clients against the simulator and published contracts.

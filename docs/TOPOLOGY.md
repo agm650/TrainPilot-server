@@ -108,9 +108,10 @@ ID, while ports, positions, and connections preserve their declared order.
 Referenced nodes and turnouts cannot be deleted implicitly. A complete layout
 replacement removes their topology explicitly within the same transaction.
 
-Layout archive version 6 stores block `trackSectionIds` and `turnoutIds` with
-`nodes`, `trackSections`, and `turnoutTopologies`. Versions 1 through 4 remain
-importable. Their blocks have empty resource memberships. Versions 1 through 3
+Layout archive version 7 stores graphical `presentation` alongside block
+`trackSectionIds` and `turnoutIds`, `nodes`, `trackSections`, and
+`turnoutTopologies`. Versions 1 through 6 remain importable. Blocks from
+versions 1 through 4 have empty resource memberships. Versions 1 through 3
 also produce an empty topology. TrainPilot never infers physical membership
 from route block references during database or archive migration.
 
@@ -303,8 +304,9 @@ turnout placement, and block styling. It does not change physical connectivity.
 The coordinate system is `layout-units`; omitted grid spacing defaults to 20
 layout units and defines the layout grid interval. Zoom and viewport offsets
 stay in the client. Block colors use `#RRGGBB`, with opacity from 0 to 1.
-The store can persist this presentation, but archive transfer and a public read
-API are separate follow-up work. Topology V1 has no operating direction,
+The store persists this presentation, exposes it through
+`GET /api/v1/layout/presentation`, and exports it in `.dcclayout` version 7.
+Topology V1 has no operating direction,
 signaling rules, resource reservation, train location, or progressive route
 release. Physical pathfinding is descriptive only and makes no operating or
 safety decision.

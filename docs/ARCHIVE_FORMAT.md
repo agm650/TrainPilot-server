@@ -1,6 +1,7 @@
 # Format des archives DCC Control
 
-Version actuelle : **6**. Les archives versions 1 à 5 restent importables.
+Versions actuelles : **7** pour `.dcclayout`, **6** pour `.dcclib`.
+Les archives de circuit versions 1 à 6 restent importables.
 
 Les extensions recommandées sont :
 
@@ -15,8 +16,8 @@ Chaque archive contient obligatoirement `manifest.json` :
 ```json
 {
   "format": "org.dcc-control.package",
-  "version": 6,
-  "packageType": "rolling-stock",
+  "version": 7,
+  "packageType": "layout",
   "createdAt": "2026-07-29T20:00:00Z"
 }
 ```
@@ -24,7 +25,8 @@ Chaque archive contient obligatoirement `manifest.json` :
 Chaque `linearAddress` d'endpoint doit être compris entre `1` et `2040`.
 Les adresses `2041..2044` sont exclues de la plage portable TrainPilot.
 
-`packageType` vaut `rolling-stock` ou `layout`. Un format, une version ou un type inconnu est refusé.
+`packageType` vaut `rolling-stock` ou `layout`. Un manifeste `rolling-stock` utilise la version 6 au maximum.
+Un format, une version ou un type inconnu est refusé.
 
 ## Bibliothèque de matériel
 
@@ -55,6 +57,28 @@ Une archive de type `layout` contient `layout.json` :
 ```json
 {
   "layout": {
+    "presentation": {
+      "coordinateSystem": "layout-units",
+      "gridSpacing": 20,
+      "nodes": [
+        { "nodeId": "boundary-west", "x": 0, "y": 0 },
+        { "nodeId": "turnout-stem", "x": 100, "y": 0 }
+      ],
+      "trackSections": [
+        {
+          "trackSectionId": "approach-west",
+          "segments": [
+            { "type": "line", "to": { "x": 100, "y": 0 } }
+          ]
+        }
+      ],
+      "turnouts": [
+        { "turnoutId": "turnout-1", "x": 100, "y": 0, "rotationDegrees": 0, "mirrored": false }
+      ],
+      "blocks": [
+        { "blockId": "block-a", "color": "#33AADD", "opacity": 0.8 }
+      ]
+    },
     "nodes": [
       { "id": "boundary-west", "kind": "boundary" },
       { "id": "turnout-stem", "kind": "joint" },
@@ -153,14 +177,15 @@ Une archive de type `layout` contient `layout.json` :
 }
 ```
 
-L’import vérifie toutes les références avant d’ouvrir la transaction d’écriture :
+L’import vérifie les références logiques avant la transaction, puis valide la
+présentation et ses références dans la transaction avant toute modification :
 nœuds, sections, ports, connexions, cantons d’itinéraire, aiguillages,
 positions logiques, conflits et mappings de rétrosignalisation. Lorsqu'une
-route version 5 ou 6 possède `entryNodeId` et `exitNodeId`, son chemin physique, ses
+route version 5 à 7 possède `entryNodeId` et `exitNodeId`, son chemin physique, ses
 positions d'aiguillage et tous les blocks traversés sont aussi validés. Ces
 champs restent optionnels pour les anciennes routes.
 
-Les exports version 6 séparent configuration et état opérationnel. Ils ne
+Les exports de circuit version 7 séparent configuration et état opérationnel. Ils ne
 contiennent pas `desiredPosition`, `reportedPosition`, `pending`,
 `reportedStatus`, `reportQuality`, `commandStatus` ni `occupied`.
 
@@ -175,6 +200,9 @@ Les archives versions 1 à 3 ne contiennent aucune topologie. Leur import crée
 une topologie vide. Les archives versions 1 à 4 importent les anciens blocks
 avec des memberships vides. TrainPilot ne déduit jamais des ressources depuis
 les cantons d'itinéraire, car ces informations sont insuffisantes.
+Les archives versions 1 à 6 sans `presentation` donnent une présentation vide
+en mode `replace`. En mode `merge`, une présentation absente conserve celle
+du serveur.
 
 Les champs `dccAddress`, `desiredState` et `reportedState` des anciennes
 archives sont acceptés. Ils sont dépréciés. Une archive version 1 est convertie
@@ -190,6 +218,13 @@ Le modèle complet des appareils composés est décrit dans
 - `replace` efface la bibliothèque correspondante puis importe le document dans une transaction unique ;
 - un remplacement du parc est refusé lorsqu’une réservation de locomotive est encore `active` ou `stopping`.
 
+Pour la présentation, `merge` remplace les éléments graphiques des identifiants
+importés et conserve ceux absents de l'archive. `replace` remplace toute la
+présentation. Les lignes graphiques des ressources logiques supprimées sont
+effacées avec elles. L'export complet conserve les routes et les mappings de
+rétrosignalisation si un éditeur ne modifie que la topologie, les aiguillages,
+les cantons et la présentation.
+
 ## Limites et sécurité
 
 - archive complète : 25 Mio maximum ;
@@ -199,4 +234,6 @@ Le modèle complet des appareils composés est décrit dans
 - import autorisé uniquement au rôle applicatif `administrator` ;
 - les imports réussis publient `rolling-stock.imported` ou `layout.imported` sur le WebSocket.
 
-Les ressources graphiques et images ne sont pas encore définies dans la version 6.
+La présentation version 7 couvre les coordonnées des nœuds, les chemins de
+voies (lignes et courbes cubiques), les placements d'aiguillages et les styles
+des cantons. Zoom, position de la vue, images et état runtime ne sont pas archivés.
