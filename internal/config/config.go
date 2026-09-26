@@ -26,7 +26,8 @@ type Config struct {
 		Mode   uint32 `json:"mode"`
 	} `json:"admin"`
 	Database struct {
-		Path string `json:"path"`
+		Path        string `json:"path"`
+		JournalMode string `json:"journalMode"`
 	} `json:"database"`
 	Station struct {
 		Driver             string        `json:"driver"`
@@ -68,6 +69,7 @@ func Default() Config {
 	c.Admin.Socket = "/tmp/dccd-admin.sock"
 	c.Admin.Mode = 0o660
 	c.Database.Path = "./dcc-control.db"
+	c.Database.JournalMode = "wal"
 	c.Station.Driver = "simulator"
 	c.Station.OfflineAfter = 10 * time.Second
 	c.Station.AccessoryPulse = 100 * time.Millisecond
@@ -138,6 +140,9 @@ func Load(path string) (Config, error) {
 	}
 	if c.HTTP.Listen == "" || c.Admin.Socket == "" || c.Database.Path == "" {
 		return c, errors.New("http.listen, admin.socket and database.path are required")
+	}
+	if c.Database.JournalMode != "wal" && c.Database.JournalMode != "memory" {
+		return c, errors.New("database.journalMode must be wal or memory")
 	}
 	if c.Diagnostics.Enabled {
 		if c.Diagnostics.Listen == "" {

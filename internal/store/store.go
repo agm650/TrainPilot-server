@@ -17,7 +17,11 @@ type Store struct {
 }
 
 func Open(path string) (*Store, error) {
-	db, err := sqlite.Open(path)
+	return OpenWithJournalMode(path, "wal")
+}
+
+func OpenWithJournalMode(path, journalMode string) (*Store, error) {
+	db, err := sqlite.OpenWithJournalMode(path, journalMode)
 	if err != nil {
 		return nil, err
 	}

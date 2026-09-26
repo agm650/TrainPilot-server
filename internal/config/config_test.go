@@ -19,8 +19,8 @@ func TestDefault(t *testing.T) {
 	if cfg.Admin.Socket != "/tmp/dccd-admin.sock" || cfg.Admin.Mode != 0o660 {
 		t.Fatalf("admin defaults=%q %#o", cfg.Admin.Socket, cfg.Admin.Mode)
 	}
-	if cfg.Database.Path != "./dcc-control.db" || cfg.Station.Driver != "simulator" {
-		t.Fatalf("database/station defaults=%q/%q", cfg.Database.Path, cfg.Station.Driver)
+	if cfg.Database.Path != "./dcc-control.db" || cfg.Database.JournalMode != "wal" || cfg.Station.Driver != "simulator" {
+		t.Fatalf("database/station defaults=%q/%q/%q", cfg.Database.Path, cfg.Database.JournalMode, cfg.Station.Driver)
 	}
 	if cfg.Station.OfflineAfter != 10*time.Second {
 		t.Fatalf("station offlineAfter=%v", cfg.Station.OfflineAfter)
@@ -56,6 +56,19 @@ func TestLoadEmptyPathReturnsDefaults(t *testing.T) {
 	}
 	if cfg.Station.AccessoryPulse != 100*time.Millisecond {
 		t.Fatalf("absent station accessoryPulse=%v", cfg.Station.AccessoryPulse)
+	}
+}
+
+func TestLoadDatabaseJournalMode(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `{"database":{"journalMode":"memory"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Database.JournalMode != "memory" {
+		t.Fatalf("database.journalMode=%q", cfg.Database.JournalMode)
+	}
+	if _, err := Load(writeConfig(t, `{"database":{"journalMode":"off"}}`)); err == nil {
+		t.Fatal("unsupported journal mode accepted")
 	}
 }
 

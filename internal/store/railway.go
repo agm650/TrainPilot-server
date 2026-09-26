@@ -142,10 +142,13 @@ func (s *Store) ListTurnouts(ctx context.Context) (out []model.Turnout, err erro
 		return nil, err
 	}
 	rows.Close()
+	if len(out) == 0 {
+		return out, nil
+	}
+	if err := s.loadTurnoutDefinitions(ctx, out); err != nil {
+		return nil, err
+	}
 	for i := range out {
-		if err := s.loadTurnoutDefinition(ctx, &out[i]); err != nil {
-			return nil, err
-		}
 		normalized, err := model.NormalizeTurnout(out[i])
 		if err != nil {
 			return nil, fmt.Errorf("load turnout %q: %w", out[i].ID, err)
@@ -154,6 +157,89 @@ func (s *Store) ListTurnouts(ctx context.Context) (out []model.Turnout, err erro
 	}
 	return out, nil
 }
+
+// loadTurnoutDefinitions loads each definition table once for the full list.
+// GetTurnout keeps its focused lookup for commands and geometry validation.
+func (s *Store) loadTurnoutDefinitions(ctx context.Context, turnouts []model.Turnout) error {
+	index := make(map[string]int, len(turnouts))
+	for i := range turnouts {
+		index[turnouts[i].ID] = i
+	}
+
+	rows, err := s.DB.QueryContext(ctx, `SELECT turnout_id,endpoint_id,linear_address,inverted FROM turnout_endpoints ORDER BY turnout_id,ordinal,endpoint_id`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var turnoutID string
+		var endpoint model.AccessoryEndpoint
+		var inverted int
+		if err := rows.Scan(&turnoutID, &endpoint.ID, &endpoint.LinearAddress, &inverted); err != nil {
+			rows.Close()
+			return err
+		}
+		if i, ok := index[turnoutID]; ok {
+			endpoint.Inverted = inverted != 0
+			turnouts[i].Endpoints = append(turnouts[i].Endpoints, endpoint)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	positions := make(map[string]map[string]int, len(turnouts))
+	rows, err = s.DB.QueryContext(ctx, `SELECT turnout_id,position_id,label FROM turnout_positions ORDER BY turnout_id,ordinal,position_id`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var turnoutID, positionID, label string
+		if err := rows.Scan(&turnoutID, &positionID, &label); err != nil {
+			rows.Close()
+			return err
+		}
+		if i, ok := index[turnoutID]; ok {
+			if positions[turnoutID] == nil {
+				positions[turnoutID] = make(map[string]int)
+			}
+			positions[turnoutID][positionID] = len(turnouts[i].Positions)
+			turnouts[i].Positions = append(turnouts[i].Positions, model.TurnoutPositionDefinition{
+				ID: positionID, Label: label, Endpoints: make(map[string]model.AccessoryPosition),
+			})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	rows, err = s.DB.QueryContext(ctx, `SELECT turnout_id,position_id,endpoint_id,required_position FROM turnout_position_endpoints ORDER BY turnout_id,position_id,endpoint_id`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var turnoutID, positionID, endpointID string
+		var required model.AccessoryPosition
+		if err := rows.Scan(&turnoutID, &positionID, &endpointID, &required); err != nil {
+			rows.Close()
+			return err
+		}
+		if i, ok := index[turnoutID]; ok {
+			if position, ok := positions[turnoutID][positionID]; ok {
+				turnouts[i].Positions[position].Endpoints[endpointID] = required
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	return rows.Close()
+}
+
 func (s *Store) GetTurnout(ctx context.Context, id string) (x model.Turnout, err error) {
 	started := time.Now()
 	defer func() { s.observe("get_turnout", started, err) }()

@@ -9,6 +9,10 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/model"
 )
 
+// SessionTouchInterval bounds the precision of last_seen_at. Authentication
+// and revocation still use the current session row on every request.
+const SessionTouchInterval = 30 * time.Second
+
 func (s *Store) CreateSession(ctx context.Context, sess model.Session) error {
 	_, err := s.DB.ExecContext(ctx, `INSERT INTO sessions(id,user_id,client_id,client_name,platform,access_token_hash,refresh_token_hash,access_expires_at,refresh_expires_at,created_at,last_seen_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?)`, sess.ID, sess.UserID, sess.ClientID, sess.ClientName, sess.Platform, sess.AccessHash, sess.RefreshHash,
@@ -81,7 +85,8 @@ func (s *Store) RotateSessionTokens(ctx context.Context, id, accessHash, refresh
 func (s *Store) TouchSession(ctx context.Context, id string, now time.Time) (err error) {
 	started := time.Now()
 	defer func() { s.observe("touch_session", started, err) }()
-	_, err = s.DB.ExecContext(ctx, `UPDATE sessions SET last_seen_at=? WHERE id=? AND revoked_at IS NULL`, timeText(now), id)
+	_, err = s.DB.ExecContext(ctx, `UPDATE sessions SET last_seen_at=? WHERE id=? AND revoked_at IS NULL AND julianday(last_seen_at)<=julianday(?)`,
+		timeText(now), id, timeText(now.Add(-SessionTouchInterval)))
 	return err
 }
 

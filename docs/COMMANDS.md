@@ -57,6 +57,13 @@ Options:
 - `--config <file>`: load a JSON configuration file;
 - without `--config`: use the built-in default values.
 
+`database.journalMode` accepts `"wal"` (default) or `"memory"`. The setting
+has no unit. `"memory"` keeps SQLite's rollback journal in RAM and can corrupt
+the database if the server stops during a transaction. Select it only for a
+database that can be restored from a known backup. The server applies and
+checks the mode at startup; `synchronous` is not changed. Record the selected
+mode with benchmark results, and restore the same database before comparisons.
+
 ### Common `dccd user` options
 
 User commands communicate through the local Unix socket. The server must be

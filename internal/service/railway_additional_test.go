@@ -13,12 +13,16 @@ import (
 )
 
 func TestRailwayListsAndMutations(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	db, err := store.Open(":memory:")
 	if err != nil {
+		cancel()
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() {
+		cancel()
+		_ = db.Close()
+	}()
 	if err := db.SeedDemo(ctx); err != nil {
 		t.Fatal(err)
 	}

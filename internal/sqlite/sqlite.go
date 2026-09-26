@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -43,6 +44,15 @@ type Tx struct {
 }
 
 func Open(path string) (*DB, error) {
+	return OpenWithJournalMode(path, "wal")
+}
+
+// OpenWithJournalMode configures the single SQLite connection. MEMORY is
+// intended for explicitly selected databases with a restoration plan.
+func OpenWithJournalMode(path, journalMode string) (*DB, error) {
+	if journalMode != "wal" && journalMode != "memory" {
+		return nil, fmt.Errorf("unsupported SQLite journal mode %q", journalMode)
+	}
 	sqlDB, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite database: %w", err)
@@ -64,15 +74,20 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("connect to sqlite database: %w", err)
 	}
 
-	for _, pragma := range []string{
-		"PRAGMA foreign_keys=ON",
-		"PRAGMA journal_mode=WAL",
-		"PRAGMA busy_timeout=5000",
-	} {
+	for _, pragma := range []string{"PRAGMA foreign_keys=ON", "PRAGMA busy_timeout=5000"} {
 		if _, err := sqlDB.ExecContext(ctx, pragma); err != nil {
 			_ = sqlDB.Close()
 			return nil, fmt.Errorf("configure sqlite (%s): %w", pragma, err)
 		}
+	}
+	var activeJournalMode string
+	if err := sqlDB.QueryRowContext(ctx, "PRAGMA journal_mode="+journalMode).Scan(&activeJournalMode); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("configure sqlite journal mode %q: %w", journalMode, err)
+	}
+	if !strings.EqualFold(activeJournalMode, journalMode) && !(path == ":memory:" && journalMode == "wal" && activeJournalMode == "memory") {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("configure sqlite journal mode %q: active mode is %q", journalMode, activeJournalMode)
 	}
 
 	return db, nil

@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 )
 
@@ -15,6 +16,35 @@ func TestOpenUsesSingleConnection(t *testing.T) {
 
 	if got := db.db.Stats().MaxOpenConnections; got != 1 {
 		t.Fatalf("expected one SQLite connection, got %d", got)
+	}
+}
+
+func TestOpenJournalMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	for _, tc := range []struct {
+		requested string
+		want      string
+	}{
+		{"memory", "memory"},
+		{"wal", "wal"},
+	} {
+		db, err := OpenWithJournalMode(path, tc.requested)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got string
+		if err := db.QueryRowContext(context.Background(), "PRAGMA journal_mode").Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != tc.want {
+			t.Errorf("journal mode=%q, want %q", got, tc.want)
+		}
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := OpenWithJournalMode(path, "off"); err == nil {
+		t.Fatal("unsupported journal mode accepted")
 	}
 }
 

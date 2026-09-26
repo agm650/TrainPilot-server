@@ -99,6 +99,36 @@ func TestCompoundTurnoutPersistenceRoundTrip(t *testing.T) {
 	}
 }
 
+func TestListTurnoutsLoadsCompleteDefinitionsInNameOrder(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	compound := persistedThreeWayTurnout()
+	compound.Name = "A compound"
+	simple := model.NewSimpleTurnout("simple-list", "Z simple", 99, "straight", "straight")
+	if err := db.ImportLayout(ctx, model.LayoutDefinition{Turnouts: []model.Turnout{simple, compound}}, false); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.ListTurnouts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := make([]model.Turnout, 0, 2)
+	for _, id := range []string{compound.ID, simple.ID} {
+		turnout, err := db.GetTurnout(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, turnout)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("listed turnouts differ from individual reads:\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
 func TestGetTurnoutRuntimeStateMatchesFullTurnout(t *testing.T) {
 	ctx := context.Background()
 	db, err := Open(":memory:")

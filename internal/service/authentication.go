@@ -71,7 +71,9 @@ func (a *AuthService) Authenticate(ctx context.Context, token string) (model.Use
 	if err != nil || !found.User.Enabled {
 		return model.User{}, model.Session{}, ErrInvalidAccessToken
 	}
-	_ = a.store.TouchSession(ctx, sess.ID, now)
+	if now.Sub(sess.LastSeenAt) >= store.SessionTouchInterval {
+		_ = a.store.TouchSession(ctx, sess.ID, now)
+	}
 	return found.User, sess, nil
 }
 func (a *AuthService) Refresh(ctx context.Context, token string) (TokenPair, error) {

@@ -63,7 +63,7 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
-	db, err := store.Open(cfg.Database.Path)
+	db, err := store.OpenWithJournalMode(cfg.Database.Path, cfg.Database.JournalMode)
 	if err != nil {
 		return err
 	}

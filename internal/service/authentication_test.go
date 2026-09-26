@@ -110,3 +110,30 @@ func TestAuthenticationExpiryAndDisabledUser(t *testing.T) {
 		t.Fatal("disabled user's refresh token accepted")
 	}
 }
+
+func TestAuthenticateCoalescesSessionActivityWrites(t *testing.T) {
+	ctx := context.Background()
+	authSvc, _, db, clk := newAuthFixture(t, time.Hour, 2*time.Hour)
+	clk.Advance(250 * time.Millisecond)
+	pair, err := authSvc.Login(ctx, "alice", "correct-horse-1", "client", "Client", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := clk.Now()
+	clk.Advance(10 * time.Second)
+	if _, _, err := authSvc.Authenticate(ctx, pair.AccessToken); err != nil {
+		t.Fatal(err)
+	}
+	session, err := db.SessionByID(ctx, pair.SessionID)
+	if err != nil || !session.LastSeenAt.Equal(created) {
+		t.Fatalf("recent activity changed lastSeenAt: %v, %v", session.LastSeenAt, err)
+	}
+	clk.Advance(20 * time.Second)
+	if _, _, err := authSvc.Authenticate(ctx, pair.AccessToken); err != nil {
+		t.Fatal(err)
+	}
+	session, err = db.SessionByID(ctx, pair.SessionID)
+	if err != nil || !session.LastSeenAt.Equal(clk.Now()) {
+		t.Fatalf("stale activity was not recorded: %v, %v", session.LastSeenAt, err)
+	}
+}
