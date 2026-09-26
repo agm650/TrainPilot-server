@@ -157,6 +157,7 @@ type runEngine struct {
 	leases             map[string]leaseBinding
 	leaseAcquisitions  map[string]struct{}
 	routeStates        map[string]routeBinding
+	routeLocks         map[string]*sync.Mutex
 	feedback           map[string]bool
 	initialPower       string
 	jobDrops           atomic.Int64
@@ -811,6 +812,8 @@ func (e *runEngine) performRouteContention(ctx context.Context, random *rand.Ran
 	if random.Intn(2) == 1 {
 		routeID = pair.Second
 	}
+	unlock := e.lockRoute(routeID)
+	defer unlock()
 	sessionIndex := random.Intn(len(e.sessions))
 	session := e.sessions[sessionIndex]
 	if err := session.withClient(ctx, func(c *client.Client) error { return c.ReserveRoute(ctx, routeID) }); err != nil {
@@ -1062,6 +1065,8 @@ func (e *runEngine) performRoute(ctx context.Context, random *rand.Rand) error {
 		return errNoOperationTarget
 	}
 	route := e.routes[random.Intn(len(e.routes))]
+	unlock := e.lockRoute(route.ID)
+	defer unlock()
 	e.stateMu.Lock()
 	binding, exists := e.routeStates[route.ID]
 	if !exists {
@@ -1088,6 +1093,21 @@ func (e *runEngine) performRoute(ctx context.Context, random *rand.Rand) error {
 		e.stateMu.Unlock()
 	}
 	return err
+}
+
+func (e *runEngine) lockRoute(id string) func() {
+	e.stateMu.Lock()
+	if e.routeLocks == nil {
+		e.routeLocks = make(map[string]*sync.Mutex)
+	}
+	lock := e.routeLocks[id]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		e.routeLocks[id] = lock
+	}
+	e.stateMu.Unlock()
+	lock.Lock()
+	return lock.Unlock
 }
 
 func (e *runEngine) performRead(ctx context.Context, random *rand.Rand) error {
