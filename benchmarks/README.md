@@ -9,6 +9,7 @@ hardware is outside this benchmark matrix.
 | Preset | Locomotives | Blocks | Turnouts | Routes | Active locomotives |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `small` | 50 | 20 | 10 | 10 | 3 |
+| `small-real` | 12 | 20 | 10 | 10 | 3 |
 | `medium` | 250 | 100 | 50 | 75 | 10 |
 | `large` | 1,000 | 250 | 150 | 200 | 25 |
 | `xlarge` | 5,000 | 1,000 | 500 | 1,000 | 50 |
@@ -24,7 +25,8 @@ phase. The runner checks the exact resource counts before starting.
 | Profile | Objective | Duration | Important metrics |
 | --- | --- | --- | --- |
 | `idle` | Server and one-WebSocket baseline | 2 min warm-up + 10 min | CPU, RSS, goroutines, idle WS traffic |
-| `small` | Typical domestic layout | 2 min + 10 min | operation latency, WS and feedback latency |
+| `small` | Original small capacity load | 2 min + 10 min | operation latency, WS and feedback latency |
+| `small-real` | Three-operator domestic workload | 2 min + 10 min | command and feedback latency, disk activity |
 | `medium` | Raspberry Pi 3 B+ target | 2 min + 10 min | p95/p99, CPU, WAL and scheduler drops |
 | `large` | Large club layout | 2 min + 10 min | saturation, queues, memory and errors |
 | `xlarge` | Deliberate limit search | 2 min + 10 min | throughput ceiling and recovery |
@@ -35,6 +37,54 @@ receive HTTP 409 while a released lease is stopping, a block is occupied, or a
 route conflicts. Those safety refusals are declared with profile
 `expected_errors` rules. Dedicated contention profiles still exercise and
 verify deliberate collisions separately.
+
+`small-real` is a separate simulator-only workload. Its fixture has 12
+registered locomotives, with three selected for control, 20 blocks, 10 turnouts,
+and 10 routes. Three virtual users each acquire one initial locomotive lease;
+no scheduled acquire or release changes that count. The aggregate rates target
+an average of 50 speed, 3 function, and 2 turnout commands per minute per user,
+plus 10 simulated occupancy changes per minute per active locomotive. This is 165
+control commands and 30 feedback injections per minute in total. It also
+schedules 3 route operations, 6 reads, and 6 lease heartbeats per minute;
+the runner always adds 60 health checks per minute. Scheduled login and token
+refresh operations are disabled. Initial logins and token refresh before
+expiry still occur. The planned total is 270 operations per minute, excluding
+WebSocket setup and automatic token maintenance.
+
+The 12 registered locomotives represent a capacity of four per user, but the
+runner does not assign roster ownership or enforce exact per-user rates.
+
+The benchmark currently selects feedback targets at random and toggles their
+state. `small-real` therefore models a lower feedback rate, not train movement
+through a physically coherent sequence of blocks. Control commands also pick
+their selected locomotive, turnout, and values at random. Run it only against
+the simulator with `--allow-active-commands --allow-simulator-api`; do not
+interpret a pass as validation of physical railway behavior.
+
+Import `benchmarks/fixtures/small-real/rolling-stock.dcclib` and
+`benchmarks/fixtures/small-real/layout.dcclayout` with `--replace` before the
+run. The runner requires the exact resource counts in the fixture. Use
+`benchmarks/profiles/small-real.yaml` and the matching `fixture.json` for the
+run; do not compare its report directly with `small` as if the loads matched.
+Replacing rolling stock requires no active locomotive lease; replacing the
+layout requires no pending turnout configuration.
+
+```bash
+./bin/dccctl --server "$TRAINPILOT_URL" --username admin \
+  --password-env DCC_ADMIN_PASSWORD import-rolling-stock --replace \
+  benchmarks/fixtures/small-real/rolling-stock.dcclib
+./bin/dccctl --server "$TRAINPILOT_URL" --username admin \
+  --password-env DCC_ADMIN_PASSWORD import-layout --replace \
+  benchmarks/fixtures/small-real/layout.dcclayout
+./bin/trainpilot-bench validate-profile benchmarks/profiles/small-real.yaml \
+  --fixture benchmarks/fixtures/small-real/fixture.json
+./bin/trainpilot-bench run --server "$TRAINPILOT_URL" \
+  --profile benchmarks/profiles/small-real.yaml \
+  --fixture benchmarks/fixtures/small-real/fixture.json \
+  --credentials /tmp/benchmark-credentials.json \
+  --allow-active-commands --allow-simulator-api \
+  --output benchmarks/results/jetson-nano/small-real.json
+```
 
 ## CI smoke profiles
 

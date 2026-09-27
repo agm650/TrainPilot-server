@@ -19,10 +19,11 @@ import (
 
 func TestGenerateDatasetPresetsAreStableAndComplete(t *testing.T) {
 	want := map[string]FixtureDataset{
-		"small":  {Locomotives: 50, Blocks: 20, Turnouts: 10, Routes: 10},
-		"medium": {Locomotives: 250, Blocks: 100, Turnouts: 50, Routes: 75},
-		"large":  {Locomotives: 1000, Blocks: 250, Turnouts: 150, Routes: 200},
-		"xlarge": {Locomotives: 5000, Blocks: 1000, Turnouts: 500, Routes: 1000},
+		"small":      {Locomotives: 50, Blocks: 20, Turnouts: 10, Routes: 10},
+		"small-real": {Locomotives: 12, Blocks: 20, Turnouts: 10, Routes: 10},
+		"medium":     {Locomotives: 250, Blocks: 100, Turnouts: 50, Routes: 75},
+		"large":      {Locomotives: 1000, Blocks: 250, Turnouts: 150, Routes: 200},
+		"xlarge":     {Locomotives: 5000, Blocks: 1000, Turnouts: 500, Routes: 1000},
 	}
 	for name, counts := range want {
 		t.Run(name, func(t *testing.T) {
@@ -44,6 +45,9 @@ func TestGenerateDatasetPresetsAreStableAndComplete(t *testing.T) {
 			}
 			if first.Fixture.Dataset == nil || first.Fixture.Dataset.Preset != name {
 				t.Fatalf("fixture dataset=%+v", first.Fixture.Dataset)
+			}
+			if len(first.Fixture.LocomotiveIDs) != first.Preset.ActiveLocomotives {
+				t.Fatalf("fixture selects %d locomotives, want %d", len(first.Fixture.LocomotiveIDs), first.Preset.ActiveLocomotives)
 			}
 		})
 	}
@@ -87,43 +91,47 @@ func TestGenerateDatasetRejectsUnknownPreset(t *testing.T) {
 }
 
 func TestGeneratedArchivesCanBeImported(t *testing.T) {
-	directory := t.TempDir()
-	if err := WriteDataset(directory, "small"); err != nil {
-		t.Fatal(err)
-	}
-	database, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	service := transfer.New(database, events.New(), clock.Real{})
-	admin := model.User{ID: "benchmark-admin", Role: model.RoleAdministrator}
-	rollingStock, err := os.ReadFile(filepath.Join(directory, "rolling-stock.dcclib"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	layout, err := os.ReadFile(filepath.Join(directory, "layout.dcclayout"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	if err := service.ImportRollingStock(ctx, admin, rollingStock, true); err != nil {
-		t.Fatal(err)
-	}
-	if err := service.ImportLayout(ctx, admin, layout, true); err != nil {
-		t.Fatal(err)
-	}
-	locomotives, err := database.ListLocomotives(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gotLayout, err := database.ExportLayout(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(locomotives) != 50 || len(gotLayout.Blocks) != 20 || len(gotLayout.Turnouts) != 10 || len(gotLayout.Routes) != 10 {
-		t.Fatalf("imported counts: locomotives=%d blocks=%d turnouts=%d routes=%d",
-			len(locomotives), len(gotLayout.Blocks), len(gotLayout.Turnouts), len(gotLayout.Routes))
+	for _, name := range []string{"small", "small-real"} {
+		t.Run(name, func(t *testing.T) {
+			directory := t.TempDir()
+			if err := WriteDataset(directory, name); err != nil {
+				t.Fatal(err)
+			}
+			database, err := store.Open(":memory:")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer database.Close()
+			service := transfer.New(database, events.New(), clock.Real{})
+			admin := model.User{ID: "benchmark-admin", Role: model.RoleAdministrator}
+			rollingStock, err := os.ReadFile(filepath.Join(directory, "rolling-stock.dcclib"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			layout, err := os.ReadFile(filepath.Join(directory, "layout.dcclayout"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx := context.Background()
+			if err := service.ImportRollingStock(ctx, admin, rollingStock, true); err != nil {
+				t.Fatal(err)
+			}
+			if err := service.ImportLayout(ctx, admin, layout, true); err != nil {
+				t.Fatal(err)
+			}
+			locomotives, err := database.ListLocomotives(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			gotLayout, err := database.ExportLayout(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(locomotives) != datasetPresets[name].Locomotives || len(gotLayout.Blocks) != 20 || len(gotLayout.Turnouts) != 10 || len(gotLayout.Routes) != 10 {
+				t.Fatalf("imported counts: locomotives=%d blocks=%d turnouts=%d routes=%d",
+					len(locomotives), len(gotLayout.Blocks), len(gotLayout.Turnouts), len(gotLayout.Routes))
+			}
+		})
 	}
 }
 

@@ -10,7 +10,7 @@ func TestVersionedProfilesAndFixturesAreValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) != 20 {
+	if len(paths) != 21 {
 		t.Fatalf("profile count=%d", len(paths))
 	}
 	for _, path := range paths {
@@ -36,6 +36,7 @@ func TestVersionedProfilesAndFixturesAreValid(t *testing.T) {
 func TestCapacityProfilesDeclareNormalSafetyRefusals(t *testing.T) {
 	profiles := map[string][]string{
 		"small.yaml":           {"lease_acquire", "route"},
+		"small-real.yaml":      {"route"},
 		"medium.yaml":          {"lease_acquire", "route"},
 		"large.yaml":           {"lease_acquire", "route"},
 		"xlarge.yaml":          {"lease_acquire", "route"},

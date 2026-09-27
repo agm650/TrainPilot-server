@@ -67,7 +67,8 @@ and `benchmarks/fixtures/`. Their detailed load composition is documented in
 | Profile | Intended use | Warm-up and measured duration |
 |---|---|---|
 | `idle` | Server resource baseline | 2 min + 10 min |
-| `small` | Typical domestic layout | 2 min + 10 min |
+| `small` | Original small capacity load | 2 min + 10 min |
+| `small-real` | Three-operator simulator workload | 2 min + 10 min |
 | `medium` | Raspberry Pi 3 B+ target | 2 min + 10 min |
 | `large` | Large club layout | 2 min + 10 min |
 | `xlarge` | Deliberate limit search | 2 min + 10 min |

@@ -1,0 +1,24 @@
+schema_version: 1
+name: small-real
+warmup: 2m
+duration: 10m
+seed: 650
+fixture: ../fixtures/small-real/fixture.json
+operation_timeout: 5s
+login_timeout: 10s
+clients: {users: 3, websockets: 3, active_locomotives: 3, workers: 8}
+rates:
+  # Aggregate rates equivalent to 50 speed, 3 function, and 2 turnout commands
+  # per minute per user on average. Only three initial leases are used.
+  throttle_per_second: 2.5
+  functions_per_second: 0.15
+  accessories_per_second: 0.1
+  # Aggregate rate equivalent to ten occupancy changes per active locomotive/min.
+  feedback_per_second: 0.5
+  # Three route operations, six reads, and six lease heartbeats per minute.
+  route_operations_per_second: 0.05
+  reads_per_second: 0.1
+  lease_heartbeat_per_second: 0.1
+behavior: {reconnect_probability: 0.001, snapshot_probability: 0.001}
+expected_errors:
+  - {operation: route, http_statuses: [409]}

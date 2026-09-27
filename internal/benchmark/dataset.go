@@ -31,10 +31,11 @@ type GeneratedDataset struct {
 }
 
 var datasetPresets = map[string]DatasetPreset{
-	"small":  {Name: "small", Locomotives: 50, Blocks: 20, Turnouts: 10, Routes: 10, ActiveLocomotives: 3},
-	"medium": {Name: "medium", Locomotives: 250, Blocks: 100, Turnouts: 50, Routes: 75, ActiveLocomotives: 10},
-	"large":  {Name: "large", Locomotives: 1000, Blocks: 250, Turnouts: 150, Routes: 200, ActiveLocomotives: 25},
-	"xlarge": {Name: "xlarge", Locomotives: 5000, Blocks: 1000, Turnouts: 500, Routes: 1000, ActiveLocomotives: 50},
+	"small":      {Name: "small", Locomotives: 50, Blocks: 20, Turnouts: 10, Routes: 10, ActiveLocomotives: 3},
+	"small-real": {Name: "small-real", Locomotives: 12, Blocks: 20, Turnouts: 10, Routes: 10, ActiveLocomotives: 3},
+	"medium":     {Name: "medium", Locomotives: 250, Blocks: 100, Turnouts: 50, Routes: 75, ActiveLocomotives: 10},
+	"large":      {Name: "large", Locomotives: 1000, Blocks: 250, Turnouts: 150, Routes: 200, ActiveLocomotives: 25},
+	"xlarge":     {Name: "xlarge", Locomotives: 5000, Blocks: 1000, Turnouts: 500, Routes: 1000, ActiveLocomotives: 50},
 }
 
 func DatasetPresetNames() []string {

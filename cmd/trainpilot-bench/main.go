@@ -46,7 +46,7 @@ func newRootCommand() *cobra.Command {
 func newGenerateFixtureCommand() *cobra.Command {
 	var output string
 	command := &cobra.Command{
-		Use:   "generate-fixture <small|medium|large|xlarge>",
+		Use:   "generate-fixture <small|small-real|medium|large|xlarge>",
 		Short: "Generate deterministic import archives and benchmark selectors",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
