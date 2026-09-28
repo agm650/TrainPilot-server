@@ -1,0 +1,358 @@
+{
+  "schemaVersion": 3,
+  "runId": "4920ace8-2bb5-4a0e-a176-fbc765d53377",
+  "benchmarkVersion": "v1.0.0-rc5-1-g4f67c84",
+  "startedAt": "2026-09-27T01:49:49.558493Z",
+  "measurementStartedAt": "2026-09-27T01:51:49.610734Z",
+  "endedAt": "2026-09-27T02:01:49.612249Z",
+  "duration": "10m0s",
+  "warmup": "2m0s",
+  "profile": {
+    "schemaVersion": 1,
+    "name": "small-real",
+    "warmup": "2m0s",
+    "duration": "10m0s",
+    "seed": 650,
+    "fixture": "benchmarks/fixtures/small-real/fixture.json",
+    "operationTimeout": "5s",
+    "loginTimeout": "10s",
+    "clients": {
+      "users": 3,
+      "websockets": 3,
+      "activeLocomotives": 3,
+      "workers": 8
+    },
+    "rates": {
+      "loginPerSecond": 0,
+      "refreshPerSecond": 0,
+      "leaseAcquirePerSecond": 0,
+      "leaseHeartbeatPerSecond": 0.1,
+      "leaseReleasePerSecond": 0,
+      "throttlePerSecond": 2.5,
+      "functionsPerSecond": 0.15,
+      "feedbackPerSecond": 0.5,
+      "accessoriesPerSecond": 0.1,
+      "routeOperationsPerSecond": 0.05,
+      "readsPerSecond": 0.1
+    },
+    "behavior": {
+      "reconnectProbability": 0.001,
+      "snapshotProbability": 0.001,
+      "dropEventProbability": 0
+    },
+    "expectedErrors": [
+      {
+        "operation": "route",
+        "httpStatuses": [
+          409
+        ]
+      }
+    ]
+  },
+  "profileSha256": "c6c1cf7aa5d1c4918ca3c2f154c44bba77f93b2686dc250df56dbbd71b2a856b",
+  "fixtureSha256": "3087f0dbebe627e94a3b5df1b99e0a80119c02cce4f89ec76034780aef7fd0e5",
+  "seed": 650,
+  "server": {
+    "url": "http://192.168.0.60:8080",
+    "serverVersion": "0.2.0",
+    "apiVersion": "1.7.0",
+    "eventApiVersion": "1.9.1",
+    "stationDriver": "simulator",
+    "gitCommit": "8ad2755dcc35f389aeaf036179a52020390c48c7",
+    "goVersion": "go1.26.8",
+    "os": "linux",
+    "arch": "amd64",
+    "configuration": {
+      "authAccessTTL": "15m",
+      "authRefreshTTL": "720h",
+      "command": "./bin/dccd serve --config ./config.json",
+      "configMtimeUtc": "2026-09-27T01:14:19.112296Z",
+      "configPath": "/home/ldandoy/TrainPilot-server_1.0.0-rc5/config.json",
+      "controlLeaseTTL": "10m",
+      "controlMonitorPeriod": "250ms",
+      "controlStopGrace": "2s",
+      "databaseJournalMode": "wal",
+      "databasePath": "./dcc-control.db",
+      "diagnosticsEnabled": "true",
+      "diagnosticsListen": "0.0.0.0:6060",
+      "diagnosticsMetrics": "true",
+      "diagnosticsPprof": "true",
+      "httpListen": "0.0.0.0:8080",
+      "prometheusScrapeInterval": "2s",
+      "seedDemo": "true",
+      "stationAccessoryPulse": "100ms",
+      "stationDriver": "simulator",
+      "stationOfflineAfter": "10s",
+      "stationTransport": "tcp",
+      "testAPI": "true",
+      "turnoutConfirmationTimeout": "2s"
+    }
+  },
+  "clientHost": {
+    "hostname": "mbair-m5.local",
+    "os": "darwin",
+    "arch": "arm64",
+    "cpus": 10,
+    "goVersion": "go1.27.1"
+  },
+  "hardware": {
+    "model": "Apple Mac mini (Macmini3,1)",
+    "cpu": "Intel Core 2 Duo P7350 @ 2.00 GHz",
+    "cores": 2,
+    "ramBytes": 3844476928,
+    "storage": "Fanxiang S101 256GB SATA SSD; TrainPilot-vg-root on ext4",
+    "os": "Debian GNU/Linux 13.7 (trixie)",
+    "kernel": "6.12.107+deb13-amd64",
+    "arch": "amd64",
+    "network": "enp0s10 Ethernet, 100 Mb/s full duplex; 192.168.0.60 to 192.168.0.50",
+    "notes": "SQLite on LVM/ext4; power supply and cooling not documented"
+  },
+  "systemMetrics": {
+    "schemaVersion": 1,
+    "source": "Prometheus http://192.168.0.50:9090; jobs trainpilot/node; 2s scrape; 1m CPU rate",
+    "databaseInitialBytes": 9138176,
+    "databaseFinalBytes": 9138176,
+    "processCpuMaxPercent": 2.293,
+    "processRssMaxBytes": 40869888,
+    "hostCpuMaxPercent": 9.987,
+    "hostRamMaxBytes": 823566336,
+    "swapMaxBytes": 0,
+    "sqliteErrors": 0,
+    "networkDrops": 0,
+    "webSocketQueueOverflows": 0,
+    "temperatureMaxCelsius": 57,
+    "thermalThrottlingEvents": 0
+  },
+  "operations": {
+    "accessory": {
+      "requestedRatePerSecond": 0.1,
+      "count": 60,
+      "successes": 60,
+      "expectedErrors": 0,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 0.09999974750063756,
+      "latency": {
+        "p50Milliseconds": 9.214666,
+        "p90Milliseconds": 17.107708,
+        "p95Milliseconds": 45.851375,
+        "p99Milliseconds": 140.919834,
+        "maxMilliseconds": 140.919834
+      }
+    },
+    "feedback": {
+      "requestedRatePerSecond": 0.5,
+      "count": 300,
+      "successes": 300,
+      "expectedErrors": 0,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 0.4999987375031878,
+      "latency": {
+        "p50Milliseconds": 4.021417,
+        "p90Milliseconds": 19.965958,
+        "p95Milliseconds": 35.770625,
+        "p99Milliseconds": 99.542167,
+        "maxMilliseconds": 153.456333
+      }
+    },
+    "function": {
+      "requestedRatePerSecond": 0.15,
+      "count": 90,
+      "successes": 90,
+      "expectedErrors": 0,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 0.14999962125095634,
+      "latency": {
+        "p50Milliseconds": 7.134333,
+        "p90Milliseconds": 22.51875,
+        "p95Milliseconds": 40.758375,
+        "p99Milliseconds": 50.089875,
+        "maxMilliseconds": 50.089875
+      }
+    },
+    "health": {
+      "requestedRatePerSecond": 1,
+      "count": 599,
+      "successes": 599,
+      "expectedErrors": 0,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 0.9983308125480316,
+      "latency": {
+        "p50Milliseconds": 3.530708,
+        "p90Milliseconds": 23.902292,
+        "p95Milliseconds": 41.847083,
+        "p99Milliseconds": 69.475709,
+        "maxMilliseconds": 173.236125
+      }
+    },
+    "lease_heartbeat": {
+      "requestedRatePerSecond": 0.1,
+      "count": 60,
+      "successes": 60,
+      "expectedErrors": 0,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 0.09999974750063756,
+      "latency": {
+        "p50Milliseconds": 5.998208,
+        "p90Milliseconds": 19.837,
+        "p95Milliseconds": 24.014583,
+        "p99Milliseconds": 60.659625,
+        "maxMilliseconds": 60.659625
+      }
+    },
+    "read": {
+      "requestedRatePerSecond": 0.1,
+      "count": 60,
+      "successes": 60,
+      "expectedErrors": 0,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 0.09999974750063756,
+      "latency": {
+        "p50Milliseconds": 6.12325,
+        "p90Milliseconds": 20.852625,
+        "p95Milliseconds": 32.70725,
+        "p99Milliseconds": 49.332292,
+        "maxMilliseconds": 49.332292
+      }
+    },
+    "route": {
+      "requestedRatePerSecond": 0.05,
+      "count": 30,
+      "successes": 9,
+      "expectedErrors": 21,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 0.04999987375031878,
+      "latency": {
+        "p50Milliseconds": 4.560292,
+        "p90Milliseconds": 8.102042,
+        "p95Milliseconds": 12.667,
+        "p99Milliseconds": 57.201833,
+        "maxMilliseconds": 57.201833
+      }
+    },
+    "throttle": {
+      "requestedRatePerSecond": 2.5,
+      "count": 1494,
+      "successes": 1494,
+      "expectedErrors": 0,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 2.489993712765875,
+      "latency": {
+        "p50Milliseconds": 7.0155,
+        "p90Milliseconds": 27.738209,
+        "p95Milliseconds": 42.343166,
+        "p99Milliseconds": 79.57075,
+        "maxMilliseconds": 500.666083
+      }
+    },
+    "websocket_connect": {
+      "count": 5,
+      "successes": 5,
+      "expectedErrors": 0,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 0.008333312291719797,
+      "latency": {
+        "p50Milliseconds": 7.977167,
+        "p90Milliseconds": 10.229667,
+        "p95Milliseconds": 10.229667,
+        "p99Milliseconds": 10.229667,
+        "maxMilliseconds": 10.229667
+      }
+    }
+  },
+  "webSocket": {
+    "connections": 10,
+    "disconnections": 10,
+    "reconnects": 7,
+    "sequenceGaps": 0,
+    "snapshots": 14,
+    "snapshotRequests": 4,
+    "eventsReceived": 7413,
+    "invalidMessages": 0,
+    "unresolvedSequenceGaps": 0,
+    "queueOverflows": 0,
+    "feedbackLatency": {
+      "p50Milliseconds": 6.367375,
+      "p90Milliseconds": 24.089375,
+      "p95Milliseconds": 38.099708,
+      "p99Milliseconds": 99.540375,
+      "maxMilliseconds": 154.512583
+    }
+  },
+  "availability": {
+    "expectedOutages": 0,
+    "unexpectedOutages": 0,
+    "recoveries": 0,
+    "totalUnavailableMilliseconds": 0,
+    "maxUnavailableMilliseconds": 0,
+    "unrecoveredOutages": 0
+  },
+  "invariants": [
+    {
+      "name": "action_state_consistency",
+      "status": "PASS",
+      "observations": 2334,
+      "violationCount": 0
+    },
+    {
+      "name": "exclusive_locomotive_lease",
+      "status": "PASS",
+      "observations": 1,
+      "violationCount": 0
+    },
+    {
+      "name": "incompatible_route_rejected",
+      "status": "PASS",
+      "observations": 3,
+      "violationCount": 0
+    },
+    {
+      "name": "no_implicit_restart",
+      "status": "NOT_OBSERVED",
+      "observations": 0,
+      "violationCount": 0
+    },
+    {
+      "name": "server_availability",
+      "status": "PASS",
+      "observations": 720,
+      "violationCount": 0
+    },
+    {
+      "name": "valid_json",
+      "status": "PASS",
+      "observations": 7428,
+      "violationCount": 0
+    },
+    {
+      "name": "valid_lease_required",
+      "status": "PASS",
+      "observations": 1,
+      "violationCount": 0
+    },
+    {
+      "name": "websocket_resynchronization",
+      "status": "NOT_OBSERVED",
+      "observations": 0,
+      "violationCount": 0
+    }
+  ],
+  "overallResult": "PASS"
+}

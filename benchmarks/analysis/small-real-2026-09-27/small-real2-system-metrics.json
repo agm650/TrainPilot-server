@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "source": "Prometheus http://192.168.0.50:9090; jobs trainpilot/node; 2s scrape; 1m CPU rate",
+  "databaseInitialBytes": 9138176,
+  "databaseFinalBytes": 9138176,
+  "processCpuMaxPercent": 2.259,
+  "processRssMaxBytes": 40099840,
+  "hostCpuMaxPercent": 10.092,
+  "hostRamMaxBytes": 801546240,
+  "swapMaxBytes": 0,
+  "sqliteErrors": 0,
+  "networkDrops": 0,
+  "webSocketQueueOverflows": 0,
+  "temperatureMaxCelsius": 55.0,
+  "thermalThrottlingEvents": 0
+}

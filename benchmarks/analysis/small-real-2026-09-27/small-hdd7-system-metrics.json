@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "source": "Prometheus http://192.168.0.50:9090; jobs trainpilot-jetson/node-jetson; 2s scrape; 1m CPU rate",
+  "databaseInitialBytes": 1871872,
+  "databaseFinalBytes": 1871872,
+  "processCpuMaxPercent": 4.569,
+  "processRssMaxBytes": 38363136,
+  "hostCpuMaxPercent": 15.43,
+  "hostRamMaxBytes": 909963264,
+  "swapMaxBytes": 0,
+  "sqliteErrors": 0,
+  "networkDrops": 0,
+  "webSocketQueueOverflows": 0
+}

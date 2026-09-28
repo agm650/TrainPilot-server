@@ -1,0 +1,356 @@
+{
+  "schemaVersion": 3,
+  "runId": "fb040e7f-708a-49f1-a5f9-847a5e70002a",
+  "benchmarkVersion": "v1.0.0-rc5-1-g4f67c84",
+  "startedAt": "2026-09-27T00:54:20.185394Z",
+  "measurementStartedAt": "2026-09-27T00:56:20.512028Z",
+  "endedAt": "2026-09-27T01:06:20.512291Z",
+  "duration": "10m0s",
+  "warmup": "2m0s",
+  "profile": {
+    "schemaVersion": 1,
+    "name": "small-real",
+    "warmup": "2m0s",
+    "duration": "10m0s",
+    "seed": 650,
+    "fixture": "benchmarks/fixtures/small-real/fixture.json",
+    "operationTimeout": "5s",
+    "loginTimeout": "10s",
+    "clients": {
+      "users": 3,
+      "websockets": 3,
+      "activeLocomotives": 3,
+      "workers": 8
+    },
+    "rates": {
+      "loginPerSecond": 0,
+      "refreshPerSecond": 0,
+      "leaseAcquirePerSecond": 0,
+      "leaseHeartbeatPerSecond": 0.1,
+      "leaseReleasePerSecond": 0,
+      "throttlePerSecond": 2.5,
+      "functionsPerSecond": 0.15,
+      "feedbackPerSecond": 0.5,
+      "accessoriesPerSecond": 0.1,
+      "routeOperationsPerSecond": 0.05,
+      "readsPerSecond": 0.1
+    },
+    "behavior": {
+      "reconnectProbability": 0.001,
+      "snapshotProbability": 0.001,
+      "dropEventProbability": 0
+    },
+    "expectedErrors": [
+      {
+        "operation": "route",
+        "httpStatuses": [
+          409
+        ]
+      }
+    ]
+  },
+  "profileSha256": "c6c1cf7aa5d1c4918ca3c2f154c44bba77f93b2686dc250df56dbbd71b2a856b",
+  "fixtureSha256": "3087f0dbebe627e94a3b5df1b99e0a80119c02cce4f89ec76034780aef7fd0e5",
+  "seed": 650,
+  "server": {
+    "url": "http://192.168.0.54:8080",
+    "serverVersion": "0.2.0",
+    "apiVersion": "1.7.0",
+    "eventApiVersion": "1.9.1",
+    "stationDriver": "simulator",
+    "gitCommit": "8ad2755dcc35f389aeaf036179a52020390c48c7",
+    "goVersion": "go1.26.8",
+    "os": "linux",
+    "arch": "arm64",
+    "configuration": {
+      "authAccessTTL": "15m",
+      "authRefreshTTL": "720h",
+      "command": "./bin/dccd serve --config ./config.json",
+      "configMtimeUtc": "2026-09-25T22:17:05.468379Z",
+      "configPath": "/opt/TrainPilot/TrainPilot-server_1.0.0-rc5/config.json",
+      "controlLeaseTTL": "10m",
+      "controlMonitorPeriod": "250ms",
+      "controlStopGrace": "2s",
+      "databaseJournalMode": "wal",
+      "databasePath": "./dcc-control.db",
+      "diagnosticsEnabled": "true",
+      "diagnosticsListen": "0.0.0.0:6060",
+      "diagnosticsMetrics": "true",
+      "diagnosticsPprof": "true",
+      "httpListen": "0.0.0.0:8080",
+      "prometheusScrapeInterval": "2s",
+      "seedDemo": "true",
+      "stationAccessoryPulse": "100ms",
+      "stationDriver": "simulator",
+      "stationOfflineAfter": "10s",
+      "stationTransport": "tcp",
+      "testAPI": "true",
+      "turnoutConfirmationTimeout": "2s"
+    }
+  },
+  "clientHost": {
+    "hostname": "mbair-m5.local",
+    "os": "darwin",
+    "arch": "arm64",
+    "cpus": 10,
+    "goVersion": "go1.27.1"
+  },
+  "hardware": {
+    "model": "NVIDIA Jetson Nano Developer Kit",
+    "cpu": "ARM Cortex-A57 @ 1.479 GHz max",
+    "cores": 4,
+    "ramBytes": 4156489728,
+    "storage": "ST1000LM035-1RK172 1TB USB HDD; /dev/sda1 ext4 at /opt/TrainPilot",
+    "os": "Ubuntu 20.04.6 LTS (Focal Fossa)",
+    "kernel": "4.9.337-tegra",
+    "arch": "arm64",
+    "network": "eth0 Ethernet, 100 Mb/s full duplex; 192.168.0.54 to 192.168.0.50",
+    "notes": "SQLite on USB HDD; power supply and cooling not documented"
+  },
+  "systemMetrics": {
+    "schemaVersion": 1,
+    "source": "Prometheus http://192.168.0.50:9090; jobs trainpilot-jetson/node-jetson; 2s scrape; 1m CPU rate",
+    "databaseInitialBytes": 1871872,
+    "databaseFinalBytes": 1871872,
+    "processCpuMaxPercent": 3.827,
+    "processRssMaxBytes": 38965248,
+    "hostCpuMaxPercent": 15.063,
+    "hostRamMaxBytes": 910528512,
+    "swapMaxBytes": 0,
+    "sqliteErrors": 0,
+    "networkDrops": 0,
+    "webSocketQueueOverflows": 0
+  },
+  "operations": {
+    "accessory": {
+      "requestedRatePerSecond": 0.1,
+      "count": 60,
+      "successes": 60,
+      "expectedErrors": 0,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 0.09999995616668587,
+      "latency": {
+        "p50Milliseconds": 302.700583,
+        "p90Milliseconds": 405.979083,
+        "p95Milliseconds": 421.702708,
+        "p99Milliseconds": 580.436583,
+        "maxMilliseconds": 580.436583
+      }
+    },
+    "feedback": {
+      "requestedRatePerSecond": 0.5,
+      "count": 300,
+      "successes": 300,
+      "expectedErrors": 0,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 0.4999997808334294,
+      "latency": {
+        "p50Milliseconds": 9.176834,
+        "p90Milliseconds": 104.564292,
+        "p95Milliseconds": 150.736,
+        "p99Milliseconds": 222.811333,
+        "maxMilliseconds": 299.200042
+      }
+    },
+    "function": {
+      "requestedRatePerSecond": 0.15,
+      "count": 90,
+      "successes": 90,
+      "expectedErrors": 0,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 0.1499999342500288,
+      "latency": {
+        "p50Milliseconds": 108.917542,
+        "p90Milliseconds": 169.011708,
+        "p95Milliseconds": 197.967083,
+        "p99Milliseconds": 314.438042,
+        "maxMilliseconds": 314.438042
+      }
+    },
+    "health": {
+      "requestedRatePerSecond": 1,
+      "count": 600,
+      "successes": 600,
+      "expectedErrors": 0,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 0.9999995616668588,
+      "latency": {
+        "p50Milliseconds": 4.852458,
+        "p90Milliseconds": 30.153584,
+        "p95Milliseconds": 40.929209,
+        "p99Milliseconds": 62.269542,
+        "maxMilliseconds": 95.3985
+      }
+    },
+    "lease_heartbeat": {
+      "requestedRatePerSecond": 0.1,
+      "count": 60,
+      "successes": 60,
+      "expectedErrors": 0,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 0.09999995616668587,
+      "latency": {
+        "p50Milliseconds": 114.472458,
+        "p90Milliseconds": 190.564042,
+        "p95Milliseconds": 206.538667,
+        "p99Milliseconds": 300.54175,
+        "maxMilliseconds": 300.54175
+      }
+    },
+    "read": {
+      "requestedRatePerSecond": 0.1,
+      "count": 60,
+      "successes": 60,
+      "expectedErrors": 0,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 0.09999995616668587,
+      "latency": {
+        "p50Milliseconds": 46.046542,
+        "p90Milliseconds": 154.219083,
+        "p95Milliseconds": 159.162792,
+        "p99Milliseconds": 194.385708,
+        "maxMilliseconds": 194.385708
+      }
+    },
+    "route": {
+      "requestedRatePerSecond": 0.05,
+      "count": 30,
+      "successes": 8,
+      "expectedErrors": 22,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 0.04999997808334294,
+      "latency": {
+        "p50Milliseconds": 82.416875,
+        "p90Milliseconds": 303.209084,
+        "p95Milliseconds": 463.743584,
+        "p99Milliseconds": 558.784166,
+        "maxMilliseconds": 558.784166
+      }
+    },
+    "throttle": {
+      "requestedRatePerSecond": 2.5,
+      "count": 1497,
+      "successes": 1497,
+      "expectedErrors": 0,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 2.4949989063588127,
+      "latency": {
+        "p50Milliseconds": 115.010083,
+        "p90Milliseconds": 198.959958,
+        "p95Milliseconds": 236.153209,
+        "p99Milliseconds": 346.311542,
+        "maxMilliseconds": 484.504709
+      }
+    },
+    "websocket_connect": {
+      "count": 5,
+      "successes": 5,
+      "expectedErrors": 0,
+      "unexpectedErrors": 0,
+      "timeouts": 0,
+      "skipped": 0,
+      "achievedRatePerSecond": 0.008333329680557156,
+      "latency": {
+        "p50Milliseconds": 10.428458,
+        "p90Milliseconds": 163.508792,
+        "p95Milliseconds": 163.508792,
+        "p99Milliseconds": 163.508792,
+        "maxMilliseconds": 163.508792
+      }
+    }
+  },
+  "webSocket": {
+    "connections": 10,
+    "disconnections": 10,
+    "reconnects": 7,
+    "sequenceGaps": 0,
+    "snapshots": 14,
+    "snapshotRequests": 4,
+    "eventsReceived": 7427,
+    "invalidMessages": 0,
+    "unresolvedSequenceGaps": 0,
+    "queueOverflows": 0,
+    "feedbackLatency": {
+      "p50Milliseconds": 115.299208,
+      "p90Milliseconds": 205.649084,
+      "p95Milliseconds": 254.509625,
+      "p99Milliseconds": 345.719458,
+      "maxMilliseconds": 383.257375
+    }
+  },
+  "availability": {
+    "expectedOutages": 0,
+    "unexpectedOutages": 0,
+    "recoveries": 0,
+    "totalUnavailableMilliseconds": 0,
+    "maxUnavailableMilliseconds": 0,
+    "unrecoveredOutages": 0
+  },
+  "invariants": [
+    {
+      "name": "action_state_consistency",
+      "status": "PASS",
+      "observations": 2336,
+      "violationCount": 0
+    },
+    {
+      "name": "exclusive_locomotive_lease",
+      "status": "PASS",
+      "observations": 1,
+      "violationCount": 0
+    },
+    {
+      "name": "incompatible_route_rejected",
+      "status": "PASS",
+      "observations": 3,
+      "violationCount": 0
+    },
+    {
+      "name": "no_implicit_restart",
+      "status": "NOT_OBSERVED",
+      "observations": 0,
+      "violationCount": 0
+    },
+    {
+      "name": "server_availability",
+      "status": "PASS",
+      "observations": 721,
+      "violationCount": 0
+    },
+    {
+      "name": "valid_json",
+      "status": "PASS",
+      "observations": 7442,
+      "violationCount": 0
+    },
+    {
+      "name": "valid_lease_required",
+      "status": "PASS",
+      "observations": 1,
+      "violationCount": 0
+    },
+    {
+      "name": "websocket_resynchronization",
+      "status": "NOT_OBSERVED",
+      "observations": 0,
+      "violationCount": 0
+    }
+  ],
+  "overallResult": "PASS"
+}

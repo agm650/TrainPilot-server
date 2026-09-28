@@ -69,6 +69,7 @@ and `benchmarks/fixtures/`. Their detailed load composition is documented in
 | `idle` | Server resource baseline | 2 min + 10 min |
 | `small` | Original small capacity load | 2 min + 10 min |
 | `small-real` | Three-operator simulator workload | 2 min + 10 min |
+| `small-real` with `--warmup 10m --duration 6h` | Long-run stability at the same operation rates | 10 min + 6 h |
 | `medium` | Raspberry Pi 3 B+ target | 2 min + 10 min |
 | `large` | Large club layout | 2 min + 10 min |
 | `xlarge` | Deliberate limit search | 2 min + 10 min |
@@ -271,6 +272,18 @@ In addition to the common procedure:
 
 Allow the Pi to return to the same idle-temperature range before every
 repetition and before the six-hour soak.
+
+## SBC flash-storage endurance
+
+MicroSD cards have finite write/erase endurance. SQLite database and WAL writes,
+system logs, and swap can all contribute to wear when they reside on a card.
+Card lifetime varies with the device and workload; a short performance `PASS`
+does not establish storage lifetime. Record the storage device for both the OS
+and SQLite, and retain device-level write-volume evidence during a long run.
+Moving only the database to USB storage does not eliminate OS writes to a
+microSD root filesystem. For sustained writes, consider storage with documented
+endurance, keep backups, and verify recovery. See the
+[Raspberry Pi storage resilience paper](https://pip.raspberrypi.com/categories/685-whitepapers-app-notes-compliance-guides/documents/RP-003610-WP/Making-a-more-resilient-file-system.pdf).
 
 ## Publishing a baseline
 

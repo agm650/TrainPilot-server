@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "hardware": {
+    "model": "Apple Mac mini (Macmini3,1)",
+    "cpu": "Intel Core 2 Duo P7350 @ 2.00 GHz",
+    "cores": 2,
+    "ramBytes": 3844476928,
+    "storage": "Fanxiang S101 256GB SATA SSD; TrainPilot-vg-root on ext4",
+    "os": "Debian GNU/Linux 13.7 (trixie)",
+    "kernel": "6.12.107+deb13-amd64",
+    "arch": "amd64",
+    "network": "enp0s10 Ethernet, 100 Mb/s full duplex; 192.168.0.60 to 192.168.0.50",
+    "notes": "SQLite on LVM/ext4; power supply and cooling not documented"
+  },
+  "server": {
+    "gitCommit": "8ad2755dcc35f389aeaf036179a52020390c48c7",
+    "goVersion": "go1.26.8",
+    "os": "linux",
+    "arch": "amd64",
+    "configuration": {
+      "command": "./bin/dccd serve --config ./config.json",
+      "configPath": "/home/ldandoy/TrainPilot-server_1.0.0-rc5/config.json",
+      "configMtimeUtc": "2026-09-27T01:14:19.112296Z",
+      "httpListen": "0.0.0.0:8080",
+      "databasePath": "./dcc-control.db",
+      "databaseJournalMode": "wal",
+      "stationDriver": "simulator",
+      "stationTransport": "tcp",
+      "stationOfflineAfter": "10s",
+      "stationAccessoryPulse": "100ms",
+      "diagnosticsEnabled": "true",
+      "diagnosticsListen": "0.0.0.0:6060",
+      "diagnosticsMetrics": "true",
+      "diagnosticsPprof": "true",
+      "controlLeaseTTL": "10m",
+      "controlStopGrace": "2s",
+      "controlMonitorPeriod": "250ms",
+      "turnoutConfirmationTimeout": "2s",
+      "authAccessTTL": "15m",
+      "authRefreshTTL": "720h",
+      "testAPI": "true",
+      "seedDemo": "true",
+      "prometheusScrapeInterval": "2s"
+    }
+  }
+}

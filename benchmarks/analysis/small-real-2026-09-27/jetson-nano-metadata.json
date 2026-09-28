@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "hardware": {
+    "model": "NVIDIA Jetson Nano Developer Kit",
+    "cpu": "ARM Cortex-A57 @ 1.479 GHz max",
+    "cores": 4,
+    "ramBytes": 4156489728,
+    "storage": "ST1000LM035-1RK172 1TB USB HDD; /dev/sda1 ext4 at /opt/TrainPilot",
+    "os": "Ubuntu 20.04.6 LTS (Focal Fossa)",
+    "kernel": "4.9.337-tegra",
+    "arch": "arm64",
+    "network": "eth0 Ethernet, 100 Mb/s full duplex; 192.168.0.54 to 192.168.0.50",
+    "notes": "SQLite on USB HDD; power supply and cooling not documented"
+  },
+  "server": {
+    "gitCommit": "8ad2755dcc35f389aeaf036179a52020390c48c7",
+    "goVersion": "go1.26.8",
+    "os": "linux",
+    "arch": "arm64",
+    "configuration": {
+      "command": "./bin/dccd serve --config ./config.json",
+      "configPath": "/opt/TrainPilot/TrainPilot-server_1.0.0-rc5/config.json",
+      "configMtimeUtc": "2026-09-25T22:17:05.468379Z",
+      "httpListen": "0.0.0.0:8080",
+      "databasePath": "./dcc-control.db",
+      "databaseJournalMode": "wal",
+      "stationDriver": "simulator",
+      "stationTransport": "tcp",
+      "stationOfflineAfter": "10s",
+      "stationAccessoryPulse": "100ms",
+      "diagnosticsEnabled": "true",
+      "diagnosticsListen": "0.0.0.0:6060",
+      "diagnosticsMetrics": "true",
+      "diagnosticsPprof": "true",
+      "controlLeaseTTL": "10m",
+      "controlStopGrace": "2s",
+      "controlMonitorPeriod": "250ms",
+      "turnoutConfirmationTimeout": "2s",
+      "authAccessTTL": "15m",
+      "authRefreshTTL": "720h",
+      "testAPI": "true",
+      "seedDemo": "true",
+      "prometheusScrapeInterval": "2s"
+    }
+  }
+}

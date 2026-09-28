@@ -202,6 +202,11 @@ frequency during a capacity run.
 Copy `deploy/monitoring/prometheus/prometheus.example.yml` into the existing
 Prometheus configuration directory. Replace both `192.0.2.10` targets with the
 DUT address, then reload Prometheus.
+When scraping multiple DUTs, keep all server targets under the `trainpilot`
+job and all corresponding node-exporter targets under the `node` job. Their
+`instance` labels distinguish hosts. The soak recording rules and
+`analyze-soak` coverage query select `job="trainpilot"`; a separate server job
+would leave that DUT without soak-analysis data.
 
 Copy the two soak rule files beside that configuration. The example references
 their relative filenames through `rule_files`. Validate the installed paths
