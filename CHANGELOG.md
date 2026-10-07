@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Benchmark feedback injections start from the simulator's current sensor
+  states, are serialized per sensor, and advance local state only after
+  success, preventing false missing-event failures across successive runs
+  or when concurrent requests are reordered or rejected.
 - Benchmark profiles can set a dedicated login timeout without relaxing
   command and WebSocket deadlines.
 - Simulator scenarios that miss the measurement deadline now fail explicitly instead of producing an empty summary.

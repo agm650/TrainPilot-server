@@ -159,6 +159,7 @@ type runEngine struct {
 	routeStates        map[string]routeBinding
 	routeLocks         map[string]*sync.Mutex
 	feedback           map[string]bool
+	feedbackLocks      map[string]*sync.Mutex
 	initialPower       string
 	jobDrops           atomic.Int64
 	measurementStarted atomic.Int64
@@ -420,11 +421,7 @@ func (e *runEngine) preflight(ctx context.Context) error {
 		return err
 	}
 	if e.profile.HasSimulatorOperations() {
-		var state json.RawMessage
-		if err := e.sessions[0].withClient(ctx, func(c *client.Client) error {
-			_, err := c.Do(ctx, http.MethodGet, "/test/v1/simulator/state", nil, &state)
-			return err
-		}); err != nil {
+		if err := e.loadFeedbackState(ctx); err != nil {
 			return fmt.Errorf("simulator test API is unavailable: %w", err)
 		}
 	}
@@ -435,6 +432,30 @@ func (e *runEngine) preflight(ctx context.Context) error {
 	e.initialPower = status.TrackPower
 	e.invariants.Observe(invariantValidJSON)
 	e.invariants.Observe(invariantServerAvailable)
+	return nil
+}
+
+func (e *runEngine) loadFeedbackState(ctx context.Context) error {
+	var state struct {
+		FeedbackStates []struct {
+			Source  string `json:"source"`
+			Kind    string `json:"kind"`
+			Address int    `json:"address"`
+			Active  bool   `json:"active"`
+		} `json:"feedbackStates"`
+	}
+	if err := e.sessions[0].withClient(ctx, func(c *client.Client) error {
+		_, err := c.Do(ctx, http.MethodGet, "/test/v1/simulator/state", nil, &state)
+		return err
+	}); err != nil {
+		return err
+	}
+	e.stateMu.Lock()
+	defer e.stateMu.Unlock()
+	for _, feedback := range state.FeedbackStates {
+		key := fmt.Sprintf("%s:%s:%d", feedback.Source, feedback.Kind, feedback.Address)
+		e.feedback[key] = feedback.Active
+	}
 	return nil
 }
 
@@ -1017,10 +1038,16 @@ func (e *runEngine) performFunction(ctx context.Context, random *rand.Rand) erro
 
 func (e *runEngine) performFeedback(ctx context.Context, random *rand.Rand) error {
 	target := e.options.Fixture.FeedbackTargets[random.Intn(len(e.options.Fixture.FeedbackTargets))]
+	key := fmt.Sprintf("%s:%s:%d", target.Source, target.Kind, target.Address)
+	// Keep sensor transitions in request order: repeated occupancy states do
+	// not publish another change event to fulfill a benchmark expectation.
+	unlock := e.lockFeedback(key)
+	defer unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	e.stateMu.Lock()
-	key := fmt.Sprintf("%s:%d", target.Source, target.Address)
 	active := !e.feedback[key]
-	e.feedback[key] = active
 	e.stateMu.Unlock()
 	expectationKey := fmt.Sprintf("feedback:%s:%t", target.BlockID, active)
 	expectation := e.expectations.Begin(expectationKey, e.profile.OperationTimeout.Duration)
@@ -1034,8 +1061,27 @@ func (e *runEngine) performFeedback(ctx context.Context, random *rand.Rand) erro
 	})
 	if err != nil {
 		e.expectations.Cancel(expectationKey, expectation)
+		return err
 	}
-	return err
+	e.stateMu.Lock()
+	e.feedback[key] = active
+	e.stateMu.Unlock()
+	return nil
+}
+
+func (e *runEngine) lockFeedback(key string) func() {
+	e.stateMu.Lock()
+	if e.feedbackLocks == nil {
+		e.feedbackLocks = make(map[string]*sync.Mutex)
+	}
+	lock := e.feedbackLocks[key]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		e.feedbackLocks[key] = lock
+	}
+	e.stateMu.Unlock()
+	lock.Lock()
+	return lock.Unlock
 }
 
 func (e *runEngine) performAccessory(ctx context.Context, random *rand.Rand) error {

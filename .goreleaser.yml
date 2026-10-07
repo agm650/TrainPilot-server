@@ -12,8 +12,12 @@ builds:
       - linux
       - darwin
     goarch:
+      - 386
       - amd64
       - arm64
+    ignore:
+      - goos: darwin
+        goarch: 386
     flags:
       - -trimpath
 
@@ -26,8 +30,12 @@ builds:
       - linux
       - darwin
     goarch:
+      - 386
       - amd64
       - arm64
+    ignore:
+      - goos: darwin
+        goarch: 386
     flags:
       - -trimpath
 
@@ -40,8 +48,12 @@ builds:
       - linux
       - darwin
     goarch:
+      - 386
       - amd64
       - arm64
+    ignore:
+      - goos: darwin
+        goarch: 386
     flags:
       - -trimpath
 
@@ -54,8 +66,12 @@ builds:
       - linux
       - darwin
     goarch:
+      - 386
       - amd64
       - arm64
+    ignore:
+      - goos: darwin
+        goarch: 386
     flags:
       - -trimpath
     ldflags:
