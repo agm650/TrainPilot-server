@@ -54,6 +54,8 @@ func routeMetricResult(err error) string {
 		return "denied"
 	case errors.Is(err, ErrRouteOccupied):
 		return "occupied"
+	case errors.Is(err, ErrRouteOccupancyUnknown):
+		return "unknown"
 	case errors.Is(err, ErrRouteConflict):
 		return "conflict"
 	case errors.Is(err, store.ErrConflict):

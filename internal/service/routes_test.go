@@ -35,9 +35,31 @@ func newRouteFixture(t *testing.T) (*RouteService, *RailwayService, *store.Store
 	return NewRouteService(db, railway, bus), railway, db, sim, bus
 }
 
+func setRouteOccupancy(t *testing.T, railway *RailwayService, state model.OccupancyState, sequence uint64) {
+	t.Helper()
+	for _, sensorID := range []string{"1", "2"} {
+		if err := railway.OccupancyService().Observe(context.Background(), model.OccupancyObservation{
+			ProviderID: "simulator", SensorID: sensorID, State: state, Sequence: sequence,
+			ObservedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func setBlockAOccupancy(t *testing.T, railway *RailwayService, state model.OccupancyState, sequence uint64) {
+	t.Helper()
+	if err := railway.OccupancyService().Observe(context.Background(), model.OccupancyObservation{
+		ProviderID: "simulator", SensorID: "1", State: state, Sequence: sequence,
+		ObservedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRouteReserveValidationAndConflict(t *testing.T) {
 	ctx := context.Background()
-	routes, _, db, _, bus := newRouteFixture(t)
+	routes, railway, _, _, bus := newRouteFixture(t)
 	viewer := model.User{Role: model.RoleViewer}
 	dispatcher := model.User{Role: model.RoleDispatcher}
 	sess := model.Session{ID: "session-1"}
@@ -48,15 +70,12 @@ func TestRouteReserveValidationAndConflict(t *testing.T) {
 	if err := routes.Reserve(ctx, viewer, sess, "route-a-b"); err == nil {
 		t.Fatal("viewer reserved a route")
 	}
-	if err := db.SetBlockOccupied(ctx, "block-a", true); err != nil {
-		t.Fatal(err)
+	setRouteOccupancy(t, railway, model.OccupancyFree, 1)
+	setBlockAOccupancy(t, railway, model.OccupancyOccupied, 2)
+	if err := routes.Reserve(ctx, dispatcher, sess, "route-a-b"); !errors.Is(err, ErrRouteOccupied) {
+		t.Fatalf("occupied route error=%v", err)
 	}
-	if err := routes.Reserve(ctx, dispatcher, sess, "route-a-b"); err == nil {
-		t.Fatal("route containing an occupied block was reserved")
-	}
-	if err := db.SetBlockOccupied(ctx, "block-a", false); err != nil {
-		t.Fatal(err)
-	}
+	setBlockAOccupancy(t, railway, model.OccupancyFree, 3)
 
 	ch, unsubscribe := bus.Subscribe(2)
 	defer unsubscribe()
@@ -69,14 +88,15 @@ func TestRouteReserveValidationAndConflict(t *testing.T) {
 	if err := routes.Reserve(ctx, dispatcher, model.Session{ID: "session-2"}, "route-a-b"); !errors.Is(err, store.ErrConflict) {
 		t.Fatalf("second reservation error=%v", err)
 	}
-	if err := routes.Reserve(ctx, dispatcher, sess, "missing"); !errors.Is(err, store.ErrConflict) {
+	if err := routes.Reserve(ctx, dispatcher, sess, "missing"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("missing route error=%v", err)
 	}
 }
 
 func TestRouteActiveConflict(t *testing.T) {
 	ctx := context.Background()
-	routes, _, db, _, _ := newRouteFixture(t)
+	routes, railway, db, _, _ := newRouteFixture(t)
+	setRouteOccupancy(t, railway, model.OccupancyFree, 1)
 	dispatcher := model.User{Role: model.RoleDispatcher}
 	if _, err := db.DB.ExecContext(ctx, `INSERT INTO routes(id,name,state,reserved_by_session) VALUES('route-conflict','Conflict','reserved','other')`); err != nil {
 		t.Fatal(err)
@@ -91,16 +111,15 @@ func TestRouteActiveConflict(t *testing.T) {
 
 func TestRouteActivateRejectsLateOccupancy(t *testing.T) {
 	ctx := context.Background()
-	routes, _, db, sim, bus := newRouteFixture(t)
+	routes, railway, db, sim, bus := newRouteFixture(t)
+	setRouteOccupancy(t, railway, model.OccupancyFree, 1)
 	setRouteTurnoutRequirement(t, db, "diverging")
 	dispatcher := model.User{Role: model.RoleDispatcher}
 	sess := model.Session{ID: "session-1"}
 	if err := routes.Reserve(ctx, dispatcher, sess, "route-a-b"); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetBlockOccupied(ctx, "block-a", true); err != nil {
-		t.Fatal(err)
-	}
+	setBlockAOccupancy(t, railway, model.OccupancyOccupied, 2)
 	events, unsubscribe := bus.Subscribe(8)
 	defer unsubscribe()
 	beforeAccessories := sim.Snapshot().Accessories
@@ -114,11 +133,66 @@ func TestRouteActivateRejectsLateOccupancy(t *testing.T) {
 	assertNoRouteActivated(t, events)
 }
 
+func TestRouteRejectsUnknownOccupancyWithoutTurnoutCommand(t *testing.T) {
+	ctx := context.Background()
+	routes, railway, db, sim, bus := newRouteFixture(t)
+	setRouteTurnoutRequirement(t, db, "diverging")
+	dispatcher := model.User{Role: model.RoleDispatcher}
+	sess := model.Session{ID: "session-1"}
+
+	if err := routes.Reserve(ctx, dispatcher, sess, "route-a-b"); !errors.Is(err, ErrRouteOccupancyUnknown) {
+		t.Fatalf("startup reserve error=%v", err)
+	}
+	setRouteOccupancy(t, railway, model.OccupancyFree, 1)
+	if err := routes.Reserve(ctx, dispatcher, sess, "route-a-b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := railway.OccupancyService().SetProviderAvailable(ctx, "simulator", false); err != nil {
+		t.Fatal(err)
+	}
+	events, unsubscribe := bus.Subscribe(8)
+	defer unsubscribe()
+	beforeAccessories := sim.Snapshot().Accessories
+
+	if err := routes.Activate(ctx, dispatcher, sess, "route-a-b"); !errors.Is(err, ErrRouteOccupancyUnknown) {
+		t.Fatalf("activation error=%v", err)
+	}
+	assertRouteState(t, db, "reserved", sess.ID)
+	assertNoAccessoryCommand(t, beforeAccessories, sim.Snapshot().Accessories)
+	assertNoRouteActivated(t, events)
+}
+
+func TestRouteRejectsLowPriorityOccupiedObservation(t *testing.T) {
+	ctx := context.Background()
+	routes, railway, db, _, _ := newRouteFixture(t)
+	setRouteOccupancy(t, railway, model.OccupancyFree, 1)
+	if err := db.SetOccupancyProvider(ctx, model.OccupancyProvider{
+		ID: "camera", Type: "vision", Priority: 10, StaleAfter: time.Minute, FreshnessRequired: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetOccupancySensorMapping(ctx, model.OccupancySensorMapping{
+		ProviderID: "camera", SensorID: "zone-a", BlockID: "block-a",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := railway.OccupancyService().Observe(ctx, model.OccupancyObservation{
+		ProviderID: "camera", SensorID: "zone-a", State: model.OccupancyOccupied,
+		Sequence: 1, ObservedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := routes.Reserve(ctx, model.User{Role: model.RoleDispatcher}, model.Session{ID: "session-1"}, "route-a-b"); !errors.Is(err, ErrRouteOccupied) {
+		t.Fatalf("reserve error=%v", err)
+	}
+}
+
 func TestRouteActivateRejectsLateConflict(t *testing.T) {
 	for _, state := range []string{"reserved", "active"} {
 		t.Run(state, func(t *testing.T) {
 			ctx := context.Background()
-			routes, _, db, sim, bus := newRouteFixture(t)
+			routes, railway, db, sim, bus := newRouteFixture(t)
+			setRouteOccupancy(t, railway, model.OccupancyFree, 1)
 			setRouteTurnoutRequirement(t, db, "diverging")
 			dispatcher := model.User{Role: model.RoleDispatcher}
 			sess := model.Session{ID: "session-1"}
@@ -174,7 +248,8 @@ func TestRouteActivateRejectsInvalidReservationBeforeTurnoutCommand(t *testing.T
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
-			routes, _, db, sim, bus := newRouteFixture(t)
+			routes, railway, db, sim, bus := newRouteFixture(t)
+			setRouteOccupancy(t, railway, model.OccupancyFree, 1)
 			setRouteTurnoutRequirement(t, db, "diverging")
 			dispatcher := model.User{Role: model.RoleDispatcher}
 			owner := model.Session{ID: "session-1"}
@@ -199,19 +274,22 @@ func TestRouteActivateRejectsInvalidReservationBeforeTurnoutCommand(t *testing.T
 func TestRouteActivateRevalidationRace(t *testing.T) {
 	for _, test := range []struct {
 		name    string
-		mutate  func(context.Context, *store.Store) error
+		mutate  func(context.Context, *store.Store, *RailwayService) error
 		wantErr error
 	}{
 		{
 			name: "late occupancy",
-			mutate: func(ctx context.Context, db *store.Store) error {
-				return db.SetBlockOccupied(ctx, "block-a", true)
+			mutate: func(ctx context.Context, db *store.Store, railway *RailwayService) error {
+				return railway.OccupancyService().Observe(ctx, model.OccupancyObservation{
+					ProviderID: "simulator", SensorID: "1", State: model.OccupancyOccupied,
+					Sequence: 2, ObservedAt: time.Now().UTC(),
+				})
 			},
 			wantErr: ErrRouteOccupied,
 		},
 		{
 			name: "late conflict",
-			mutate: func(ctx context.Context, db *store.Store) error {
+			mutate: func(ctx context.Context, db *store.Store, railway *RailwayService) error {
 				return addLateRouteConflict(ctx, db, "reserved")
 			},
 			wantErr: ErrRouteConflict,
@@ -219,7 +297,8 @@ func TestRouteActivateRevalidationRace(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
-			routes, _, db, sim, bus := newRouteFixture(t)
+			routes, railway, db, sim, bus := newRouteFixture(t)
+			setRouteOccupancy(t, railway, model.OccupancyFree, 1)
 			setRouteTurnoutRequirement(t, db, "diverging")
 			dispatcher := model.User{Role: model.RoleDispatcher}
 			sess := model.Session{ID: "session-1"}
@@ -245,7 +324,7 @@ func TestRouteActivateRevalidationRace(t *testing.T) {
 			}()
 			go func() {
 				<-reserved
-				invalidated <- test.mutate(ctx, db)
+				invalidated <- test.mutate(ctx, db, railway)
 			}()
 
 			if err := <-reserveErr; err != nil {
@@ -263,7 +342,8 @@ func TestRouteActivateRevalidationRace(t *testing.T) {
 
 func TestRouteActivationAndRelease(t *testing.T) {
 	ctx := context.Background()
-	routes, _, db, sim, bus := newRouteFixture(t)
+	routes, railway, db, sim, bus := newRouteFixture(t)
+	setRouteOccupancy(t, railway, model.OccupancyFree, 1)
 	setRouteTurnoutRequirement(t, db, "diverging")
 	viewer := model.User{Role: model.RoleViewer}
 	dispatcher := model.User{Role: model.RoleDispatcher}

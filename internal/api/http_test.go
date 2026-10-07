@@ -18,6 +18,8 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/clock"
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
+	"github.com/agm650/TrainPilot-server/internal/model/topologyfixture"
+	"github.com/agm650/TrainPilot-server/internal/presentation"
 	"github.com/agm650/TrainPilot-server/internal/service"
 	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/agm650/TrainPilot-server/internal/station/simulator"
@@ -134,6 +136,7 @@ func TestOperationProblemsUseStableCodes(t *testing.T) {
 		{"takeover conflict", service.ErrLeaseTakeoverConflict, http.StatusConflict, "lease_takeover_conflict", "conflict"},
 		{"permission", service.ErrPermissionDenied, http.StatusForbidden, "permission_denied", "authorization"},
 		{"route occupied", service.ErrRouteOccupied, http.StatusConflict, "route_occupied", "conflict"},
+		{"route occupancy unknown", service.ErrRouteOccupancyUnknown, http.StatusConflict, "route_occupancy_unknown", "conflict"},
 		{"route conflict", service.ErrRouteConflict, http.StatusConflict, "route_conflict", "conflict"},
 		{"validation", service.ErrValidation, http.StatusBadRequest, "validation_failed", "validation"},
 		{"pending turnout configuration", store.ErrTurnoutConfigurationPending, http.StatusConflict, "turnout_configuration_pending", "conflict"},
@@ -260,20 +263,25 @@ func TestHTTPHandlersCoverSuccessAndErrorPaths(t *testing.T) {
 	assertStatus(t, server.URL, http.MethodGet, "/healthz", "", nil, http.StatusOK)
 	assertStatus(t, server.URL, http.MethodGet, "/api/v1/system/info", "", nil, http.StatusOK)
 	assertStatus(t, server.URL, http.MethodGet, "/api/v1/blocks", "", nil, http.StatusUnauthorized)
+	assertStatus(t, server.URL, http.MethodGet, "/api/v1/topology", "", nil, http.StatusUnauthorized)
 	assertStatus(t, server.URL, http.MethodGet, "/api/v1/blocks", "NotBearer token", nil, http.StatusUnauthorized)
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/auth/login", "", []byte(`{`), http.StatusBadRequest)
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/auth/login", "", []byte(`{"username":"dispatcher","password":"correct-horse-1"}`), http.StatusBadRequest)
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/auth/login", "", []byte(`{"username":"dispatcher","password":"wrong-password","clientId":"bad"}`), http.StatusUnauthorized)
 
-	for _, path := range []string{"/api/v1/me", "/api/v1/locomotives", "/api/v1/blocks", "/api/v1/turnouts", "/api/v1/routes"} {
+	for _, path := range []string{"/api/v1/me", "/api/v1/locomotives", "/api/v1/blocks", "/api/v1/topology", "/api/v1/turnouts", "/api/v1/routes"} {
 		assertStatus(t, server.URL, http.MethodGet, path, "Bearer "+dispatcher.AccessToken, nil, http.StatusOK)
 	}
+	assertStatus(t, server.URL, http.MethodGet, "/api/v1/topology", "Bearer "+viewer.AccessToken, nil, http.StatusOK)
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/turnouts/turnout-1", "Bearer "+viewer.AccessToken, []byte(`{"state":"straight"}`), http.StatusForbidden)
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/turnouts/turnout-1", "Bearer "+dispatcher.AccessToken, []byte(`{"state":"invalid"}`), http.StatusBadRequest)
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/turnouts/missing", "Bearer "+dispatcher.AccessToken, []byte(`{"state":"straight"}`), http.StatusNotFound)
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/turnouts/turnout-1", "Bearer "+dispatcher.AccessToken, []byte(`{"state":"straight"}`), http.StatusNoContent)
 	assertStatus(t, server.URL, http.MethodPut, "/api/v1/turnouts/turnout-1", "Bearer "+dispatcher.AccessToken, []byte(`{"position":"diverging"}`), http.StatusNoContent)
 
+	for _, blockID := range []string{"block-a", "block-b"} {
+		assertStatus(t, server.URL, http.MethodPost, "/test/v1/simulator/blocks/"+blockID+"/occupancy", "Bearer "+dispatcher.AccessToken, []byte(`{"occupied":false}`), http.StatusNoContent)
+	}
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/routes/route-a-b/reserve", "Bearer "+dispatcher.AccessToken, nil, http.StatusNoContent)
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/routes/route-a-b/activate", "Bearer "+dispatcher.AccessToken, nil, http.StatusNoContent)
 	assertStatus(t, server.URL, http.MethodPost, "/api/v1/routes/route-a-b/release", "Bearer "+viewer.AccessToken, nil, http.StatusNotFound)
@@ -315,6 +323,118 @@ func TestHTTPHandlersCoverSuccessAndErrorPaths(t *testing.T) {
 	assertStatus(t, server.URL, http.MethodGet, "/api/v1/me", "Bearer "+dispatcher.AccessToken, nil, http.StatusUnauthorized)
 }
 
+func TestTopologyHTTPReturnsCanonicalEmptyAndCompleteDefinitions(t *testing.T) {
+	ctx := context.Background()
+	fixture := newDetailedHTTPFixture(t)
+
+	emptyArchive, err := transfer.BuildLayoutArchive(time.Now(), model.LayoutDefinition{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.administrator.ImportLayout(ctx, emptyArchive, true); err != nil {
+		t.Fatal(err)
+	}
+	empty, err := fixture.viewer.Topology(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.Revision == "" || empty.Nodes == nil || empty.TrackSections == nil || empty.TurnoutTopologies == nil || empty.Blocks == nil {
+		t.Fatalf("empty topology=%+v", empty)
+	}
+	if len(empty.Nodes) != 0 || len(empty.TrackSections) != 0 || len(empty.TurnoutTopologies) != 0 || len(empty.Blocks) != 0 {
+		t.Fatalf("unexpected seeded physical topology=%+v", empty)
+	}
+
+	layout := topologyfixture.PassingStation()
+	archive, err := transfer.BuildLayoutArchive(time.Now(), layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.administrator.ImportLayout(ctx, archive, true); err != nil {
+		t.Fatal(err)
+	}
+	complete, err := fixture.viewer.Topology(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if complete.Revision == empty.Revision || len(complete.Nodes) != len(layout.TopologyNodes) || len(complete.TrackSections) != len(layout.TrackSections) || len(complete.TurnoutTopologies) != len(layout.TurnoutTopologies) || len(complete.Blocks) != len(layout.Blocks) {
+		t.Fatalf("complete topology=%+v", complete)
+	}
+	if complete.TurnoutTopologies[0].TurnoutID == "" || len(complete.TurnoutTopologies[0].Ports) != 3 {
+		t.Fatalf("turnout topology=%+v", complete.TurnoutTopologies[0])
+	}
+}
+
+func TestLayoutPresentationHTTPIsAvailableToAuthenticatedRoles(t *testing.T) {
+	ctx := context.Background()
+	fixture := newDetailedHTTPFixture(t)
+	assertStatus(t, fixture.server.URL, http.MethodGet, "/api/v1/layout/presentation", "", nil, http.StatusUnauthorized)
+	empty, err := fixture.viewer.LayoutPresentation(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.Revision != "66d1f79391497b6a68e617899f73e89ea16d900720a765039a2a15203677ad97" || empty.CoordinateSystem != model.LayoutCoordinateSystem || empty.GridSpacing != 20 || empty.Nodes == nil || empty.TrackSections == nil || empty.Turnouts == nil || empty.Blocks == nil {
+		t.Fatalf("empty presentation response = %#v", empty)
+	}
+
+	layout := topologyfixture.PassingStation()
+	p := model.LayoutPresentation{
+		Nodes:    []model.LayoutNodePosition{{NodeID: "west-boundary", X: 120, Y: 80}},
+		Turnouts: []model.LayoutTurnoutPosition{{TurnoutID: "station-west", X: 160, Y: 80, RotationDegrees: 90, Mirrored: true}},
+		Blocks:   []model.LayoutBlockStyle{{BlockID: "block-west", Color: "#33AADD", Opacity: 0.3}},
+	}
+	layout.Presentation = &p
+	if err := fixture.db.ImportLayout(ctx, layout, true); err != nil {
+		t.Fatal(err)
+	}
+	viewer, err := fixture.viewer.LayoutPresentation(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := presentation.Definition(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if viewer.Revision != canonical.Revision || len(viewer.Nodes) != 1 || len(viewer.Turnouts) != 1 || !viewer.Turnouts[0].Mirrored || len(viewer.Blocks) != 1 {
+		t.Fatalf("populated presentation response = %#v", viewer)
+	}
+	driver := client.New(fixture.server.URL)
+	if _, err := driver.Login(ctx, "driver", "correct-horse-1", "presentation-driver"); err != nil {
+		t.Fatal(err)
+	}
+	for role, reader := range map[string]*client.Client{"driver": driver, "administrator": fixture.administrator, "sensor": fixture.sensor} {
+		got, err := reader.LayoutPresentation(ctx)
+		if err != nil || got.Revision != viewer.Revision {
+			t.Fatalf("%s presentation revision = %q, error = %v", role, got.Revision, err)
+		}
+	}
+}
+
+func TestTopologyHTTPSupportsCompoundTurnoutGeometry(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		layout    model.LayoutDefinition
+		wantPorts int
+	}{
+		{"three way", topologyfixture.ThreeWay(), 4},
+		{"double slip", topologyfixture.DoubleSlip(), 4},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newDetailedHTTPFixture(t)
+			if err := fixture.db.ImportLayout(context.Background(), test.layout, true); err != nil {
+				t.Fatal(err)
+			}
+			definition, err := fixture.viewer.Topology(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(definition.TurnoutTopologies) != 1 || len(definition.TurnoutTopologies[0].Ports) != test.wantPorts || len(definition.TurnoutTopologies[0].Positions) != len(test.layout.Turnouts[0].Positions) {
+				t.Fatalf("definition=%+v", definition)
+			}
+		})
+	}
+}
+
 func assertProblemCode(t *testing.T, baseURL, method, path, authorization string, body []byte, wantStatus int, wantCode string) {
 	t.Helper()
 	req, err := http.NewRequest(method, baseURL+path, bytes.NewReader(body))
@@ -343,12 +463,15 @@ func newHTTPFixture(t *testing.T) (*httptest.Server, *client.Client, *client.Cli
 }
 
 type detailedHTTPFixture struct {
-	server     *httptest.Server
-	dispatcher *client.Client
-	viewer     *client.Client
-	db         *store.Store
-	simulator  *simulator.Simulator
-	bus        *events.Bus
+	server        *httptest.Server
+	dispatcher    *client.Client
+	viewer        *client.Client
+	administrator *client.Client
+	sensor        *client.Client
+	db            *store.Store
+	simulator     *simulator.Simulator
+	bus           *events.Bus
+	occupancy     *service.OccupancyService
 }
 
 func newDetailedHTTPFixture(t *testing.T) detailedHTTPFixture {
@@ -368,7 +491,7 @@ func newDetailedHTTPFixture(t *testing.T) detailedHTTPFixture {
 	for _, item := range []struct {
 		name string
 		role model.Role
-	}{{"dispatcher", model.RoleDispatcher}, {"viewer", model.RoleViewer}, {"driver", model.RoleDriver}} {
+	}{{"dispatcher", model.RoleDispatcher}, {"viewer", model.RoleViewer}, {"driver", model.RoleDriver}, {"administrator", model.RoleAdministrator}, {"sensor", model.RoleSensor}} {
 		if _, err := users.Create(ctx, item.name, item.name, "correct-horse-1", item.role, false, false); err != nil {
 			t.Fatal(err)
 		}
@@ -390,35 +513,53 @@ func newDetailedHTTPFixture(t *testing.T) detailedHTTPFixture {
 
 	dispatcher := client.New(server.URL)
 	viewer := client.New(server.URL)
+	administrator := client.New(server.URL)
+	sensor := client.New(server.URL)
 	if _, err := dispatcher.Login(ctx, "dispatcher", "correct-horse-1", "dispatcher-client"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := viewer.Login(ctx, "viewer", "correct-horse-1", "viewer-client"); err != nil {
 		t.Fatal(err)
 	}
-	return detailedHTTPFixture{server: server, dispatcher: dispatcher, viewer: viewer, db: db, simulator: sim, bus: bus}
+	if _, err := administrator.Login(ctx, "administrator", "correct-horse-1", "administrator-client"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sensor.Login(ctx, "sensor", "correct-horse-1", "sensor-client"); err != nil {
+		t.Fatal(err)
+	}
+	return detailedHTTPFixture{server: server, dispatcher: dispatcher, viewer: viewer, administrator: administrator, sensor: sensor, db: db, simulator: sim, bus: bus, occupancy: railway.OccupancyService()}
 }
 
 func TestRouteActivationHTTPRejectsLateInvalidation(t *testing.T) {
 	for _, test := range []struct {
 		name     string
-		mutate   func(context.Context, *store.Store) error
+		mutate   func(context.Context, detailedHTTPFixture) error
 		wantCode string
 	}{
 		{
 			name: "occupied",
-			mutate: func(ctx context.Context, db *store.Store) error {
-				return db.SetBlockOccupied(ctx, "block-a", true)
+			mutate: func(ctx context.Context, fixture detailedHTTPFixture) error {
+				return fixture.occupancy.Observe(ctx, model.OccupancyObservation{
+					ProviderID: "simulator", SensorID: "1", State: model.OccupancyOccupied,
+					Sequence: 2, ObservedAt: time.Now().UTC(),
+				})
 			},
 			wantCode: "route_occupied",
 		},
 		{
+			name: "unknown",
+			mutate: func(ctx context.Context, fixture detailedHTTPFixture) error {
+				return fixture.occupancy.SetProviderAvailable(ctx, "simulator", false)
+			},
+			wantCode: "route_occupancy_unknown",
+		},
+		{
 			name: "conflict",
-			mutate: func(ctx context.Context, db *store.Store) error {
-				if _, err := db.DB.ExecContext(ctx, `INSERT INTO routes(id,name,state,reserved_by_session) VALUES('route-conflict','Conflict','active','other')`); err != nil {
+			mutate: func(ctx context.Context, fixture detailedHTTPFixture) error {
+				if _, err := fixture.db.DB.ExecContext(ctx, `INSERT INTO routes(id,name,state,reserved_by_session) VALUES('route-conflict','Conflict','active','other')`); err != nil {
 					return err
 				}
-				_, err := db.DB.ExecContext(ctx, `INSERT INTO route_conflicts(route_id,conflict_route_id) VALUES('route-a-b','route-conflict')`)
+				_, err := fixture.db.DB.ExecContext(ctx, `INSERT INTO route_conflicts(route_id,conflict_route_id) VALUES('route-a-b','route-conflict')`)
 				return err
 			},
 			wantCode: "route_conflict",
@@ -427,6 +568,14 @@ func TestRouteActivationHTTPRejectsLateInvalidation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newDetailedHTTPFixture(t)
 			ctx := context.Background()
+			for _, sensorID := range []string{"1", "2"} {
+				if err := fixture.occupancy.Observe(ctx, model.OccupancyObservation{
+					ProviderID: "simulator", SensorID: sensorID, State: model.OccupancyFree,
+					Sequence: 1, ObservedAt: time.Now().UTC(),
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if _, err := fixture.db.DB.ExecContext(ctx, `UPDATE route_turnouts SET required_state='diverging' WHERE route_id='route-a-b'`); err != nil {
 				t.Fatal(err)
 			}
@@ -437,7 +586,7 @@ func TestRouteActivationHTTPRejectsLateInvalidation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := test.mutate(ctx, fixture.db); err != nil {
+			if err := test.mutate(ctx, fixture); err != nil {
 				t.Fatal(err)
 			}
 			ch, unsubscribe := fixture.bus.Subscribe(8)

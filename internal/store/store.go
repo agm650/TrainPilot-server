@@ -123,6 +123,24 @@ func (s *Store) Migrate(ctx context.Context) error {
 			block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
 			PRIMARY KEY(provider, address)
 		)`,
+		`CREATE TABLE IF NOT EXISTS occupancy_providers (
+			id TEXT PRIMARY KEY,
+			type TEXT NOT NULL,
+			priority INTEGER NOT NULL CHECK(priority BETWEEN 0 AND 100),
+			required INTEGER NOT NULL CHECK(required IN (0,1)),
+			stale_after_ns INTEGER NOT NULL CHECK(stale_after_ns >= 0),
+			freshness_required INTEGER NOT NULL CHECK(freshness_required IN (0,1)),
+			CHECK(freshness_required = 0 OR stale_after_ns > 0)
+		)`,
+		`CREATE TABLE IF NOT EXISTS occupancy_sensor_mappings (
+			provider_id TEXT NOT NULL REFERENCES occupancy_providers(id) ON DELETE CASCADE,
+			sensor_id TEXT NOT NULL,
+			block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+			required INTEGER CHECK(required IN (0,1)),
+			priority INTEGER CHECK(priority BETWEEN 0 AND 100),
+			PRIMARY KEY(provider_id, sensor_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_occupancy_sensor_mappings_block ON occupancy_sensor_mappings(block_id, provider_id, sensor_id)`,
 		`CREATE TABLE IF NOT EXISTS turnouts (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
@@ -165,11 +183,95 @@ func (s *Store) Migrate(ctx context.Context) error {
 			FOREIGN KEY(turnout_id, position_id) REFERENCES turnout_positions(turnout_id, position_id) ON DELETE CASCADE,
 			FOREIGN KEY(turnout_id, endpoint_id) REFERENCES turnout_endpoints(turnout_id, endpoint_id) ON DELETE CASCADE
 		)`,
+		`CREATE TABLE IF NOT EXISTS topology_nodes (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL DEFAULT '',
+			kind TEXT NOT NULL CHECK(kind IN ('joint','buffer','boundary'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS track_sections (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL DEFAULT '',
+			node_a_id TEXT NOT NULL REFERENCES topology_nodes(id),
+			node_b_id TEXT NOT NULL REFERENCES topology_nodes(id),
+			length_mm INTEGER NOT NULL DEFAULT 0 CHECK(length_mm >= 0),
+			CHECK(node_a_id <> node_b_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS turnout_topologies (
+			turnout_id TEXT PRIMARY KEY REFERENCES turnouts(id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS turnout_topology_ports (
+			turnout_id TEXT NOT NULL REFERENCES turnout_topologies(turnout_id) ON DELETE CASCADE,
+			port_id TEXT NOT NULL,
+			node_id TEXT NOT NULL REFERENCES topology_nodes(id),
+			ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+			PRIMARY KEY(turnout_id, port_id),
+			UNIQUE(turnout_id, ordinal)
+		)`,
+		`CREATE TABLE IF NOT EXISTS turnout_topology_positions (
+			turnout_id TEXT NOT NULL REFERENCES turnout_topologies(turnout_id) ON DELETE CASCADE,
+			position_id TEXT NOT NULL,
+			ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+			PRIMARY KEY(turnout_id, position_id),
+			UNIQUE(turnout_id, ordinal)
+		)`,
+		`CREATE TABLE IF NOT EXISTS turnout_topology_connections (
+			turnout_id TEXT NOT NULL,
+			position_id TEXT NOT NULL,
+			port_a_id TEXT NOT NULL,
+			port_b_id TEXT NOT NULL,
+			ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+			PRIMARY KEY(turnout_id, position_id, port_a_id, port_b_id),
+			UNIQUE(turnout_id, position_id, ordinal),
+			CHECK(port_a_id <> port_b_id),
+			FOREIGN KEY(turnout_id, position_id) REFERENCES turnout_topology_positions(turnout_id, position_id) ON DELETE CASCADE,
+			FOREIGN KEY(turnout_id, port_a_id) REFERENCES turnout_topology_ports(turnout_id, port_id) ON DELETE CASCADE,
+			FOREIGN KEY(turnout_id, port_b_id) REFERENCES turnout_topology_ports(turnout_id, port_id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS block_track_sections (
+			block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+			track_section_id TEXT NOT NULL REFERENCES track_sections(id) ON DELETE CASCADE,
+			PRIMARY KEY(block_id, track_section_id),
+			UNIQUE(track_section_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS block_turnouts (
+			block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+			turnout_id TEXT NOT NULL REFERENCES turnout_topologies(turnout_id) ON DELETE CASCADE,
+			PRIMARY KEY(block_id, turnout_id),
+			UNIQUE(turnout_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS layout_presentation (
+			id INTEGER PRIMARY KEY CHECK(id = 1),
+			coordinate_system TEXT NOT NULL,
+			grid_spacing REAL NOT NULL CHECK(grid_spacing > 0)
+		)`,
+		`CREATE TABLE IF NOT EXISTS layout_node_positions (
+			node_id TEXT PRIMARY KEY REFERENCES topology_nodes(id) ON DELETE CASCADE,
+			x REAL NOT NULL,
+			y REAL NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS layout_track_paths (
+			track_section_id TEXT PRIMARY KEY REFERENCES track_sections(id) ON DELETE CASCADE,
+			segments_json TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS layout_turnout_positions (
+			turnout_id TEXT PRIMARY KEY REFERENCES turnouts(id) ON DELETE CASCADE,
+			x REAL NOT NULL,
+			y REAL NOT NULL,
+			rotation_degrees REAL NOT NULL,
+			mirrored INTEGER NOT NULL CHECK(mirrored IN (0,1))
+		)`,
+		`CREATE TABLE IF NOT EXISTS layout_block_styles (
+			block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
+			color TEXT NOT NULL,
+			opacity REAL NOT NULL CHECK(opacity BETWEEN 0 AND 1)
+		)`,
 		`CREATE TABLE IF NOT EXISTS routes (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
 			state TEXT NOT NULL DEFAULT 'idle',
-			reserved_by_session TEXT NOT NULL DEFAULT ''
+			reserved_by_session TEXT NOT NULL DEFAULT '',
+			entry_node_id TEXT NOT NULL DEFAULT '',
+			exit_node_id TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE TABLE IF NOT EXISTS route_blocks (
 			route_id TEXT NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
@@ -204,7 +306,89 @@ func (s *Store) Migrate(ctx context.Context) error {
 			return fmt.Errorf("migration %d: %w", i+1, err)
 		}
 	}
-	return s.migrateTurnoutSchema(ctx)
+	if err := s.migrateTurnoutSchema(ctx); err != nil {
+		return err
+	}
+	if err := s.migrateRouteSchema(ctx); err != nil {
+		return err
+	}
+	return s.migrateOccupancySchema(ctx)
+}
+
+func (s *Store) migrateOccupancySchema(ctx context.Context) error {
+	rows, err := s.DB.QueryContext(ctx, `SELECT provider,address,block_id FROM feedback_mappings ORDER BY provider,address`)
+	if err != nil {
+		return fmt.Errorf("list legacy feedback mappings: %w", err)
+	}
+	type legacyMapping struct {
+		provider string
+		address  int
+		blockID  string
+	}
+	var mappings []legacyMapping
+	for rows.Next() {
+		var mapping legacyMapping
+		if err := rows.Scan(&mapping.provider, &mapping.address, &mapping.blockID); err != nil {
+			rows.Close()
+			return fmt.Errorf("read legacy feedback mapping: %w", err)
+		}
+		mappings = append(mappings, mapping)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("list legacy feedback mappings: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, mapping := range mappings {
+		if err := s.ensureDefaultOccupancyProvider(ctx, mapping.provider); err != nil {
+			return err
+		}
+		if _, err := s.DB.ExecContext(ctx, `
+			INSERT OR IGNORE INTO occupancy_sensor_mappings(provider_id,sensor_id,block_id)
+			VALUES(?,CAST(? AS TEXT),?)`, mapping.provider, mapping.address, mapping.blockID); err != nil {
+			return fmt.Errorf("migrate feedback mapping %s:%d: %w", mapping.provider, mapping.address, err)
+		}
+	}
+	if _, err := s.DB.ExecContext(ctx, `DROP TABLE feedback_mappings`); err != nil {
+		return fmt.Errorf("drop legacy feedback mappings: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ensureDefaultOccupancyProvider(ctx context.Context, providerID string) error {
+	providerType := "current-detection"
+	if providerID == "simulator" {
+		providerType = "simulator"
+	}
+	_, err := s.DB.ExecContext(ctx, `
+		INSERT OR IGNORE INTO occupancy_providers(id,type,priority,required,stale_after_ns,freshness_required)
+		VALUES(?,?,100,1,0,0)`, providerID, providerType)
+	return err
+}
+
+func (s *Store) migrateRouteSchema(ctx context.Context) error {
+	columns, err := s.tableColumns(ctx, "routes")
+	if err != nil {
+		return fmt.Errorf("inspect route schema: %w", err)
+	}
+	additions := []struct {
+		name string
+		sql  string
+	}{
+		{"entry_node_id", `ALTER TABLE routes ADD COLUMN entry_node_id TEXT NOT NULL DEFAULT ''`},
+		{"exit_node_id", `ALTER TABLE routes ADD COLUMN exit_node_id TEXT NOT NULL DEFAULT ''`},
+	}
+	for _, addition := range additions {
+		if columns[addition.name] {
+			continue
+		}
+		if _, err := s.DB.ExecContext(ctx, addition.sql); err != nil {
+			return fmt.Errorf("add routes.%s: %w", addition.name, err)
+		}
+	}
+	return nil
 }
 
 func (s *Store) migrateTurnoutSchema(ctx context.Context) error {
@@ -363,6 +547,7 @@ func timeText(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 var ErrNotFound = errors.New("not found")
 var ErrConflict = errors.New("conflict")
 var ErrRouteOccupied = errors.New("route contains an occupied block")
+var ErrRouteOccupancyUnknown = errors.New("route contains a block with unknown occupancy")
 var ErrRouteConflict = errors.New("route conflicts with another reserved or active route")
 var ErrTurnoutConfigurationPending = fmt.Errorf("%w: turnout configuration is pending", ErrConflict)
 var ErrAccessoryAddressConflict = fmt.Errorf("%w: accessory address is already assigned", ErrConflict)

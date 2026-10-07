@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,9 +32,17 @@ type RailwayService struct {
 	accessoryGenerations map[string]map[string]uint64
 	turnoutRuntime       map[string]*turnoutCommandRuntime
 	metrics              *observability.Metrics
+	occupancy            *OccupancyService
+	feedbackSequencesMu  sync.Mutex
+	feedbackSequences    map[occupancySourceKey]uint64
 }
 
-func (r *RailwayService) SetMetrics(metrics *observability.Metrics) { r.metrics = metrics }
+func (r *RailwayService) SetMetrics(metrics *observability.Metrics) {
+	r.metrics = metrics
+	r.occupancy.SetMetrics(metrics)
+}
+
+func (r *RailwayService) OccupancyService() *OccupancyService { return r.occupancy }
 
 const DefaultTurnoutConfirmationTimeout = 2 * time.Second
 
@@ -59,7 +68,7 @@ func NewRailwayService(s *store.Store, st station.CommandStation, b *events.Bus,
 	if len(confirmationTimeout) > 0 && confirmationTimeout[0] > 0 {
 		timeout = confirmationTimeout[0]
 	}
-	return &RailwayService{
+	r := &RailwayService{
 		store:                s,
 		station:              st,
 		events:               b,
@@ -70,7 +79,10 @@ func NewRailwayService(s *store.Store, st station.CommandStation, b *events.Bus,
 		accessoryQualities:   map[string]map[string]station.AccessoryReportQuality{},
 		accessoryGenerations: map[string]map[string]uint64{},
 		turnoutRuntime:       map[string]*turnoutCommandRuntime{},
+		feedbackSequences:    map[occupancySourceKey]uint64{},
 	}
+	r.occupancy = NewOccupancyService(s, b, nil)
+	return r
 }
 func (r *RailwayService) Locomotives(ctx context.Context) ([]model.Locomotive, error) {
 	return r.store.ListLocomotives(ctx)
@@ -186,7 +198,15 @@ func locomotiveFromInput(id string, input model.LocomotiveInput) (model.Locomoti
 	}, nil
 }
 func (r *RailwayService) Blocks(ctx context.Context) ([]model.Block, error) {
-	return r.store.ListBlocks(ctx)
+	blocks, err := r.store.ListBlocks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for index := range blocks {
+		blocks[index].Occupancy = r.occupancy.BlockState(blocks[index].ID)
+		blocks[index].Occupied = blocks[index].Occupancy.LegacyOccupied()
+	}
+	return blocks, nil
 }
 func (r *RailwayService) Turnouts(ctx context.Context) ([]model.Turnout, error) {
 	return r.store.ListTurnouts(ctx)
@@ -310,20 +330,34 @@ func (r *RailwayService) SetTurnout(ctx context.Context, user model.User, id, po
 	return nil
 }
 func (r *RailwayService) SetBlockFeedback(ctx context.Context, id string, occupied bool) error {
-	_, err := r.setBlockFeedbackObserved(ctx, id, occupied)
-	return err
-}
-
-func (r *RailwayService) setBlockFeedbackObserved(ctx context.Context, id string, occupied bool) (bool, error) {
-	changed, err := r.store.SetBlockOccupiedObserved(ctx, id, occupied)
+	mappings, err := r.store.ListOccupancySensorMappings(ctx)
 	if err != nil {
-		return false, err
+		return err
 	}
-	r.events.Publish("block.occupancy.changed", map[string]any{"blockId": id, "occupied": occupied})
-	return changed, nil
+	for _, mapping := range mappings {
+		if mapping.BlockID != id {
+			continue
+		}
+		state := model.OccupancyFree
+		if occupied {
+			state = model.OccupancyOccupied
+		}
+		return r.occupancy.Observe(ctx, model.OccupancyObservation{
+			ProviderID: mapping.ProviderID,
+			SensorID:   mapping.SensorID,
+			State:      state,
+			Sequence:   r.nextFeedbackSequence(mapping.ProviderID, mapping.SensorID),
+			ObservedAt: time.Now().UTC(),
+		})
+	}
+	if _, err := r.store.ResourcesForBlock(ctx, id); err != nil {
+		return err
+	}
+	return store.ErrNotFound
 }
 
 func (r *RailwayService) StartFeedback(ctx context.Context) {
+	go func() { _ = r.occupancy.Run(ctx, 250*time.Millisecond) }()
 	go func() {
 		for {
 			select {
@@ -334,7 +368,13 @@ func (r *RailwayService) StartFeedback(ctx context.Context) {
 					return
 				}
 				started := time.Now()
-				blockID, err := r.store.BlockForFeedback(ctx, event.Source, event.Address)
+				sensorID := strconv.Itoa(event.Address)
+				providerID := event.Source
+				mapping, err := r.store.ResolveOccupancySensorMapping(ctx, providerID, sensorID)
+				if errors.Is(err, store.ErrNotFound) {
+					providerID = "*"
+					mapping, err = r.store.ResolveOccupancySensorMapping(ctx, providerID, sensorID)
+				}
 				if err != nil {
 					result := "mapping_error"
 					if errors.Is(err, store.ErrNotFound) {
@@ -343,12 +383,24 @@ func (r *RailwayService) StartFeedback(ctx context.Context) {
 					r.metrics.ObserveFeedback(event.Source, result, time.Since(started))
 					continue
 				}
-				changed, err := r.setBlockFeedbackObserved(ctx, blockID, event.Active)
+				state := model.OccupancyFree
+				if event.Active {
+					state = model.OccupancyOccupied
+				}
+				before := r.occupancy.BlockState(mapping.BlockID)
+				err = r.occupancy.Observe(ctx, model.OccupancyObservation{
+					ProviderID: providerID,
+					SensorID:   sensorID,
+					State:      state,
+					Sequence:   r.nextFeedbackSequence(providerID, sensorID),
+					ObservedAt: time.Now().UTC(),
+				})
 				if err != nil {
 					r.metrics.ObserveFeedback(event.Source, "update_error", time.Since(started))
 					continue
 				}
-				r.metrics.ObserveFeedbackOccupancy(event.Source, changed)
+				after := r.occupancy.BlockState(mapping.BlockID)
+				r.metrics.ObserveFeedbackOccupancy(event.Source, before.State != after.State)
 				r.metrics.ObserveFeedback(event.Source, "mapped", time.Since(started))
 			}
 		}
@@ -370,6 +422,14 @@ func (r *RailwayService) StartFeedback(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+func (r *RailwayService) nextFeedbackSequence(providerID, sensorID string) uint64 {
+	key := occupancySourceKey{providerID: providerID, sensorID: sensorID}
+	r.feedbackSequencesMu.Lock()
+	defer r.feedbackSequencesMu.Unlock()
+	r.feedbackSequences[key]++
+	return r.feedbackSequences[key]
 }
 
 func (r *RailwayService) observeStationCommand(operation string, command func() error) error {

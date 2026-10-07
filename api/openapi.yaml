@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: DCC Control Server API
-  version: 1.7.0
+  version: 1.13.0
   description: >-
     Contract for native DCC clients. User administration is deliberately absent
     from this public API and is available only over the local administration socket.
@@ -354,6 +354,101 @@ paths:
                   items:
                     type: array
                     items: { $ref: '#/components/schemas/Block' }
+  /api/v1/blocks/{blockId}/occupancy-sources:
+    parameters:
+      - name: blockId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getBlockOccupancySources
+      description: Returns per-source runtime diagnostics for dispatcher and administrator roles.
+      responses:
+        '200':
+          description: Configured source states for the block.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/SensorOccupancyState' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/occupancy/observations:
+    post:
+      operationId: postOccupancyObservation
+      description: >-
+        Accepts one observation from an external provider configured with
+        time-based freshness. Requires the sensor role and occupancy:write
+        capability. Identical duplicate sequences are accepted as no-ops.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OccupancyObservationInput' }
+      responses:
+        '202': { description: Observation accepted or identical duplicate ignored. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/occupancy/snapshot:
+    post:
+      operationId: postOccupancySnapshot
+      description: >-
+        Atomically validates and accepts 1 to 256 observations from one external
+        provider. Sensors omitted from a snapshot are not inferred to be free.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OccupancySnapshotInput' }
+      responses:
+        '202': { description: Snapshot accepted. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/topology:
+    get:
+      operationId: getTopology
+      description: >-
+        Returns the canonical physical topology and its deterministic revision.
+        Runtime block occupancy and turnout state remain on their existing resources.
+      responses:
+        '200':
+          description: Complete persisted physical topology.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TopologyDefinition' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/layout/presentation:
+    get:
+      operationId: getLayoutPresentation
+      description: >-
+        Returns persisted drawing data and its independent deterministic revision.
+        Every authenticated role may read it. Coordinates use abstract layout units.
+      responses:
+        '200':
+          description: Canonical graphical layout presentation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LayoutPresentationDefinition' }
+              example:
+                revision: 66d1f79391497b6a68e617899f73e89ea16d900720a765039a2a15203677ad97
+                coordinateSystem: layout-units
+                gridSpacing: 20
+                nodes: []
+                trackSections: []
+                turnouts: []
+                blocks: []
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /api/v1/turnouts:
     get:
       operationId: listTurnouts
@@ -452,7 +547,8 @@ paths:
         '409':
           description: >-
             Route activation refused before any turnout command. The stable problem
-            code is `route_occupied` when a route block is occupied or
+            code is `route_occupied` when a route block is occupied,
+            `route_occupancy_unknown` when its safe state is unavailable, or
             `route_conflict` when another conflicting route is reserved or active.
           content:
             application/problem+json:
@@ -463,7 +559,7 @@ paths:
                     properties:
                       status: { type: integer, enum: [409] }
                       category: { type: string, enum: [conflict] }
-                      code: { type: string, enum: [route_occupied, route_conflict] }
+                      code: { type: string, enum: [route_occupied, route_occupancy_unknown, route_conflict] }
   /api/v1/routes/{routeId}/release:
     parameters: [{ $ref: '#/components/parameters/RouteId' }]
     post:
@@ -517,6 +613,33 @@ paths:
             application/vnd.dcc-control.package+zip:
               schema: { type: string, format: binary }
         '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/layout/validate:
+    post:
+      operationId: validateLayoutArchive
+      description: >-
+        Validates a native layout archive against current server state using the
+        selected import mode. Requires the administrator role. All database
+        changes are rolled back; no station command or layout event is sent.
+      parameters:
+        - $ref: '#/components/parameters/ImportMode'
+      requestBody:
+        required: true
+        content:
+          application/vnd.dcc-control.package+zip:
+            schema: { type: string, format: binary }
+          application/zip:
+            schema: { type: string, format: binary }
+      responses:
+        '200':
+          description: >-
+            Validation result. Invalid archive content is reported with
+            valid=false and structured errors.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LayoutValidationResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/layout/import:
     post:
       operationId: importLayout
@@ -613,6 +736,27 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
   schemas:
+    LayoutValidationResult:
+      type: object
+      additionalProperties: false
+      required: [valid, errors, warnings]
+      properties:
+        valid: { type: boolean }
+        errors:
+          type: array
+          items: { $ref: '#/components/schemas/LayoutValidationDiagnostic' }
+        warnings:
+          type: array
+          items: { $ref: '#/components/schemas/LayoutValidationDiagnostic' }
+    LayoutValidationDiagnostic:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code: { type: string }
+        resourceType: { type: string }
+        resourceId: { type: string }
+        message: { type: string }
     Problem:
       type: object
       required: [type, title, status, code, category]
@@ -652,7 +796,7 @@ components:
         id: { type: string, format: uuid }
         username: { type: string }
         displayName: { type: string }
-        role: { type: string, enum: [viewer, driver, dispatcher, administrator] }
+        role: { type: string, enum: [viewer, driver, dispatcher, administrator, sensor] }
         enabled: { type: boolean }
         mustChangePassword: { type: boolean }
         createdAt: { type: string, format: date-time }
@@ -749,11 +893,256 @@ components:
         direction: { type: string, enum: [forward, reverse] }
     Block:
       type: object
-      required: [id, name, occupied]
+      required: [id, name, occupied, occupancy]
       properties:
         id: { type: string }
         name: { type: string }
-        occupied: { type: boolean }
+        occupied:
+          type: boolean
+          deprecated: true
+          description: Derived compatibility field; true only when occupancy.state is occupied.
+        occupancy: { $ref: '#/components/schemas/BlockOccupancy' }
+    BlockOccupancy:
+      type: object
+      required: [state, updatedAt]
+      properties:
+        state: { type: string, enum: [unknown, free, occupied] }
+        occupant: { $ref: '#/components/schemas/OccupantRef' }
+        updatedAt: { type: string, format: date-time }
+    OccupantRef:
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type: { type: string, minLength: 1 }
+        id: { type: string, minLength: 1 }
+    OccupancyObservationInput:
+      type: object
+      additionalProperties: false
+      required: [providerId, sensorId, state, sequence, observedAt]
+      properties:
+        providerId: { type: string, minLength: 1 }
+        sensorId: { type: string, minLength: 1 }
+        state: { type: string, enum: [unknown, free, occupied] }
+        sequence: { type: integer, minimum: 1 }
+        observedAt: { type: string, format: date-time }
+        occupant: { $ref: '#/components/schemas/OccupantRef' }
+    OccupancySnapshotItem:
+      type: object
+      additionalProperties: false
+      required: [sensorId, state]
+      properties:
+        sensorId: { type: string, minLength: 1 }
+        state: { type: string, enum: [unknown, free, occupied] }
+        occupant: { $ref: '#/components/schemas/OccupantRef' }
+    OccupancySnapshotInput:
+      type: object
+      additionalProperties: false
+      required: [providerId, sequence, observedAt, observations]
+      properties:
+        providerId: { type: string, minLength: 1 }
+        sequence: { type: integer, minimum: 1 }
+        observedAt: { type: string, format: date-time }
+        observations:
+          type: array
+          minItems: 1
+          maxItems: 256
+          items: { $ref: '#/components/schemas/OccupancySnapshotItem' }
+    SensorOccupancyState:
+      type: object
+      required: [providerId, sensorId, blockId, state, sequence, observedAt, receivedAt, required, priority, fresh, available]
+      properties:
+        providerId: { type: string }
+        sensorId: { type: string }
+        blockId: { type: string }
+        state: { type: string, enum: [unknown, free, occupied] }
+        sequence: { type: integer, minimum: 0 }
+        observedAt: { type: string, format: date-time }
+        receivedAt: { type: string, format: date-time }
+        occupant: { $ref: '#/components/schemas/OccupantRef' }
+        required: { type: boolean }
+        priority: { type: integer, minimum: 0, maximum: 100 }
+        fresh: { type: boolean }
+        available: { type: boolean }
+    TopologyDefinition:
+      type: object
+      additionalProperties: false
+      required: [revision, nodes, trackSections, turnoutTopologies, blocks]
+      properties:
+        revision:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: SHA-256 of the canonical physical topology and block membership.
+        nodes:
+          type: array
+          items: { $ref: '#/components/schemas/TopologyNode' }
+        trackSections:
+          type: array
+          items: { $ref: '#/components/schemas/TrackSection' }
+        turnoutTopologies:
+          type: array
+          items: { $ref: '#/components/schemas/TurnoutTopology' }
+        blocks:
+          type: array
+          items: { $ref: '#/components/schemas/BlockDefinition' }
+    LayoutPresentationDefinition:
+      type: object
+      additionalProperties: false
+      required: [revision, coordinateSystem, gridSpacing, nodes, trackSections, turnouts, blocks]
+      properties:
+        revision:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: SHA-256 of canonical persisted graphical presentation only.
+        coordinateSystem: { const: layout-units }
+        gridSpacing:
+          type: number
+          exclusiveMinimum: 0
+          description: Layout grid interval in abstract layout units; defaults to 20.
+        nodes:
+          type: array
+          items: { $ref: '#/components/schemas/LayoutNodePosition' }
+        trackSections:
+          type: array
+          items: { $ref: '#/components/schemas/LayoutTrackPath' }
+        turnouts:
+          type: array
+          items: { $ref: '#/components/schemas/LayoutTurnoutPosition' }
+        blocks:
+          type: array
+          items: { $ref: '#/components/schemas/LayoutBlockStyle' }
+    LayoutPoint:
+      type: object
+      additionalProperties: false
+      required: [x, y]
+      properties:
+        x: { type: number }
+        y: { type: number }
+    LayoutNodePosition:
+      type: object
+      additionalProperties: false
+      required: [nodeId, x, y]
+      properties:
+        nodeId: { type: string, minLength: 1 }
+        x: { type: number }
+        y: { type: number }
+    LayoutTrackPath:
+      type: object
+      additionalProperties: false
+      required: [trackSectionId, segments]
+      properties:
+        trackSectionId: { type: string, minLength: 1 }
+        segments:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/LayoutTrackSegment' }
+    LayoutTrackSegment:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [type, to]
+          properties:
+            type: { const: line }
+            to: { $ref: '#/components/schemas/LayoutPoint' }
+        - type: object
+          additionalProperties: false
+          required: [type, control1, control2, to]
+          properties:
+            type: { const: cubic }
+            control1: { $ref: '#/components/schemas/LayoutPoint' }
+            control2: { $ref: '#/components/schemas/LayoutPoint' }
+            to: { $ref: '#/components/schemas/LayoutPoint' }
+    LayoutTurnoutPosition:
+      type: object
+      additionalProperties: false
+      required: [turnoutId, x, y, rotationDegrees, mirrored]
+      description: Visual placement only. Rotation and mirroring never invert DCC commands.
+      properties:
+        turnoutId: { type: string, minLength: 1 }
+        x: { type: number }
+        y: { type: number }
+        rotationDegrees: { type: number }
+        mirrored: { type: boolean }
+    LayoutBlockStyle:
+      type: object
+      additionalProperties: false
+      required: [blockId, color, opacity]
+      properties:
+        blockId: { type: string, minLength: 1 }
+        color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        opacity: { type: number, minimum: 0, maximum: 1 }
+    TopologyNode:
+      type: object
+      additionalProperties: false
+      required: [id, kind]
+      properties:
+        id: { type: string, minLength: 1 }
+        name: { type: string }
+        kind: { type: string, enum: [joint, buffer, boundary] }
+    TrackSection:
+      type: object
+      additionalProperties: false
+      required: [id, name, nodeAId, nodeBId]
+      properties:
+        id: { type: string, minLength: 1 }
+        name: { type: string }
+        nodeAId: { type: string, minLength: 1 }
+        nodeBId: { type: string, minLength: 1 }
+        lengthMm: { type: integer, minimum: 0 }
+    TurnoutTopology:
+      type: object
+      additionalProperties: false
+      required: [turnoutId, ports, positions]
+      description: >-
+        Physical ports and connections keyed by logical turnout position.
+        When topology is supplied, every declared logical position must be
+        represented, and every topology position must be declared by the turnout.
+      properties:
+        turnoutId: { type: string, minLength: 1 }
+        ports:
+          type: array
+          minItems: 2
+          items: { $ref: '#/components/schemas/TurnoutPort' }
+        positions:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/TurnoutTopologyPosition' }
+    TurnoutPort:
+      type: object
+      additionalProperties: false
+      required: [id, nodeId]
+      properties:
+        id: { type: string, minLength: 1 }
+        nodeId: { type: string, minLength: 1 }
+    TurnoutTopologyPosition:
+      type: object
+      additionalProperties: false
+      required: [positionId, connections]
+      properties:
+        positionId: { type: string, minLength: 1 }
+        connections:
+          type: array
+          items: { $ref: '#/components/schemas/PortConnection' }
+    PortConnection:
+      type: object
+      additionalProperties: false
+      required: [portAId, portBId]
+      properties:
+        portAId: { type: string, minLength: 1 }
+        portBId: { type: string, minLength: 1 }
+    BlockDefinition:
+      type: object
+      additionalProperties: false
+      required: [id, name, trackSectionIds]
+      properties:
+        id: { type: string, minLength: 1 }
+        name: { type: string, minLength: 1 }
+        trackSectionIds:
+          type: array
+          items: { type: string, minLength: 1 }
+        turnoutIds:
+          type: array
+          items: { type: string, minLength: 1 }
     AccessoryEndpoint:
       type: object
       required: [id, linearAddress]
@@ -767,7 +1156,9 @@ components:
         inverted:
           type: boolean
           default: false
-          description: Swaps position1 and position2 at the driver boundary.
+          description: >-
+            Swaps position1 and position2 at the driver boundary and when
+            resolving reports. Independent of graphical rotation and mirroring.
     TurnoutPositionDefinition:
       type: object
       required: [id, endpoints]
@@ -789,7 +1180,9 @@ components:
         kind:
           type: string
           enum: [simple, three_way, double_slip, single_slip, custom]
-          description: UI and domain classification. Positions remain the source of truth.
+          description: >-
+            UI and domain classification. A simple turnout has one endpoint
+            and two positions. Declared vectors remain the source of truth.
         endpoints:
           type: array
           minItems: 1

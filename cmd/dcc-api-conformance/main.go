@@ -12,7 +12,9 @@ import (
 
 	"github.com/agm650/TrainPilot-server/internal/client"
 	"github.com/agm650/TrainPilot-server/internal/model"
+	"github.com/agm650/TrainPilot-server/internal/presentation"
 	"github.com/agm650/TrainPilot-server/internal/station"
+	"github.com/agm650/TrainPilot-server/internal/topology"
 )
 
 const (
@@ -115,10 +117,30 @@ func run(ctx context.Context, cfg configuration, output io.Writer) int {
 
 	locomotives, err := c1.Locomotives(ctx)
 	add("authenticated client lists locomotives", err)
-	_, err = c1.Blocks(ctx)
-	add("authenticated client lists blocks", err)
-	_, err = c1.Turnouts(ctx)
-	add("authenticated client lists turnouts", err)
+	blocks, err := c1.Blocks(ctx)
+	add("authenticated client lists blocks with explicit occupancy", validateBlockOccupancyResponse(blocks, err))
+	topologyDefinition, topologyErr := c1.Topology(ctx)
+	add("authenticated client reads physical topology", topologyErr)
+	turnouts, turnoutsErr := c1.Turnouts(ctx)
+	add("authenticated client lists turnouts", turnoutsErr)
+	topologyValidationErr := topologyErr
+	if topologyValidationErr == nil {
+		topologyValidationErr = turnoutsErr
+	}
+	if topologyValidationErr == nil {
+		topologyValidationErr = validateTopologyResponse(topologyDefinition, turnouts)
+	}
+	add("physical topology and revision are valid", topologyValidationErr)
+	presentationDefinition, presentationErr := c1.LayoutPresentation(ctx)
+	if presentationErr == nil {
+		canonical, err := presentation.Definition(presentationDefinition.LayoutPresentation)
+		if err != nil {
+			presentationErr = err
+		} else if canonical.Revision != presentationDefinition.Revision {
+			presentationErr = errors.New("layout presentation revision does not match its content")
+		}
+	}
+	add("authenticated client reads graphical layout presentation", presentationErr)
 	_, err = c1.Routes(ctx)
 	add("authenticated client lists routes", err)
 	_, err = c1.StationStatus(ctx)
@@ -133,6 +155,10 @@ func run(ctx context.Context, cfg configuration, output io.Writer) int {
 		adminClient = client.New(cfg.server)
 		_, err = adminClient.Login(ctx, cfg.admin, cfg.adminPass, "conformance-admin")
 		add("administrator can authenticate", err)
+		if err == nil && len(blocks) > 0 {
+			_, err = adminClient.BlockOccupancySources(ctx, blocks[0].ID)
+			add("administrator reads block occupancy source diagnostics", err)
+		}
 	} else {
 		fmt.Fprintln(output, "SKIP  administrator checks (provide --admin and --admin-pass)")
 	}
@@ -216,6 +242,34 @@ func run(ctx context.Context, cfg configuration, output io.Writer) int {
 	}
 	fmt.Fprintf(output, "\nResult: %d passed, %d failed\n", len(results)-failed, failed)
 	return failed
+}
+
+func validateTopologyResponse(definition model.TopologyDefinition, turnouts []model.Turnout) error {
+	if definition.Revision == "" {
+		return errors.New("topology revision is empty")
+	}
+	if definition.Nodes == nil || definition.TrackSections == nil || definition.TurnoutTopologies == nil || definition.Blocks == nil {
+		return errors.New("topology response must contain nodes, trackSections, turnoutTopologies and blocks arrays")
+	}
+	if _, err := topology.BuildDefinition(definition, turnouts); err != nil {
+		return fmt.Errorf("invalid topology response: %w", err)
+	}
+	return nil
+}
+
+func validateBlockOccupancyResponse(blocks []model.Block, err error) error {
+	if err != nil {
+		return err
+	}
+	for _, block := range blocks {
+		if !block.Occupancy.State.Valid() {
+			return fmt.Errorf("block %q has invalid occupancy state %q", block.ID, block.Occupancy.State)
+		}
+		if block.Occupied != (block.Occupancy.State == model.OccupancyOccupied) {
+			return fmt.Errorf("block %q legacy occupied field disagrees with occupancy state", block.ID)
+		}
+	}
+	return nil
 }
 
 type expirationWaitTooLongError struct {
@@ -371,7 +425,16 @@ func runDispatchChecks(ctx context.Context, admin *client.Client, add func(strin
 		add("dispatch scenario has a route", err)
 		return
 	}
-	add("dispatcher can reserve a route", admin.ReserveRoute(ctx, routes[0].ID))
+	reserveErr := admin.ReserveRoute(ctx, routes[0].ID)
+	var httpErr *client.HTTPError
+	if errors.As(reserveErr, &httpErr) && httpErr.Problem != nil && httpErr.Problem.Code == "route_occupancy_unknown" {
+		add("unknown occupancy safely blocks route reservation", expectHTTPError(reserveErr, http.StatusConflict, "conflict", "route_occupancy_unknown"))
+		return
+	}
+	add("dispatcher can reserve a route", reserveErr)
+	if reserveErr != nil {
+		return
+	}
 	add("dispatcher can activate a reserved route", admin.ActivateRoute(ctx, routes[0].ID))
 	add("dispatcher can release a route", admin.ReleaseRoute(ctx, routes[0].ID))
 }

@@ -97,7 +97,7 @@ func TestRailwayListsAndMutations(t *testing.T) {
 	if err := svc.SetBlockFeedback(ctx, "block-a", true); err != nil {
 		t.Fatal(err)
 	}
-	blocks, err := db.ListBlocks(ctx)
+	blocks, err := svc.Blocks(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

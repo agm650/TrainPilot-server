@@ -93,6 +93,7 @@ func serve(args []string) error {
 	defer st.Close()
 	railway := service.NewRailwayService(db, st, bus, cfg.Turnout.ConfirmationTimeout)
 	control := service.NewControlService(db, st, bus, clk, cfg.Control.LeaseTTL, cfg.Control.StopGrace, cfg.Control.MonitorPeriod)
+	control.SetOccupancyProvider(railway.OccupancyService(), feedbackProviderID(st.Capabilities().Driver))
 	routes := service.NewRouteService(db, railway, bus)
 	railway.SetMetrics(metrics)
 	control.SetMetrics(metrics)
@@ -104,7 +105,7 @@ func serve(args []string) error {
 	control.Start()
 	defer control.Close()
 	api := httpapi.New(authSvc, control, railway, routes, transferSvc, db, bus, st, sim, cfg.TestAPI, metrics)
-	httpServer := &http.Server{Addr: cfg.HTTP.Listen, Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second}
+	httpServer := &http.Server{Addr: cfg.HTTP.Listen, Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second}
 	var diagnosticsServer *http.Server
 	if cfg.Diagnostics.Enabled {
 		diagnosticsServer = &http.Server{
@@ -155,6 +156,19 @@ func serve(args []string) error {
 		shutdownErr = errors.Join(shutdownErr, diagnosticsServer.Shutdown(ctx))
 	}
 	return errors.Join(serveErr, shutdownErr)
+}
+
+func feedbackProviderID(driver string) string {
+	switch driver {
+	case "z21":
+		return "z21-rbus"
+	case "dccex":
+		return "dccex"
+	case "simulator":
+		return "simulator"
+	default:
+		return ""
+	}
 }
 func buildStation(cfg config.Config) (station.CommandStation, *simulator.Simulator, error) {
 	switch cfg.Station.Driver {

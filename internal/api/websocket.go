@@ -12,14 +12,16 @@ import (
 )
 
 type systemSnapshotPayload struct {
-	Station                 station.Capabilities           `json:"station"`
-	StationStatus           station.Status                 `json:"stationStatus"`
-	Locomotives             []model.Locomotive             `json:"locomotives"`
-	ControlLeases           []model.ControlLease           `json:"controlLeases"`
-	LocomotiveControlStates []model.LocomotiveControlState `json:"locomotiveControlStates"`
-	Blocks                  []model.Block                  `json:"blocks"`
-	Turnouts                []model.Turnout                `json:"turnouts"`
-	Routes                  []model.Route                  `json:"routes"`
+	Station                    station.Capabilities           `json:"station"`
+	StationStatus              station.Status                 `json:"stationStatus"`
+	Locomotives                []model.Locomotive             `json:"locomotives"`
+	ControlLeases              []model.ControlLease           `json:"controlLeases"`
+	LocomotiveControlStates    []model.LocomotiveControlState `json:"locomotiveControlStates"`
+	Blocks                     []model.Block                  `json:"blocks"`
+	Turnouts                   []model.Turnout                `json:"turnouts"`
+	Routes                     []model.Route                  `json:"routes"`
+	TopologyRevision           string                         `json:"topologyRevision"`
+	LayoutPresentationRevision string                         `json:"layoutPresentationRevision"`
 }
 
 type systemSnapshot struct {
@@ -71,19 +73,29 @@ func (s *Server) buildSystemSnapshot(ctx context.Context, session model.Session)
 	if err != nil {
 		return systemSnapshot{}, err
 	}
+	topologyDefinition, err := s.topologyDefinition(ctx, turnouts)
+	if err != nil {
+		return systemSnapshot{}, err
+	}
+	presentationDefinition, err := s.layoutPresentationDefinition(ctx)
+	if err != nil {
+		return systemSnapshot{}, err
+	}
 	return systemSnapshot{
 		Type:       "system.snapshot",
 		Sequence:   sequence,
 		CapturedAt: time.Now().UTC(),
 		Payload: systemSnapshotPayload{
-			Station:                 s.station.Capabilities(),
-			StationStatus:           status,
-			Locomotives:             snapshotItems(locomotives),
-			ControlLeases:           snapshotItems(leases),
-			LocomotiveControlStates: snapshotItems(controlStates),
-			Blocks:                  snapshotItems(blocks),
-			Turnouts:                snapshotItems(turnouts),
-			Routes:                  snapshotItems(routes),
+			Station:                    s.station.Capabilities(),
+			StationStatus:              status,
+			Locomotives:                snapshotItems(locomotives),
+			ControlLeases:              snapshotItems(leases),
+			LocomotiveControlStates:    snapshotItems(controlStates),
+			Blocks:                     snapshotItems(blocks),
+			Turnouts:                   snapshotItems(turnouts),
+			Routes:                     snapshotItems(routes),
+			TopologyRevision:           topologyDefinition.Revision,
+			LayoutPresentationRevision: presentationDefinition.Revision,
 		},
 	}, nil
 }

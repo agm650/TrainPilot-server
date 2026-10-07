@@ -219,6 +219,26 @@ func (c *Client) Blocks(ctx context.Context) ([]model.Block, error) {
 	return out.Items, err
 }
 
+func (c *Client) BlockOccupancySources(ctx context.Context, blockID string) ([]model.SensorOccupancyState, error) {
+	var out struct {
+		Items []model.SensorOccupancyState `json:"items"`
+	}
+	_, err := c.Do(ctx, http.MethodGet, "/api/v1/blocks/"+url.PathEscape(blockID)+"/occupancy-sources", nil, &out)
+	return out.Items, err
+}
+
+func (c *Client) Topology(ctx context.Context) (model.TopologyDefinition, error) {
+	var out model.TopologyDefinition
+	_, err := c.Do(ctx, http.MethodGet, "/api/v1/topology", nil, &out)
+	return out, err
+}
+
+func (c *Client) LayoutPresentation(ctx context.Context) (model.LayoutPresentationDefinition, error) {
+	var out model.LayoutPresentationDefinition
+	_, err := c.Do(ctx, http.MethodGet, "/api/v1/layout/presentation", nil, &out)
+	return out, err
+}
+
 func (c *Client) Turnouts(ctx context.Context) ([]model.Turnout, error) {
 	var out struct {
 		Items []model.Turnout `json:"items"`

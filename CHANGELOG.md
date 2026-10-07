@@ -39,6 +39,37 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Editor-facing turnout diagnostics now identify invalid endpoint vectors,
+  duplicate addresses, simple-turnout shape, and topology position mismatches.
+  Graphical rotation and mirroring remain separate from DCC endpoint inversion.
+  The HTTP contract is now version 1.13.0.
+- Administrator-only layout archive dry-run endpoint with structured diagnostics,
+  import-equivalent validation, and transaction rollback before publication.
+- Layout archives version 7 include graphical presentation and import it
+  atomically, with ID-based merge and compatibility with older archives.
+- Authenticated graphical layout presentation read API with an independent
+  SHA-256 revision in REST responses and WebSocket snapshots.
+- Conservative multi-source block occupancy with persisted providers and
+  sensor mappings, R-BUS adaptation, and authenticated single/batch external
+  observations through the restricted `sensor` role. REST, WebSocket snapshots
+  and change events expose explicit `unknown/free/occupied` state; dispatcher
+  diagnostics expose per-source freshness, and route commands fail safe on
+  unknown or occupied blocks.
+- Physical railway topology with validated nodes, track sections, conditional
+  turnout connections, normalized SQLite persistence, and deterministic export.
+- Indexed static topology graph with conditional turnout edges, connected
+  components, cycle support, and structural node diagnostics.
+- Conservative active topology views driven only by confirmed reported turnout
+  positions, with report quality retained as traversal metadata.
+- Deterministic topology queries and traversal-count pathfinding for static and
+  active graphs, with oriented traversals, turnout requirements, and caller
+  exclusions for sections, turnouts, and blocks.
+- Authenticated topology REST reads with a deterministic revision, compact
+  WebSocket snapshot synchronization, and `dccctl topology` inspection and
+  validation commands.
+- Optional topological endpoints on route definitions, with persisted archive
+  round-trips, constrained physical-path validation, stable error/warning
+  diagnostics, and undeclared shared-resource conflict warnings.
 - Typed station contract for binary DCC accessories, portable linear-address range validation, and a generic provider for qualified feedback.
 - z21 `LAN_X_SET_TURNOUT` accessory commands, configurable pulse and safe deactivation, correlated `LAN_X_GET_TURNOUT_INFO` queries, and state broadcasts without invented positions.
 - DCC-EX accessories aligned with `<a linear 0|1>`, including portable-range validation, `assumed` feedback, concurrent TCP tests, and no replay after reconnection.
@@ -102,11 +133,15 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Drivers now receive `position1` or `position2` through `SetBasicAccessory`, without geometric `straight`/`diverging` strings.
-- The OpenAPI contract is now version `1.7.0` and AsyncAPI is now `1.9.1`.
+- The OpenAPI contract is now version `1.9.0` and AsyncAPI is now `1.10.0`.
   Turnouts expose `reportQuality`, use `position` for commands, and retain the
   `turnout.commanded`, `turnout.state.changed`, and
-  `turnout.command.failed` events.
-- Layout archives are now version 3 and separate turnout configuration from runtime state.
+  `turnout.command.failed` events. Snapshots expose `topologyRevision` and the
+  full static definition is available from `GET /api/v1/topology`.
+- Layout archives are now version 6, retain physical topology, block
+  resource membership, and occupancy provider configuration while separating
+  configuration from runtime observations.
+  Versions 1 through 5 remain importable.
 - SQLite now uses the pure-Go `modernc.org/sqlite` driver.
 - A valid throttle or function command now renews the control lease.
 - The WebSocket snapshot now includes command-station capabilities and current status.

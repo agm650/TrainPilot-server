@@ -22,7 +22,8 @@ Included features:
 - lease heartbeats;
 - zero-speed stop before releasing an expired lease;
 - demonstration locomotives, blocks, turnouts, and routes;
-- normalized feedback and sensor-to-block mappings;
+- conservative multi-source block occupancy with normalized feedback and
+  sensor-to-block mappings;
 - simulated command-station driver;
 - DCC-EX TCP driver for track power, emergency stop, speed, functions,
   accessories, and sensor feedback, with health tracking and automatic
@@ -40,9 +41,8 @@ Included features:
 
 Known MVP limitations:
 
-- full graphical layout editing is not implemented. Archives currently cover
-  locomotives, blocks, turnouts, routes, and feedback mappings, but not
-  graphical resources;
+- full graphical layout editing is not implemented. Layout archives include
+  graphical presentation; images and client viewport settings are not archived;
 - R-BUS decoding still requires validation with a real white z21 and the
   selected modules;
 - z21 accessory commands and reports are covered by a fake UDP server, but
@@ -235,6 +235,20 @@ Benchmark setup, safety controls, profiles, and reports are documented in
 [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md). The reference performance
 methodology and validated hardware matrix are in
 [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
+
+## Occupancy safety semantics
+
+Block occupancy is explicit: `unknown`, `free`, or `occupied`. Fresh occupied
+observations always win, regardless of source priority. A missing or stale
+required source produces `unknown`. Server restart also starts at `unknown`;
+runtime observations are never restored as an invented `free` state.
+
+Both `unknown` and `occupied` block route reservation and activation. Only
+`free` allows the remaining route validations to proceed. REST, WebSocket
+events, and `system.snapshot` expose the same aggregated state and optional
+occupant. The legacy `occupied` boolean remains a derived compatibility field.
+See [`docs/OCCUPANCY.md`](docs/OCCUPANCY.md) for source diagnostics, external
+observations, freshness, metrics, and error codes.
 
 ### Live benchmark metrics
 
@@ -546,11 +560,50 @@ activity or heartbeat during that period, the server starts a controlled stop
 and then releases the lease. `throttle` never acquires a locomotive implicitly;
 `acquire` is mandatory.
 
+## Topology
+
+TrainPilot stores logical railway connectivity separately from occupancy
+blocks. It supports fixed track, simple and compound turnouts, active and
+static graphs, block membership, pathfinding, and route-definition validation.
+Topology support is not train localization and does not provide interlocking.
+See [`docs/TOPOLOGY.md`](docs/TOPOLOGY.md) for the model and its limits.
+Authenticated clients read the separate graphical drawing with
+`GET /api/v1/layout/presentation`.
+
+Inspect or validate the persisted physical topology without sending a railway
+command:
+
+```bash
+dccctl --server http://127.0.0.1:8080 --username alice topology
+dccctl --server http://127.0.0.1:8080 --username alice topology --json
+dccctl --server http://127.0.0.1:8080 --username alice topology validate
+```
+
+The summary reports nodes, track sections, turnout topologies, blocks, and
+connected components. Validation exits non-zero for an invalid graph or stale
+revision.
+
 ## Import and export
 
-Exports are version 3 ZIP archives containing `manifest.json` and a JSON
-document. Version 1 and 2 archives remain importable. Imports use `merge` by
-default. `--replace` replaces the corresponding library after validation.
+Exports are ZIP archives containing `manifest.json` and a JSON document.
+Layout archives use version 7 and include graphical presentation; rolling stock
+archives remain version 6. Layout versions 1 through 6 remain importable.
+Imports use `merge` by default. `--replace` replaces the corresponding library
+after validation. Layout merge updates graphical resources by ID; replace
+replaces the entire presentation.
+
+Administrators can check an archive before publishing it:
+
+```bash
+curl -X POST 'http://127.0.0.1:8080/api/v1/layout/validate?mode=replace' \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/vnd.dcc-control.package+zip' \
+  --data-binary @layout.dcclayout
+```
+
+The JSON result has `valid`, `errors`, and `warnings`. Validation runs the
+same checks as import but rolls back all database changes. Publishing still
+requires an explicit `import-layout` request.
 
 ```bash
 # Export is available to every authenticated user
@@ -610,10 +663,19 @@ When a WebSocket connection opens, the server sends a complete
 `system.snapshot` whose `sequence` is the event bus's current sequence. It
 contains station status, locomotives, full leases for the connected session,
 public ownership state for all controlled locomotives, blocks, turnouts, and
-routes. `controlLeases` remains private to the session.
+routes. It also contains `topologyRevision` and
+`layoutPresentationRevision`. The full static topology and graphical definition
+are read from authenticated `GET /api/v1/topology` and
+`GET /api/v1/layout/presentation`; they are not duplicated in every snapshot.
+`controlLeases` remains private to the session.
 `locomotiveControlStates` distinguishes `mine`,
 `same_user_other_session`, and `other` without exposing lease identifiers from
 other sessions. A locomotive absent from that array is free.
+
+Clients cache topology and presentation by their separate revisions. They reload
+only the resource whose revision changes. After `layout.imported`, they compare
+both revisions and reload changed resources. The event is emitted only after
+the layout transaction commits successfully.
 
 The client ignores events with a sequence less than or equal to the snapshot.
 The server also filters old or duplicate events generated while building the
@@ -693,6 +755,9 @@ A `204` response means every step was confirmed. Clients read valid choices
 from `positions` and then follow `desiredPosition`, `reportedPosition`,
 `pending`, `reportedStatus`, `reportQuality`, and `commandStatus`. The legacy
 `state` request field is accepted only for a `simple` turnout and is deprecated.
+For graphical editor configuration, see the simple, inverted, and topology
+examples in [`docs/TURNOUTS.md`](docs/TURNOUTS.md). Screen rotation and mirror
+settings are presentation data; decoder polarity uses endpoint `inverted`.
 
 The CLI uses the same contract:
 
@@ -703,8 +768,9 @@ dccctl turnout T3 right
 ```
 
 Legacy one-address databases and archives are converted automatically to
-simple turnouts. Layout v3 exports include physical configuration but exclude
-runtime state. Legacy fields remain temporarily exposed for simple turnouts.
+simple turnouts. Layout v5 exports include turnout, topology, and block
+resource configuration but exclude runtime state. Legacy fields remain
+temporarily exposed for simple turnouts.
 After partial failure, the server performs no blind rollback.
 
 A turnout definition cannot be replaced or removed while `pending=true`.
@@ -828,8 +894,7 @@ decimal JSON value `432` represents octal mode `0660`.
 
 1. Validate both drivers with real DCC-EX and white z21 hardware.
 2. Extend rolling stock beyond locomotives and complete layout editing.
-3. Extend archives with graphical resources, images, and future format
-   migrations.
+3. Extend archives with images and future format migrations.
 4. Add signals, explicit route conflicts, and progressive route release.
 5. Add hardware tests that run only on a dedicated test bench.
 6. Build Swift and Linux clients against the simulator and published contracts.

@@ -26,7 +26,11 @@
 - l'arrêt d'urgence, la coupure de puissance et la vitesse zéro passent avant les commandes ordinaires en attente, qui sont refusées sans atteindre le pilote ;
 - la reprise après arrêt d'urgence nécessite un ordre `power on` explicite réussi ;
 - les transitions `online`, `degraded`, `offline` et le retour à `online` sont couvertes au niveau du suivi de santé ;
-- un capteur mappé modifie le canton correspondant ;
+- un feedback R-BUS mappé traverse `OccupancyService`, traduit active/inactive
+  en occupied/free et conserve plusieurs adresses et Blocks indépendants ;
+- une centrale offline invalide les observations sticky de son provider et
+  produit unknown pour une source required ; le retour online n'invente pas
+  free avant un nouveau feedback ;
 - un itinéraire occupé ou en conflit ne peut pas être réservé et une activation hors ligne échoue ;
 - après réservation, une occupation tardive refuse l'activation avec `route_occupied`, sans commande d'aiguillage ni événement `route.activated` ;
 - après réservation, un conflit tardif `reserved` ou `active` refuse l'activation avec `route_conflict`, sans commande d'aiguillage ni événement `route.activated` ;
@@ -69,6 +73,22 @@
 - les archives parc/circuit passent un aller-retour sans perte ;
 - un rôle driver peut exporter mais ne peut pas importer ;
 - un import invalide ou contenant des références cassées est rejeté sans modification partielle.
+- la topologie REST exige une authentification, reste lisible par un viewer et
+  expose des tableaux canoniques pour un réseau vide, triple, TJD ou complet ;
+- `topologyRevision` reste stable lors des changements runtime et change avec
+  le layout, tandis que `layout.imported` n'est publié qu'après un commit réussi ;
+- `dccctl topology` couvre le résumé, le JSON déterministe et une validation
+  qui retourne une erreur sur une fixture invalide.
+- les anciennes routes sans extrémités topologiques restent compatibles ; les
+  routes simples, via aiguillage simple, triple et TJD valident un chemin
+  contraint par leurs positions déclarées ;
+- une absence de chemin, de block traversé ou de position requise refuse
+  l'import avant transaction, tandis qu'un block ou turnout de protection
+  supplémentaire produit seulement un warning stable ;
+- deux routes partageant une ressource physique ou un block traversé signalent
+  chaque conflit directionnel absent sans modifier les réservations runtime ;
+- les endpoints de route migrent avec une valeur vide et passent un
+  aller-retour SQLite/archive sans perte.
 
 ## Commandes
 
@@ -87,6 +107,14 @@ obligatoires dans chaque `go test ./...`. Le job Ubuntu `benchmark-smoke`
 construit `dccd`, `dccctl` et `trainpilot-bench`, puis exécute séparément les
 phases actives, de reconnexion et de resynchronisation sur une fixture réduite.
 Il ne constitue ni un test de charge capacitaire ni une validation matérielle.
+
+Les tests d'occupation multi-sources se trouvent principalement dans
+`internal/service`, `internal/api` et `cmd/dcc-api-conformance`. Ils vérifient
+notamment que `occupied` gagne indépendamment de la priorité, qu'une source
+requise périmée produit `unknown`, que les séquences anciennes sont rejetées et
+qu'un snapshot demandé sur la connexion WebSocket courante restitue l'état
+agrégé. Ces tests utilisent SQLite en mémoire, le simulateur et des faux
+pilotes ; ils ne remplacent pas une validation R-BUS ou caméra réelle.
 
 La conformité HTTP passive, sans commande de voie, s'exécute contre un serveur
 déjà démarré avec :
@@ -174,14 +202,51 @@ TJS et personnalisés. Ils vérifient la validation, les vecteurs inconnus et
 l'inversion des endpoints.
 
 Les tests de `internal/store` créent aussi une ancienne table `turnouts`, puis
-exécutent deux fois la migration. Les tests de `internal/transfer` importent une
-archive de circuit version 1 et vérifient un round-trip déterministe en version
-3. Le round-trip couvre un simple, un triple et une TJD. Il vérifie aussi que
-les états runtime ne sont pas restaurés.
+exécutent deux fois la migration. Ils vérifient que les données historiques
+restent intactes, que les nouvelles tables topologiques restent vides et que
+les références empêchent les suppressions implicites. Les round-trips couvrent
+une ligne, une boucle, un triple et une TJD avec un ordre déterministe.
+
+Les tests de `internal/topology` couvrent aussi les memberships de blocks : une
+ou plusieurs sections continues, branches autour d'un aiguillage, TJD,
+ressources non affectées, doubles associations et îlots disjoints. Les tests de
+`internal/store` vérifient les index inverses et l'indépendance entre membership
+topologique et occupation issue du feedback.
+
+Le pathfinding topologique couvre les parcours orientés aller/retour, impasses,
+réseaux disjoints, cycles, chemins alternatifs, aiguillages simples et triples,
+TJD, états actifs inconnus, exclusions de sections/turnouts/blocks et 100
+répétitions déterministes. Les neuf fixtures de référence couvrent
+`simple-line`, `passing-loop`, `three-way-yard`, `double-slip-station`,
+`fixed-crossing`, `multi-section-block`, `undetected-section`, `loop` et le
+réseau `conceptual-five-detection-zones`. Pour chacune, les tests vérifient le
+modèle, le graphe, les composantes, les requêtes, les chemins statique et actif,
+les memberships et le round-trip d'archive. Build, path et export sont répétés
+100 fois. Toutes les positions d'aiguillage, `unknown` et `pending` sont
+couvertes.
+
+Les benchmarks sans seuil CI fournissent une baseline sur 100 et 1 000
+sections :
 
 ```bash
-go test ./internal/model ./internal/store ./internal/transfer
+go test ./internal/topology -run '^$' \
+  -bench 'Benchmark(TopologyBuild|FindPath)$' -benchmem
 ```
+
+Les tests de `internal/transfer` importent des archives de circuit versions 1,
+3, 4, 5 et 6, puis vérifient un round-trip déterministe en version 7. Une archive v4
+conserve sa topologie mais donne des memberships vides aux anciens blocks. Une
+archive v5 conserve les ressources des blocks sans restaurer les états runtime
+des aiguillages ni `Block.Occupied`.
+
+```bash
+go test ./internal/model ./internal/topology ./internal/store ./internal/transfer
+```
+
+La conformité passive lit aussi `GET /api/v1/topology`. Elle exige les quatre
+tableaux du contrat, une révision valide, des IDs uniques et des références
+cohérentes. Le contrôle reste non destructif et fait partie de l'exécution
+standard de `dcc-api-conformance`.
 
 Le contrôleur métier est couvert par `internal/service/railway_accessory_test.go`.
 Il vérifie les confirmations immédiates, absentes et incohérentes, les chemins

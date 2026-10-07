@@ -1,6 +1,6 @@
 # Backlog restant — TrainPilot-server
 
-Dernière mise à jour : 12 septembre 2026.
+Dernière mise à jour : 19 septembre 2026.
 
 Ce document ne contient que les travaux restant à réaliser. Les fonctionnalités
 terminées et leur historique restent consignés dans `DCC_BACKLOG.md`. Avant de
@@ -43,8 +43,32 @@ dans ce backlog.
 
 ### Rétrosignalisation et cantons
 
+- [x] OCC-001 — Modèle multi-sources, validation et persistance de la configuration.
+- [x] OCC-002 — Service d'agrégation conservative et gestion de la fraîcheur.
+- [x] OCC-003 — Adaptation du feedback R-BUS au service d'occupation.
+- [x] OCC-004 — API sécurisée pour les observations externes.
+- [x] OCC-005 — Contrats REST/WebSocket, snapshot et sûreté des itinéraires.
 - [ ] Tester un redémarrage du serveur lorsque des cantons sont déjà occupés sur le réseau réel.
 - [ ] Valider sur le petit réseau les trois sections rouges extérieures et les deux sections rouges intérieures.
+
+### Topologie ferroviaire
+
+Le lot TOP est terminé. Il sépare la connectivité physique des zones de
+détection et fournit le modèle, la persistance, les graphes physique et actif,
+les requêtes, le pathfinding, les contrats publics, la validation des
+itinéraires et les réseaux de référence. La prochaine étape est la localisation
+des trains, puis les itinéraires sécurisés par réservation de ressources, puis
+la signalisation.
+
+- [x] TOP-001 — Modèle de domaine et validation statique.
+- [x] TOP-002 — Persistance SQLite et migration des archives.
+- [x] TOP-003 — Graphe physique statique et diagnostics structurels.
+- [x] TOP-004 — Connexions actives selon les positions rapportées.
+- [x] TOP-005 — Association des blocks aux ressources physiques.
+- [x] TOP-006 — Service de requêtes topologiques et pathfinding.
+- [x] TOP-007 — API REST, révision WebSocket, CLI et import/export atomique.
+- [x] TOP-008 — Validation topologique des définitions d'itinéraires.
+- [x] TOP-009 — Fixtures, scénarios et conformité finales.
 
 ### Accessoires
 
@@ -54,6 +78,13 @@ restantes sont les validations physiques et la préparation de la signalisation.
 - [ ] Valider sur z21 réelle l'adressage des accessoires, la durée d'impulsion et la différence entre état de fonction rapporté et position physique.
 - [ ] Exécuter AIG-009 sur les bancs z21 et DCC-EX, ajouter les fiches datées et documenter les observations réelles.
 - [ ] Préparer les sorties nécessaires au pilotage futur des signaux.
+
+## P2 — Localisation des trains
+
+- [ ] Définir l'identité, la direction et la longueur d'un train localisé.
+- [ ] Gérer l'initialisation et l'ambiguïté dans un block couvrant plusieurs ressources.
+- [ ] Définir la récupération après feedback absent, contradictoire ou périmé.
+- [ ] Valider le modèle sur le plan physique confirmé du petit réseau.
 
 ## P2 — Itinéraires et conduite sécurisée
 

@@ -16,14 +16,16 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/service"
 	"github.com/agm650/TrainPilot-server/internal/store"
+	"github.com/agm650/TrainPilot-server/internal/topology"
 )
 
 const (
-	FormatID       = "org.dcc-control.package"
-	FormatVersion  = 3
-	OldestVersion  = 1
-	MaxArchiveSize = 25 << 20
-	MaxEntrySize   = 10 << 20
+	FormatID            = "org.dcc-control.package"
+	FormatVersion       = 6 // rolling-stock archives
+	LayoutFormatVersion = 7
+	OldestVersion       = 1
+	MaxArchiveSize      = 25 << 20
+	MaxEntrySize        = 10 << 20
 )
 
 var ErrInvalidArchive = errors.New("invalid archive")
@@ -42,36 +44,139 @@ type LayoutDocument struct {
 	Layout model.LayoutDefinition `json:"layout"`
 }
 
+type layoutTurnoutDefinition struct {
+	ID        string                            `json:"id"`
+	Name      string                            `json:"name"`
+	Kind      model.TurnoutKind                 `json:"kind"`
+	Endpoints []model.AccessoryEndpoint         `json:"endpoints"`
+	Positions []model.TurnoutPositionDefinition `json:"positions"`
+}
+
+type layoutArchiveBlockDefinition struct {
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	TrackSectionIDs []string `json:"trackSectionIds"`
+	TurnoutIDs      []string `json:"turnoutIds,omitempty"`
+	Occupied        *bool    `json:"occupied,omitempty"`
+}
+
+type layoutArchiveDefinition struct {
+	Presentation            model.LayoutPresentation       `json:"presentation"`
+	Nodes                   []model.TopologyNode           `json:"nodes"`
+	TrackSections           []model.TrackSection           `json:"trackSections"`
+	TurnoutTopologies       []model.TurnoutTopology        `json:"turnoutTopologies"`
+	Blocks                  []layoutArchiveBlockDefinition `json:"blocks"`
+	Turnouts                []layoutTurnoutDefinition      `json:"turnouts"`
+	Routes                  []model.RouteDefinition        `json:"routes"`
+	FeedbackMappings        []model.FeedbackMapping        `json:"feedbackMappings"`
+	OccupancyProviders      []occupancyArchiveProvider     `json:"occupancyProviders,omitempty"`
+	OccupancySensorMappings []model.OccupancySensorMapping `json:"occupancySensorMappings,omitempty"`
+}
+
+type occupancyArchiveProvider struct {
+	ID                string `json:"id"`
+	Type              string `json:"type"`
+	Priority          int    `json:"priority"`
+	Required          bool   `json:"required"`
+	StaleAfter        string `json:"staleAfter"`
+	FreshnessRequired bool   `json:"freshnessRequired"`
+}
+
 // MarshalJSON deliberately exports turnout configuration separately from its
 // operational state. A layout archive must not restore a pending command or a
 // last observed position when imported on another server.
 func (d LayoutDocument) MarshalJSON() ([]byte, error) {
-	type turnoutDefinition struct {
-		ID        string                            `json:"id"`
-		Name      string                            `json:"name"`
-		Kind      model.TurnoutKind                 `json:"kind"`
-		Endpoints []model.AccessoryEndpoint         `json:"endpoints"`
-		Positions []model.TurnoutPositionDefinition `json:"positions"`
+	presentation := model.EmptyLayoutPresentation()
+	if d.Layout.Presentation != nil {
+		presentation = model.NormalizeLayoutPresentation(*d.Layout.Presentation)
 	}
-	type layoutDefinition struct {
-		Blocks           []model.Block           `json:"blocks"`
-		Turnouts         []turnoutDefinition     `json:"turnouts"`
-		Routes           []model.RouteDefinition `json:"routes"`
-		FeedbackMappings []model.FeedbackMapping `json:"feedbackMappings"`
+	blocks := make([]layoutArchiveBlockDefinition, 0, len(d.Layout.Blocks))
+	for _, block := range d.Layout.Blocks {
+		blocks = append(blocks, layoutArchiveBlockDefinition{
+			ID: block.ID, Name: block.Name,
+			TrackSectionIDs: append([]string{}, block.TrackSectionIDs...), TurnoutIDs: block.TurnoutIDs,
+		})
 	}
-	turnouts := make([]turnoutDefinition, 0, len(d.Layout.Turnouts))
+	turnouts := make([]layoutTurnoutDefinition, 0, len(d.Layout.Turnouts))
 	for _, turnout := range d.Layout.Turnouts {
-		turnouts = append(turnouts, turnoutDefinition{
+		turnouts = append(turnouts, layoutTurnoutDefinition{
 			ID: turnout.ID, Name: turnout.Name, Kind: turnout.Kind,
 			Endpoints: turnout.Endpoints, Positions: turnout.Positions,
 		})
 	}
+	providers := make([]occupancyArchiveProvider, 0, len(d.Layout.OccupancyProviders))
+	for _, provider := range d.Layout.OccupancyProviders {
+		providers = append(providers, occupancyArchiveProvider{
+			ID: provider.ID, Type: provider.Type, Priority: provider.Priority,
+			Required: provider.Required, StaleAfter: provider.StaleAfter.String(),
+			FreshnessRequired: provider.FreshnessRequired,
+		})
+	}
 	return json.Marshal(struct {
-		Layout layoutDefinition `json:"layout"`
-	}{Layout: layoutDefinition{
-		Blocks: d.Layout.Blocks, Turnouts: turnouts, Routes: d.Layout.Routes,
-		FeedbackMappings: d.Layout.FeedbackMappings,
+		Layout layoutArchiveDefinition `json:"layout"`
+	}{Layout: layoutArchiveDefinition{
+		Presentation: presentation,
+		Nodes:        d.Layout.TopologyNodes, TrackSections: d.Layout.TrackSections,
+		TurnoutTopologies: d.Layout.TurnoutTopologies,
+		Blocks:            blocks, Turnouts: turnouts, Routes: d.Layout.Routes,
+		FeedbackMappings:        d.Layout.FeedbackMappings,
+		OccupancyProviders:      providers,
+		OccupancySensorMappings: d.Layout.OccupancySensorMappings,
 	}})
+}
+
+func (d *LayoutDocument) UnmarshalJSON(data []byte) error {
+	var document struct {
+		Layout struct {
+			Presentation            *model.LayoutPresentation      `json:"presentation"`
+			Nodes                   []model.TopologyNode           `json:"nodes"`
+			TrackSections           []model.TrackSection           `json:"trackSections"`
+			TurnoutTopologies       []model.TurnoutTopology        `json:"turnoutTopologies"`
+			Blocks                  []layoutArchiveBlockDefinition `json:"blocks"`
+			Turnouts                []model.Turnout                `json:"turnouts"`
+			Routes                  []model.RouteDefinition        `json:"routes"`
+			FeedbackMappings        []model.FeedbackMapping        `json:"feedbackMappings"`
+			OccupancyProviders      []occupancyArchiveProvider     `json:"occupancyProviders,omitempty"`
+			OccupancySensorMappings []model.OccupancySensorMapping `json:"occupancySensorMappings,omitempty"`
+		} `json:"layout"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&document); err != nil {
+		return err
+	}
+	blocks := make([]model.BlockDefinition, 0, len(document.Layout.Blocks))
+	for _, block := range document.Layout.Blocks {
+		blocks = append(blocks, model.BlockDefinition{
+			ID: block.ID, Name: block.Name,
+			TrackSectionIDs: block.TrackSectionIDs, TurnoutIDs: block.TurnoutIDs,
+		})
+	}
+	providers := make([]model.OccupancyProvider, 0, len(document.Layout.OccupancyProviders))
+	for _, provider := range document.Layout.OccupancyProviders {
+		staleAfter, err := time.ParseDuration(provider.StaleAfter)
+		if err != nil {
+			return fmt.Errorf("occupancy provider %q staleAfter: %w", provider.ID, err)
+		}
+		providers = append(providers, model.OccupancyProvider{
+			ID: provider.ID, Type: provider.Type, Priority: provider.Priority,
+			Required: provider.Required, StaleAfter: staleAfter,
+			FreshnessRequired: provider.FreshnessRequired,
+		})
+	}
+	d.Layout = model.LayoutDefinition{
+		Presentation:            document.Layout.Presentation,
+		TopologyNodes:           document.Layout.Nodes,
+		TrackSections:           document.Layout.TrackSections,
+		TurnoutTopologies:       document.Layout.TurnoutTopologies,
+		Blocks:                  blocks,
+		Turnouts:                document.Layout.Turnouts,
+		Routes:                  document.Layout.Routes,
+		FeedbackMappings:        document.Layout.FeedbackMappings,
+		OccupancyProviders:      providers,
+		OccupancySensorMappings: document.Layout.OccupancySensorMappings,
+	}
+	return nil
 }
 
 type Service struct {
@@ -104,13 +209,18 @@ func BuildRollingStockArchive(createdAt time.Time, items []model.Locomotive) ([]
 }
 
 // BuildLayoutArchive creates an importable archive without requiring a store.
-// Runtime turnout state is omitted by LayoutDocument.MarshalJSON.
+// Runtime turnout and block state are omitted by LayoutDocument.MarshalJSON.
 func BuildLayoutArchive(createdAt time.Time, layout model.LayoutDefinition) ([]byte, error) {
 	if err := validateLayout(&layout); err != nil {
 		return nil, err
 	}
+	if layout.Presentation != nil {
+		if err := model.ValidateLayoutPresentation(*layout.Presentation, layout); err != nil {
+			return nil, err
+		}
+	}
 	return writeArchive(Manifest{
-		Format: FormatID, Version: FormatVersion, PackageType: "layout", CreatedAt: createdAt,
+		Format: FormatID, Version: LayoutFormatVersion, PackageType: "layout", CreatedAt: createdAt,
 	}, "layout.json", LayoutDocument{Layout: layout})
 }
 
@@ -119,7 +229,7 @@ func (s *Service) ExportLayout(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return writeArchive(Manifest{Format: FormatID, Version: FormatVersion, PackageType: "layout", CreatedAt: s.clock.Now()}, "layout.json", LayoutDocument{Layout: layout})
+	return writeArchive(Manifest{Format: FormatID, Version: LayoutFormatVersion, PackageType: "layout", CreatedAt: s.clock.Now()}, "layout.json", LayoutDocument{Layout: layout})
 }
 
 func (s *Service) ImportRollingStock(ctx context.Context, user model.User, data []byte, replace bool) error {
@@ -151,6 +261,9 @@ func (s *Service) ImportLayout(ctx context.Context, user model.User, data []byte
 		return fmt.Errorf("%w: %v", ErrInvalidArchive, err)
 	}
 	if err := s.store.ImportLayout(ctx, doc.Layout, replace); err != nil {
+		if errors.Is(err, model.ErrInvalidLayoutPresentation) {
+			return fmt.Errorf("%w: %v", ErrInvalidArchive, err)
+		}
 		return err
 	}
 	s.events.Publish("layout.imported", map[string]any{"blocks": len(doc.Layout.Blocks), "turnouts": len(doc.Layout.Turnouts), "routes": len(doc.Layout.Routes), "replace": replace, "userId": user.ID})
@@ -207,7 +320,11 @@ func readArchive(data []byte, packageType, documentName string, target any) erro
 	if err := decodeZipJSON(manifestFile, &manifest); err != nil {
 		return err
 	}
-	if manifest.Format != FormatID || manifest.Version < OldestVersion || manifest.Version > FormatVersion || manifest.PackageType != packageType {
+	maxVersion := FormatVersion
+	if packageType == "layout" {
+		maxVersion = LayoutFormatVersion
+	}
+	if manifest.Format != FormatID || manifest.Version < OldestVersion || manifest.Version > maxVersion || manifest.PackageType != packageType {
 		return fmt.Errorf("unsupported archive format %q version %d type %q", manifest.Format, manifest.Version, manifest.PackageType)
 	}
 	return decodeZipJSON(docFile, target)
@@ -255,12 +372,6 @@ func validateLayout(layout *model.LayoutDefinition) error {
 	turnouts := map[string]model.Turnout{}
 	routes := map[string]bool{}
 	for _, b := range layout.Blocks {
-		if b.ID == "" || b.Name == "" {
-			return errors.New("every block requires id and name")
-		}
-		if blocks[b.ID] {
-			return fmt.Errorf("duplicate block %q", b.ID)
-		}
 		blocks[b.ID] = true
 	}
 	for i, t := range layout.Turnouts {
@@ -273,6 +384,10 @@ func validateLayout(layout *model.LayoutDefinition) error {
 		}
 		layout.Turnouts[i] = normalized
 		turnouts[normalized.ID] = normalized
+	}
+	graph, err := topology.Build(*layout)
+	if err != nil {
+		return err
 	}
 	for _, r := range layout.Routes {
 		if r.ID == "" || r.Name == "" {
@@ -287,6 +402,33 @@ func validateLayout(layout *model.LayoutDefinition) error {
 		if m.Provider == "" || m.Address < 0 || !blocks[m.BlockID] {
 			return fmt.Errorf("invalid feedback mapping %s:%d", m.Provider, m.Address)
 		}
+	}
+	providers := make(map[string]bool, len(layout.OccupancyProviders))
+	for _, provider := range layout.OccupancyProviders {
+		if providers[provider.ID] {
+			return fmt.Errorf("duplicate occupancy provider %q", provider.ID)
+		}
+		if err := model.ValidateOccupancyProvider(provider); err != nil {
+			return err
+		}
+		providers[provider.ID] = true
+	}
+	mappings := make(map[string]bool, len(layout.OccupancySensorMappings))
+	for _, mapping := range layout.OccupancySensorMappings {
+		if err := model.ValidateOccupancySensorMapping(mapping); err != nil {
+			return err
+		}
+		if !providers[mapping.ProviderID] {
+			return fmt.Errorf("occupancy mapping %s/%s references unknown provider", mapping.ProviderID, mapping.SensorID)
+		}
+		if !blocks[mapping.BlockID] {
+			return fmt.Errorf("occupancy mapping %s/%s references unknown block %q", mapping.ProviderID, mapping.SensorID, mapping.BlockID)
+		}
+		key := mapping.ProviderID + "\x00" + mapping.SensorID
+		if mappings[key] {
+			return fmt.Errorf("duplicate occupancy mapping %s/%s", mapping.ProviderID, mapping.SensorID)
+		}
+		mappings[key] = true
 	}
 	for _, r := range layout.Routes {
 		for _, id := range r.BlockIDs {
@@ -308,6 +450,9 @@ func validateLayout(layout *model.LayoutDefinition) error {
 				return fmt.Errorf("route %q references unknown conflict %q", r.ID, id)
 			}
 		}
+	}
+	if err := topology.RouteValidationErrors(topology.ValidateRouteDefinitions(graph, layout.Routes, layout.Turnouts)); err != nil {
+		return err
 	}
 	return nil
 }

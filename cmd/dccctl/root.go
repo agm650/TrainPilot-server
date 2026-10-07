@@ -59,6 +59,7 @@ func newRootCommand() (*cobra.Command, error) {
 		newEmergencyStopCommand(app),
 		newTurnoutsCommand(app),
 		newTurnoutCommand(app),
+		newTopologyCommand(app),
 		newExportRollingStockCommand(app),
 		newImportRollingStockCommand(app),
 		newExportLayoutCommand(app),

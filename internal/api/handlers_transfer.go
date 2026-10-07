@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/agm650/TrainPilot-server/internal/service"
 	"github.com/agm650/TrainPilot-server/internal/transfer"
 )
 
@@ -58,6 +59,27 @@ func (s *Server) importLayout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) validateLayout(w http.ResponseWriter, r *http.Request) {
+	if !service.Allowed(userFrom(r).Role, service.PermissionConfigure) {
+		writeOperationProblem(w, service.ErrPermissionDenied, "permission_denied")
+		return
+	}
+	data, ok := readArchiveBody(w, r)
+	if !ok {
+		return
+	}
+	replace, ok := importMode(w, r)
+	if !ok {
+		return
+	}
+	result, err := s.transfer.ValidateLayout(r.Context(), userFrom(r), data, replace)
+	if err != nil {
+		writeOperationProblem(w, err, "layout_validation_failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func writeArchive(w http.ResponseWriter, filename string, data []byte) {
