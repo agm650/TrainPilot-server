@@ -8,7 +8,8 @@
     "enabled": false,
     "listen": "127.0.0.1:6060",
     "metrics": true,
-    "pprof": false
+    "pprof": false,
+    "logFeedback": false
   },
   "admin": {
     "socket": "/tmp/dccd-admin.sock",

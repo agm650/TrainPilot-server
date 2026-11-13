@@ -285,6 +285,11 @@ Start the server:
 go run ./cmd/dccd serve --config config.json
 ```
 
+Add `--log-feedback` to log station feedback events, including z21 R-BUS,
+to STDOUT. It is disabled by default and can also be enabled with
+`diagnostics.logFeedback` in the configuration file. See
+[`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) for fields and processing results.
+
 In another terminal, create users while the server is running:
 
 ```bash

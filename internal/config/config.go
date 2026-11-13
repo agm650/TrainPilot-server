@@ -16,10 +16,11 @@ type Config struct {
 		TLSKey  string `json:"tlsKey,omitempty"`
 	} `json:"http"`
 	Diagnostics struct {
-		Enabled bool   `json:"enabled"`
-		Listen  string `json:"listen"`
-		Metrics bool   `json:"metrics"`
-		Pprof   bool   `json:"pprof"`
+		Enabled     bool   `json:"enabled"`
+		Listen      string `json:"listen"`
+		Metrics     bool   `json:"metrics"`
+		Pprof       bool   `json:"pprof"`
+		LogFeedback bool   `json:"logFeedback"`
 	} `json:"diagnostics"`
 	Admin struct {
 		Socket string `json:"socket"`

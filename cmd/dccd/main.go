@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -51,15 +52,29 @@ func main() {
 	}
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: dccd serve [--config file] | dccd user <bootstrap|add|list|enable|disable|role|passwd> [options]")
+	fmt.Fprintln(os.Stderr, "usage: dccd serve [--config file] [--log-feedback] | dccd user <bootstrap|add|list|enable|disable|role|passwd> [options]")
 }
-func serve(args []string) error {
+func loadServeConfig(args []string) (config.Config, error) {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "JSON configuration file")
+	logFeedback := fs.Bool("log-feedback", false, "log station feedback events to stdout")
 	if err := fs.Parse(args); err != nil {
-		return err
+		return config.Config{}, err
 	}
 	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		return config.Config{}, err
+	}
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "log-feedback" {
+			cfg.Diagnostics.LogFeedback = *logFeedback
+		}
+	})
+	return cfg, nil
+}
+
+func serve(args []string) error {
+	cfg, err := loadServeConfig(args)
 	if err != nil {
 		return err
 	}
@@ -92,6 +107,9 @@ func serve(args []string) error {
 	}
 	defer st.Close()
 	railway := service.NewRailwayService(db, st, bus, cfg.Turnout.ConfirmationTimeout)
+	if cfg.Diagnostics.LogFeedback {
+		railway.SetFeedbackLogger(slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	}
 	control := service.NewControlService(db, st, bus, clk, cfg.Control.LeaseTTL, cfg.Control.StopGrace, cfg.Control.MonitorPeriod)
 	control.SetOccupancyProvider(railway.OccupancyService(), feedbackProviderID(st.Capabilities().Driver))
 	routes := service.NewRouteService(db, railway, bus)

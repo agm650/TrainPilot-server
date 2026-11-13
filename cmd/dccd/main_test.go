@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -10,6 +12,36 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/config"
 	"github.com/agm650/TrainPilot-server/internal/station"
 )
+
+func TestLoadServeConfigFeedbackLogging(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"diagnostics":{"logFeedback":true}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "disabled by default"},
+		{name: "enabled by flag", args: []string{"--log-feedback"}, want: true},
+		{name: "enabled by config", args: []string{"--config", path}, want: true},
+		{name: "flag overrides config", args: []string{"--config", path, "--log-feedback=false"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := loadServeConfig(tc.args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Diagnostics.LogFeedback != tc.want {
+				t.Fatalf("logFeedback=%t, want %t", cfg.Diagnostics.LogFeedback, tc.want)
+			}
+			if cfg.Diagnostics.Enabled {
+				t.Fatal("feedback logging enabled the diagnostics listener")
+			}
+		})
+	}
+}
 
 func TestBuildStationPassesOfflineAfterToDCCEX(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

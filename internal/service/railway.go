@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,6 +36,12 @@ type RailwayService struct {
 	occupancy            *OccupancyService
 	feedbackSequencesMu  sync.Mutex
 	feedbackSequences    map[occupancySourceKey]uint64
+	feedbackLogger       *slog.Logger
+}
+
+// SetFeedbackLogger configures optional feedback logging before StartFeedback.
+func (r *RailwayService) SetFeedbackLogger(logger *slog.Logger) {
+	r.feedbackLogger = logger
 }
 
 func (r *RailwayService) SetMetrics(metrics *observability.Metrics) {
@@ -381,6 +388,7 @@ func (r *RailwayService) StartFeedback(ctx context.Context) {
 						result = "unmapped"
 					}
 					r.metrics.ObserveFeedback(event.Source, result, time.Since(started))
+					r.logFeedback(event, result, "", err)
 					continue
 				}
 				state := model.OccupancyFree
@@ -397,11 +405,13 @@ func (r *RailwayService) StartFeedback(ctx context.Context) {
 				})
 				if err != nil {
 					r.metrics.ObserveFeedback(event.Source, "update_error", time.Since(started))
+					r.logFeedback(event, "update_error", mapping.BlockID, err)
 					continue
 				}
 				after := r.occupancy.BlockState(mapping.BlockID)
 				r.metrics.ObserveFeedbackOccupancy(event.Source, before.State != after.State)
 				r.metrics.ObserveFeedback(event.Source, "mapped", time.Since(started))
+				r.logFeedback(event, "mapped", mapping.BlockID, nil)
 			}
 		}
 	}()
@@ -422,6 +432,26 @@ func (r *RailwayService) StartFeedback(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+func (r *RailwayService) logFeedback(event station.FeedbackEvent, result, blockID string, err error) {
+	if r.feedbackLogger == nil {
+		return
+	}
+	attrs := []any{
+		"source", event.Source,
+		"kind", event.Kind,
+		"address", event.Address,
+		"active", event.Active,
+		"result", result,
+	}
+	if blockID != "" {
+		attrs = append(attrs, "block_id", blockID)
+	}
+	if err != nil {
+		attrs = append(attrs, "error", err)
+	}
+	r.feedbackLogger.Info("station.feedback", attrs...)
 }
 
 func (r *RailwayService) nextFeedbackSequence(providerID, sensorID string) uint64 {

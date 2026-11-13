@@ -13,7 +13,7 @@ func TestDefault(t *testing.T) {
 	if cfg.HTTP.Listen != "127.0.0.1:8080" {
 		t.Fatalf("HTTP listen=%q", cfg.HTTP.Listen)
 	}
-	if cfg.Diagnostics.Enabled || cfg.Diagnostics.Listen != "127.0.0.1:6060" || !cfg.Diagnostics.Metrics || cfg.Diagnostics.Pprof {
+	if cfg.Diagnostics.Enabled || cfg.Diagnostics.Listen != "127.0.0.1:6060" || !cfg.Diagnostics.Metrics || cfg.Diagnostics.Pprof || cfg.Diagnostics.LogFeedback {
 		t.Fatalf("diagnostics defaults=%+v", cfg.Diagnostics)
 	}
 	if cfg.Admin.Socket != "/tmp/dccd-admin.sock" || cfg.Admin.Mode != 0o660 {

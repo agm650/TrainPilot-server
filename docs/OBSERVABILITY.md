@@ -11,7 +11,8 @@ Ces fonctions sont optionnelles et désactivées par défaut.
     "enabled": false,
     "listen": "127.0.0.1:6060",
     "metrics": true,
-    "pprof": false
+    "pprof": false,
+    "logFeedback": false
   }
 }
 ```
@@ -23,6 +24,25 @@ Ces fonctions sont optionnelles et désactivées par défaut.
 
 Le listener de diagnostic utilise son propre serveur et son propre mux HTTP.
 Il ne modifie pas le contrat de l'API publique.
+
+## Logs de feedback sur STDOUT
+
+`diagnostics.logFeedback` active les logs des événements de feedback reçus de la
+centrale, dont les entrées R-BUS de la z21. Cette option vaut `false` par défaut.
+Elle fonctionne même si `diagnostics.enabled` vaut `false`.
+
+On peut aussi l'activer au démarrage :
+
+```bash
+dccd serve --config config.json --log-feedback
+```
+
+Le flag prime sur le fichier JSON. `--log-feedback=false` désactive ces logs.
+Chaque ligne sur STDOUT contient l'horodatage, la source, le type, l'adresse,
+l'état `active` et le résultat : `mapped`, `unmapped`, `mapping_error` ou
+`update_error`. Le bloc associé et l'erreur sont ajoutés lorsqu'ils existent.
+Les capteurs sans mapping sont donc visibles. Les logs de fonctionnement
+existants restent sur STDERR.
 
 ## Sécurité
 
