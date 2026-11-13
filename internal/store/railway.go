@@ -15,6 +15,7 @@ import (
 
 func (s *Store) ListLocomotives(ctx context.Context) (out []model.Locomotive, err error) {
 	started := time.Now()
+	out = make([]model.Locomotive, 0)
 	defer func() { s.observe("list_locomotives", started, err) }()
 	rows, err := s.DB.QueryContext(ctx, `SELECT id,name,dcc_address,address_kind,speed_steps,manufacturer,model FROM locomotives ORDER BY name`)
 	if err != nil {

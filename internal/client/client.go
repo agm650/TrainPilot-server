@@ -136,6 +136,11 @@ func (c *Client) Locomotives(ctx context.Context) ([]model.Locomotive, error) {
 		Items []model.Locomotive `json:"items"`
 	}
 	_, err := c.Do(ctx, "GET", "/api/v1/locomotives", nil, &out)
+
+	if out.Items == nil {
+		return []model.Locomotive{}, nil
+	}
+
 	return out.Items, err
 }
 func (c *Client) Locomotive(ctx context.Context, id string) (model.Locomotive, error) {
