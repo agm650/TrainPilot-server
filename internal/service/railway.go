@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -37,6 +38,7 @@ type RailwayService struct {
 	feedbackSequencesMu  sync.Mutex
 	feedbackSequences    map[occupancySourceKey]uint64
 	feedbackLogger       *slog.Logger
+	rbusLogActive        map[int]bool // Accessed only by the feedback goroutine.
 }
 
 // SetFeedbackLogger configures optional feedback logging before StartFeedback.
@@ -438,12 +440,33 @@ func (r *RailwayService) logFeedback(event station.FeedbackEvent, result, blockI
 	if r.feedbackLogger == nil {
 		return
 	}
+	var occupiedAddresses []int
+	if event.Source == "z21-rbus" && event.Kind == "occupancy" {
+		// An address starts free for logging, independently of occupancy state.
+		if r.rbusLogActive[event.Address] == event.Active {
+			return
+		}
+		if r.rbusLogActive == nil {
+			r.rbusLogActive = make(map[int]bool)
+		}
+		r.rbusLogActive[event.Address] = event.Active
+		occupiedAddresses = make([]int, 0)
+		for address, active := range r.rbusLogActive {
+			if active {
+				occupiedAddresses = append(occupiedAddresses, address)
+			}
+		}
+		sort.Ints(occupiedAddresses)
+	}
 	attrs := []any{
 		"source", event.Source,
 		"kind", event.Kind,
 		"address", event.Address,
 		"active", event.Active,
 		"result", result,
+	}
+	if occupiedAddresses != nil {
+		attrs = append(attrs, "occupied_addresses", occupiedAddresses)
 	}
 	if blockID != "" {
 		attrs = append(attrs, "block_id", blockID)

@@ -44,6 +44,16 @@ l'état `active` et le résultat : `mapped`, `unmapped`, `mapping_error` ou
 Les capteurs sans mapping sont donc visibles. Les logs de fonctionnement
 existants restent sur STDERR.
 
+Pour les entrées R-BUS, seuls les changements d'état sont affichés, par adresse.
+Chaque changement affiche aussi `occupied_addresses`, la liste complète des
+adresses R-BUS occupées connues, triée par ordre croissant, avec ou sans mapping.
+La liste vaut `[]` quand toutes les adresses sont libres.
+L'état initial pour les logs est `free` (`active=false`) : une première réception
+`free` reste silencieuse, une première réception `occupied` est affichée.
+Les répétitions du même état sont ignorées dans les logs, même sans mapping.
+Cet historique repart de `free` au redémarrage du serveur. Le traitement des
+observations et l'état d'occupation de sécurité restent indépendants de ce filtre.
+
 ## Sécurité
 
 Les endpoints de diagnostic ne demandent pas d'authentification applicative.
