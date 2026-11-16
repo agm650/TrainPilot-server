@@ -1,17 +1,19 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/service"
 )
 
 const (
 	serverVersion                = "0.2.0"
-	apiVersion                   = "1.13.0"
+	apiVersion                   = "1.14.0"
 	minimumClientAPIVersion      = "1.0.0"
-	eventAPIVersion              = "1.12.0"
+	eventAPIVersion              = "1.13.0"
 	minimumClientEventAPIVersion = "1.3.0"
 )
 
@@ -75,6 +77,9 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, statusFor(err), "logout_failed", err.Error())
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = s.control.StopSessionFunctions(ctx, sessionFrom(r).ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 func (s *Server) me(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, userFrom(r)) }

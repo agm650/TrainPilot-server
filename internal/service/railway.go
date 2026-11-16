@@ -119,13 +119,17 @@ func (r *RailwayService) UpdateLocomotive(ctx context.Context, user model.User, 
 	if !Allowed(user.Role, PermissionConfigure) {
 		return model.Locomotive{}, ErrPermissionDenied
 	}
-	if _, err := r.store.GetLocomotive(ctx, id); err != nil {
+	previous, err := r.store.GetLocomotive(ctx, id)
+	if err != nil {
 		return model.Locomotive{}, err
 	}
 	if _, err := r.store.LiveLeaseForLoco(ctx, id); err == nil {
 		return model.Locomotive{}, fmt.Errorf("locomotive has an active control lease: %w", store.ErrConflict)
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return model.Locomotive{}, err
+	}
+	if input.Functions == nil {
+		input.Functions = previous.Functions
 	}
 	x, err := locomotiveFromInput(id, input)
 	if err != nil {
@@ -158,6 +162,12 @@ func (r *RailwayService) DeleteLocomotive(ctx context.Context, user model.User, 
 }
 
 func locomotiveFromInput(id string, input model.LocomotiveInput) (model.Locomotive, error) {
+	if err := model.ValidateLocomotiveFunctions(input.Functions); err != nil {
+		return model.Locomotive{}, invalid(err.Error())
+	}
+	if input.Functions == nil {
+		input.Functions = []model.LocomotiveFunction{}
+	}
 	input.Name = strings.TrimSpace(input.Name)
 	input.AddressKind = strings.ToLower(strings.TrimSpace(input.AddressKind))
 	input.Manufacturer = strings.TrimSpace(input.Manufacturer)
@@ -204,6 +214,7 @@ func locomotiveFromInput(id string, input model.LocomotiveInput) (model.Locomoti
 		SpeedSteps:   input.SpeedSteps,
 		Manufacturer: input.Manufacturer,
 		Model:        input.Model,
+		Functions:    input.Functions,
 	}, nil
 }
 func (r *RailwayService) Blocks(ctx context.Context) ([]model.Block, error) {

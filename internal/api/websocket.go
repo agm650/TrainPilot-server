@@ -154,6 +154,12 @@ func (s *Server) eventsWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	disconnectClient := s.control.ConnectClient(sessionFrom(r).ID)
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = disconnectClient(ctx)
+	}()
 	disconnected := s.metrics.WebSocketConnected()
 	defer disconnected()
 

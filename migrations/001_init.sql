@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS locomotives (
   address_kind TEXT NOT NULL DEFAULT 'short',
   speed_steps INTEGER NOT NULL DEFAULT 128,
   manufacturer TEXT NOT NULL DEFAULT '',
-  model TEXT NOT NULL DEFAULT ''
+  model TEXT NOT NULL DEFAULT '',
+  functions_json TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS control_leases (

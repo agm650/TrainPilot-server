@@ -21,7 +21,7 @@ import (
 
 const (
 	FormatID            = "org.dcc-control.package"
-	FormatVersion       = 6 // rolling-stock archives
+	FormatVersion       = 7 // rolling-stock archives
 	LayoutFormatVersion = 7
 	OldestVersion       = 1
 	MaxArchiveSize      = 25 << 20
@@ -345,6 +345,9 @@ func decodeZipJSON(file *zip.File, target any) error {
 func validateLocomotives(items []model.Locomotive) error {
 	seen := map[string]bool{}
 	for i, x := range items {
+		if err := model.ValidateLocomotiveFunctions(x.Functions); err != nil {
+			return fmt.Errorf("locomotive %q: %w", x.ID, err)
+		}
 		if x.ID == "" || x.Name == "" {
 			return fmt.Errorf("locomotive %d requires id and name", i)
 		}

@@ -97,7 +97,8 @@ func (s *Store) Migrate(ctx context.Context) error {
 			address_kind TEXT NOT NULL DEFAULT 'short',
 			speed_steps INTEGER NOT NULL DEFAULT 128,
 			manufacturer TEXT NOT NULL DEFAULT '',
-			model TEXT NOT NULL DEFAULT ''
+			model TEXT NOT NULL DEFAULT '',
+			functions_json TEXT NOT NULL DEFAULT '[]'
 		)`,
 		`CREATE TABLE IF NOT EXISTS control_leases (
 			id TEXT PRIMARY KEY,
@@ -312,7 +313,23 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if err := s.migrateRouteSchema(ctx); err != nil {
 		return err
 	}
+	if err := s.migrateLocomotiveSchema(ctx); err != nil {
+		return err
+	}
 	return s.migrateOccupancySchema(ctx)
+}
+
+func (s *Store) migrateLocomotiveSchema(ctx context.Context) error {
+	columns, err := s.tableColumns(ctx, "locomotives")
+	if err != nil {
+		return fmt.Errorf("inspect locomotive schema: %w", err)
+	}
+	if !columns["functions_json"] {
+		if _, err := s.DB.ExecContext(ctx, `ALTER TABLE locomotives ADD COLUMN functions_json TEXT NOT NULL DEFAULT '[]'`); err != nil {
+			return fmt.Errorf("migrate locomotive functions: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *Store) migrateOccupancySchema(ctx context.Context) error {

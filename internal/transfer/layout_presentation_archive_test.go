@@ -271,20 +271,20 @@ func TestLayoutEditorArchivePreservesRoutesAndFeedback(t *testing.T) {
 	}
 }
 
-func TestRollingStockArchiveVersionRemainsSix(t *testing.T) {
+func TestRollingStockArchiveVersionSupportsFunctions(t *testing.T) {
 	data, err := BuildRollingStockArchive(time.Now(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest := archiveManifest(t, data); manifest.Version != 6 {
+	if manifest := archiveManifest(t, data); manifest.Version != 7 {
 		t.Fatalf("rolling stock archive version=%d", manifest.Version)
 	}
-	unsupported, err := writeArchive(Manifest{Format: FormatID, Version: LayoutFormatVersion, PackageType: "rolling-stock", CreatedAt: time.Now()}, "rolling-stock.json", RollingStockDocument{})
+	unsupported, err := writeArchive(Manifest{Format: FormatID, Version: FormatVersion + 1, PackageType: "rolling-stock", CreatedAt: time.Now()}, "rolling-stock.json", RollingStockDocument{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := New(openArchiveStore(t), events.New(), clock.Real{}).ImportRollingStock(context.Background(), model.User{Role: model.RoleAdministrator}, unsupported, true); !errors.Is(err, ErrInvalidArchive) {
-		t.Fatalf("rolling stock version 7 error=%v", err)
+		t.Fatalf("unsupported rolling stock version error=%v", err)
 	}
 }
 

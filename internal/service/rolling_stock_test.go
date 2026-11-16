@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/agm650/TrainPilot-server/internal/events"
@@ -37,6 +38,7 @@ func TestLocomotiveCRUD(t *testing.T) {
 		SpeedSteps:   128,
 		Manufacturer: " Roco ",
 		Model:        " BB 63000 ",
+		Functions:    []model.LocomotiveFunction{{Number: 2, Momentary: true}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +51,7 @@ func TestLocomotiveCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != created {
+	if !reflect.DeepEqual(got, created) {
 		t.Fatalf("get=%+v want=%+v", got, created)
 	}
 
@@ -66,6 +68,9 @@ func TestLocomotiveCRUD(t *testing.T) {
 	}
 	if updated.ID != created.ID || updated.Name != "BB 63001" || updated.DCCAddress != 4 || updated.SpeedSteps != 28 {
 		t.Fatalf("unexpected updated locomotive: %+v", updated)
+	}
+	if !updated.IsMomentary(2) {
+		t.Fatal("update without function definitions erased momentary configuration")
 	}
 
 	items, err := railway.Locomotives(ctx)

@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: DCC Control Server Events
-  version: 1.12.0
+  version: 1.13.0
   description: >-
     WebSocket event contract for native clients, including complete sequenced
     snapshots and explicit resynchronization requests. After a snapshot, clients
@@ -182,6 +182,16 @@ components:
         speedSteps: { type: integer, enum: [14, 28, 128] }
         manufacturer: { type: string }
         model: { type: string }
+        functions:
+          type: array
+          maxItems: 69
+          description: Function definitions. Unlisted functions are not momentary.
+          items:
+            type: object
+            required: [number, momentary]
+            properties:
+              number: { type: integer, minimum: 0, maximum: 68 }
+              momentary: { type: boolean, default: false }
     Block:
       type: object
       required: [id, name, occupied, occupancy]
@@ -467,6 +477,10 @@ components:
                   userId: { type: string, format: uuid }
     LocomotiveFunctionChanged:
       name: locomotive.function.changed
+      description: >-
+        Includes server-generated OFF commands when held momentary functions
+        are stopped after client disconnect, lease loss or session invalidation.
+        A failed OFF write is retried and emits this event only after success.
       payload:
         allOf:
           - $ref: '#/components/schemas/EventEnvelope'

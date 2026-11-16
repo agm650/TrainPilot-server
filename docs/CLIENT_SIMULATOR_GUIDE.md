@@ -5,8 +5,8 @@ Dernière validation : 18 septembre 2026.
 Versions du contrat actuellement documentées :
 
 - serveur : `0.2.0` ;
-- API HTTP : `1.13.0` ;
-- API événementielle : `1.12.0` ;
+- API HTTP : `1.14.0` ;
+- API événementielle : `1.13.0` ;
 - format des scénarios du simulateur : `1`.
 
 Ce guide explique comment utiliser TrainPilot-server comme banc virtuel pour
@@ -256,9 +256,9 @@ Exemple :
 ```json
 {
   "serverVersion": "0.2.0",
-  "apiVersion": "1.13.0",
+  "apiVersion": "1.14.0",
   "minimumClientApiVersion": "1.0.0",
-  "eventApiVersion": "1.12.0",
+  "eventApiVersion": "1.13.0",
   "minimumClientEventApiVersion": "1.3.0",
   "station": {
     "driver": "simulator",

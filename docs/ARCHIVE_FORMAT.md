@@ -1,7 +1,8 @@
 # Format des archives DCC Control
 
-Versions actuelles : **7** pour `.dcclayout`, **6** pour `.dcclib`.
+Versions actuelles : **7** pour `.dcclayout` et `.dcclib`.
 Les archives de circuit versions 1 à 6 restent importables.
+Les bibliothèques de matériel versions 1 à 6 restent également importables.
 
 Les extensions recommandées sont :
 
@@ -25,7 +26,7 @@ Chaque archive contient obligatoirement `manifest.json` :
 Chaque `linearAddress` d'endpoint doit être compris entre `1` et `2040`.
 Les adresses `2041..2044` sont exclues de la plage portable TrainPilot.
 
-`packageType` vaut `rolling-stock` ou `layout`. Un manifeste `rolling-stock` utilise la version 6 au maximum.
+`packageType` vaut `rolling-stock` ou `layout`. Les deux types utilisent la version 7 au maximum.
 Un format, une version ou un type inconnu est refusé.
 
 ## Bibliothèque de matériel
@@ -42,13 +43,32 @@ Une archive de type `rolling-stock` contient `rolling-stock.json` :
       "addressKind": "long",
       "speedSteps": 128,
       "manufacturer": "Jouef",
-      "model": "BB 26000"
+      "model": "BB 26000",
+      "functions": [
+        { "number": 0, "momentary": false },
+        { "number": 2, "momentary": true }
+      ]
     }
   ]
 }
 ```
 
 Les identifiants doivent être stables. L’adresse DCC est validée dans l’intervalle 1–9999 et les pas de vitesse acceptés sont 14, 28 et 128.
+
+Depuis la version 7, `functions` décrit les fonctions de chaque engin.
+Les numéros sont uniques et compris entre 0 et 68.
+`momentary` vaut `false` par défaut. Une fonction non décrite est normale.
+Une fonction temporaire est active pendant l'appui et désactivée au relâchement.
+Ces définitions ne contiennent pas l'état actif des fonctions.
+
+En mode fusion, une liste absente ou `null` conserve les réglages existants.
+Une liste vide `[]` les efface explicitement.
+Pour un nouvel engin, une liste absente ou `null` signifie que toutes les
+fonctions sont normales. Le remplacement complet du parc importe un nouvel
+ensemble d'engins et applique ce même défaut aux anciennes archives.
+
+Voir [les fonctions temporaires](LOCOMOTIVE_FUNCTIONS.md) pour les commandes
+des clients et les arrêts automatiques du serveur.
 
 ## Circuit
 

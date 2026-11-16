@@ -57,13 +57,14 @@ type Session struct {
 }
 
 type Locomotive struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	DCCAddress   int    `json:"dccAddress"`
-	AddressKind  string `json:"addressKind"`
-	SpeedSteps   int    `json:"speedSteps"`
-	Manufacturer string `json:"manufacturer,omitempty"`
-	Model        string `json:"model,omitempty"`
+	ID           string               `json:"id"`
+	Name         string               `json:"name"`
+	DCCAddress   int                  `json:"dccAddress"`
+	AddressKind  string               `json:"addressKind"`
+	SpeedSteps   int                  `json:"speedSteps"`
+	Manufacturer string               `json:"manufacturer,omitempty"`
+	Model        string               `json:"model,omitempty"`
+	Functions    []LocomotiveFunction `json:"functions"`
 }
 
 // LocomotiveInput is the writable representation of a locomotive.
@@ -75,6 +76,8 @@ type LocomotiveInput struct {
 	SpeedSteps   int    `json:"speedSteps"`
 	Manufacturer string `json:"manufacturer,omitempty"`
 	Model        string `json:"model,omitempty"`
+	// Nil preserves existing definitions on update; an empty slice clears them.
+	Functions []LocomotiveFunction `json:"functions"`
 }
 
 type LeaseState string

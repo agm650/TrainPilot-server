@@ -43,10 +43,14 @@ type ControlService struct {
 	metrics                      *observability.Metrics
 	occupancy                    *OccupancyService
 	occupancyProviderID          string
+	momentaryMu                  sync.Mutex
+	momentary                    map[momentaryKey]heldMomentaryFunction
+	clientConnections            map[string]int
+	clientGenerations            map[string]uint64
 }
 
 func NewControlService(s *store.Store, st station.CommandStation, b *events.Bus, c clock.Clock, leaseTTL, stopGrace, monitor time.Duration) *ControlService {
-	return &ControlService{store: s, station: st, events: b, clock: c, leaseTTL: leaseTTL, stopGrace: stopGrace, monitor: monitor, stop: make(chan struct{}), commands: newPriorityCommandGate(), lastDirection: make(map[string]station.Direction)}
+	return &ControlService{store: s, station: st, events: b, clock: c, leaseTTL: leaseTTL, stopGrace: stopGrace, monitor: monitor, stop: make(chan struct{}), commands: newPriorityCommandGate(), lastDirection: make(map[string]station.Direction), momentary: make(map[momentaryKey]heldMomentaryFunction), clientConnections: make(map[string]int), clientGenerations: make(map[string]uint64)}
 }
 func (c *ControlService) SetMetrics(metrics *observability.Metrics) { c.metrics = metrics }
 
@@ -510,6 +514,9 @@ func (c *ControlService) TakeoverLease(ctx context.Context, user model.User, cur
 	}
 
 	c.preemptOrdinaryCommands()
+	if err := c.stopMomentaryLocked(ctx, func(_ momentaryKey, held heldMomentaryFunction) bool { return held.LeaseID == leaseID }); err != nil {
+		return model.ControlLease{}, err
+	}
 	if err := station.CheckCommandAllowed(c.station); err != nil {
 		return model.ControlLease{}, err
 	}
@@ -620,35 +627,85 @@ func (c *ControlService) Function(ctx context.Context, sess model.Session, locoI
 	if err := c.validateCommandLease(ctx, leaseID, locoID, sess.ID); err != nil {
 		return err
 	}
+	momentary := loco.IsMomentary(fn)
+	safety := momentary && !on
+	c.momentaryMu.Lock()
+	generation := c.clientGenerations[sess.ID]
+	c.momentaryMu.Unlock()
 	epoch := c.currentSafetyEpoch()
-	release, err := c.commands.acquire(ctx, false)
+	release, err := c.commands.acquire(ctx, safety)
 	if err != nil {
 		return err
 	}
 	defer release()
-	if c.currentSafetyEpoch() != epoch {
+	if safety {
+		c.preemptOrdinaryCommands()
+	} else if c.currentSafetyEpoch() != epoch {
 		return ErrSafetyPreempted
+	}
+	if momentary && on {
+		c.momentaryMu.Lock()
+		connections, known := c.clientConnections[sess.ID]
+		currentGeneration := c.clientGenerations[sess.ID]
+		c.momentaryMu.Unlock()
+		if (known && connections == 0) || currentGeneration != generation {
+			return invalid("momentary function requires reconnecting the client event stream")
+		}
+		if active, err := c.momentarySessionActive(ctx, sess.ID); err != nil {
+			return err
+		} else if !active {
+			return ErrInvalidAccessToken
+		}
+	}
+	if safety {
+		key := momentaryKey{LocomotiveID: locoID, Number: fn}
+		c.momentaryMu.Lock()
+		if held, ok := c.momentary[key]; ok && held.LeaseID == leaseID && held.SessionID == sess.ID {
+			held.PendingOff = true
+			c.momentary[key] = held
+		}
+		c.momentaryMu.Unlock()
 	}
 	if err := station.CheckCommandAllowed(c.station); err != nil {
 		return err
 	}
-	if err := c.ensureTrackPowerKnown(ctx); err != nil {
-		return err
-	}
-	if err := c.checkDriveAllowed(false); err != nil {
-		return err
+	if !safety {
+		if err := c.ensureTrackPowerKnown(ctx); err != nil {
+			return err
+		}
+		if err := c.checkDriveAllowed(false); err != nil {
+			return err
+		}
 	}
 	now := c.clock.Now()
 	if err := c.store.RenewActiveLeaseForCommand(ctx, leaseID, locoID, sess.ID, now, now.Add(c.leaseTTL)); err != nil {
 		return err
 	}
+	key := momentaryKey{LocomotiveID: locoID, Number: fn}
+	if momentary {
+		// A failed write may still have reached the station. Retain the
+		// obligation to send OFF until a later write succeeds.
+		c.momentaryMu.Lock()
+		c.momentary[key] = heldMomentaryFunction{LeaseID: leaseID, SessionID: sess.ID, Address: loco.DCCAddress, PendingOff: true}
+		c.momentaryMu.Unlock()
+	}
 	if err := c.observeStationCommand("function", func() error { return c.station.SetLocoFunction(ctx, loco.DCCAddress, fn, on) }); err != nil {
 		return err
+	}
+	if momentary {
+		c.momentaryMu.Lock()
+		if on {
+			c.momentary[key] = heldMomentaryFunction{LeaseID: leaseID, SessionID: sess.ID, Address: loco.DCCAddress}
+		} else {
+			delete(c.momentary, key)
+		}
+		c.momentaryMu.Unlock()
 	}
 	c.events.Publish("locomotive.function.changed", map[string]any{"locomotiveId": locoID, "function": fn, "enabled": on})
 	return nil
 }
 func (c *ControlService) Sweep(ctx context.Context) {
+	c.sweepMomentaryFunctions(ctx)
 	now := c.clock.Now()
 	expired, _ := c.store.ExpiredActiveLeases(ctx, now)
 	for _, l := range expired {
@@ -657,6 +714,9 @@ func (c *ControlService) Sweep(ctx context.Context) {
 	}
 	ready, _ := c.store.StoppingLeasesReady(ctx, now)
 	for _, l := range ready {
+		if err := c.stopLeaseMomentaryFunctions(ctx, l.ID); err != nil {
+			continue
+		}
 		if err := c.store.ReleaseLease(ctx, l.ID, "", l.ReleaseReason); err == nil {
 			c.metrics.AddActiveLeases(-1)
 			if l.ReleaseReason == "heartbeat_timeout" {
@@ -685,6 +745,7 @@ func (c *ControlService) stopAndScheduleRelease(ctx context.Context, l model.Con
 	}
 	defer release()
 	c.preemptOrdinaryCommands()
+	functionErr := c.stopMomentaryLocked(ctx, func(_ momentaryKey, held heldMomentaryFunction) bool { return held.LeaseID == l.ID })
 	if err := station.CheckCommandAllowed(c.station); err != nil {
 		return fmt.Errorf("stop command failed: %w", err)
 	}
@@ -693,6 +754,9 @@ func (c *ControlService) stopAndScheduleRelease(ctx context.Context, l model.Con
 		return fmt.Errorf("stop command failed: %w", err)
 	}
 	c.rememberLocoDirection(l.LocomotiveID, direction)
+	if functionErr != nil {
+		return fmt.Errorf("stop momentary functions: %w", functionErr)
+	}
 	c.metrics.SafetyStop(reason)
 	if reason == "heartbeat_timeout" {
 		delay := c.clock.Now().Sub(l.ExpiresAt)

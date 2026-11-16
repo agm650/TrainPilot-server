@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -17,14 +18,14 @@ func (s *Store) ListLocomotives(ctx context.Context) (out []model.Locomotive, er
 	started := time.Now()
 	out = make([]model.Locomotive, 0)
 	defer func() { s.observe("list_locomotives", started, err) }()
-	rows, err := s.DB.QueryContext(ctx, `SELECT id,name,dcc_address,address_kind,speed_steps,manufacturer,model FROM locomotives ORDER BY name`)
+	rows, err := s.DB.QueryContext(ctx, `SELECT id,name,dcc_address,address_kind,speed_steps,manufacturer,model,functions_json FROM locomotives ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var x model.Locomotive
-		if err := rows.Scan(&x.ID, &x.Name, &x.DCCAddress, &x.AddressKind, &x.SpeedSteps, &x.Manufacturer, &x.Model); err != nil {
+		x, err := scanLocomotive(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, x)
@@ -35,15 +36,19 @@ func (s *Store) ListLocomotives(ctx context.Context) (out []model.Locomotive, er
 func (s *Store) GetLocomotive(ctx context.Context, id string) (x model.Locomotive, err error) {
 	started := time.Now()
 	defer func() { s.observe("get_locomotive", started, err) }()
-	err = s.DB.QueryRowContext(ctx, `SELECT id,name,dcc_address,address_kind,speed_steps,manufacturer,model FROM locomotives WHERE id=?`, id).Scan(&x.ID, &x.Name, &x.DCCAddress, &x.AddressKind, &x.SpeedSteps, &x.Manufacturer, &x.Model)
+	x, err = scanLocomotive(s.DB.QueryRowContext(ctx, `SELECT id,name,dcc_address,address_kind,speed_steps,manufacturer,model,functions_json FROM locomotives WHERE id=?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
 	return x, err
 }
 func (s *Store) CreateLocomotive(ctx context.Context, x model.Locomotive) error {
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO locomotives(id,name,dcc_address,address_kind,speed_steps,manufacturer,model) VALUES(?,?,?,?,?,?,?)`,
-		x.ID, x.Name, x.DCCAddress, x.AddressKind, x.SpeedSteps, x.Manufacturer, x.Model)
+	functions, err := locomotiveFunctionsJSON(x.Functions)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.ExecContext(ctx, `INSERT INTO locomotives(id,name,dcc_address,address_kind,speed_steps,manufacturer,model,functions_json) VALUES(?,?,?,?,?,?,?,COALESCE(?,'[]'))`,
+		x.ID, x.Name, x.DCCAddress, x.AddressKind, x.SpeedSteps, x.Manufacturer, x.Model, functions)
 	if isUnique(err) {
 		return ErrConflict
 	}
@@ -51,12 +56,41 @@ func (s *Store) CreateLocomotive(ctx context.Context, x model.Locomotive) error 
 }
 
 func (s *Store) UpdateLocomotive(ctx context.Context, x model.Locomotive) error {
-	res, err := s.DB.ExecContext(ctx, `UPDATE locomotives SET name=?,dcc_address=?,address_kind=?,speed_steps=?,manufacturer=?,model=? WHERE id=?`,
-		x.Name, x.DCCAddress, x.AddressKind, x.SpeedSteps, x.Manufacturer, x.Model, x.ID)
+	functions, err := locomotiveFunctionsJSON(x.Functions)
+	if err != nil {
+		return err
+	}
+	res, err := s.DB.ExecContext(ctx, `UPDATE locomotives SET name=?,dcc_address=?,address_kind=?,speed_steps=?,manufacturer=?,model=?,functions_json=COALESCE(?,functions_json) WHERE id=?`,
+		x.Name, x.DCCAddress, x.AddressKind, x.SpeedSteps, x.Manufacturer, x.Model, functions, x.ID)
 	if err != nil {
 		return err
 	}
 	return requireAffected(res)
+}
+
+func scanLocomotive(scanner interface{ Scan(...any) error }) (x model.Locomotive, err error) {
+	var functions string
+	if err = scanner.Scan(&x.ID, &x.Name, &x.DCCAddress, &x.AddressKind, &x.SpeedSteps, &x.Manufacturer, &x.Model, &functions); err != nil {
+		return x, err
+	}
+	if err = json.Unmarshal([]byte(functions), &x.Functions); err != nil {
+		return x, err
+	}
+	if x.Functions == nil {
+		x.Functions = []model.LocomotiveFunction{}
+	}
+	return x, nil
+}
+
+func locomotiveFunctionsJSON(functions []model.LocomotiveFunction) (any, error) {
+	if functions == nil {
+		return nil, nil
+	}
+	if err := model.ValidateLocomotiveFunctions(functions); err != nil {
+		return nil, err
+	}
+	encoded, err := json.Marshal(functions)
+	return string(encoded), err
 }
 
 func (s *Store) DeleteLocomotive(ctx context.Context, id string) error {
@@ -616,7 +650,11 @@ func (s *Store) ReplaceLocomotives(ctx context.Context, items []model.Locomotive
 			}
 		}
 		for _, x := range items {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO locomotives(id,name,dcc_address,address_kind,speed_steps,manufacturer,model) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,dcc_address=excluded.dcc_address,address_kind=excluded.address_kind,speed_steps=excluded.speed_steps,manufacturer=excluded.manufacturer,model=excluded.model`, x.ID, x.Name, x.DCCAddress, x.AddressKind, x.SpeedSteps, x.Manufacturer, x.Model); err != nil {
+			functions, err := locomotiveFunctionsJSON(x.Functions)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO locomotives(id,name,dcc_address,address_kind,speed_steps,manufacturer,model,functions_json) VALUES(?,?,?,?,?,?,?,COALESCE(?,'[]')) ON CONFLICT(id) DO UPDATE SET name=excluded.name,dcc_address=excluded.dcc_address,address_kind=excluded.address_kind,speed_steps=excluded.speed_steps,manufacturer=excluded.manufacturer,model=excluded.model,functions_json=COALESCE(?,locomotives.functions_json)`, x.ID, x.Name, x.DCCAddress, x.AddressKind, x.SpeedSteps, x.Manufacturer, x.Model, functions, functions); err != nil {
 				return err
 			}
 		}

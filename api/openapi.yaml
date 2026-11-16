@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: DCC Control Server API
-  version: 1.13.0
+  version: 1.14.0
   description: >-
     Contract for native DCC clients. User administration is deliberately absent
     from this public API and is available only over the local administration socket.
@@ -192,7 +192,10 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
     put:
       operationId: updateLocomotive
-      description: Replaces the writable locomotive properties. Requires the administrator role and no active control lease.
+      description: >-
+        Replaces the writable locomotive properties. Omitted or null functions
+        preserve existing definitions; an empty array clears them.
+        Requires the administrator role and no active control lease.
       requestBody:
         required: true
         content:
@@ -325,6 +328,13 @@ paths:
         Sets a locomotive function and renews the active lease inactivity deadline.
         The command is rejected while track power is off or unknown, while an
         emergency stop is active, or when a safety command preempted it while queued.
+        For momentary functions clients send enabled=true on press and false on
+        release. Momentary OFF commands remain allowed with track power off or
+        unknown and during emergency stop. Closing the last event WebSocket for
+        the owning session also sends OFF. Lease expiry, release, takeover and
+        session revocation or expiry stop held momentary functions. Failed OFF
+        writes are retried by the server. A disconnected event client must
+        reconnect before sending a new momentary ON command.
       requestBody:
         required: true
         content:
@@ -861,13 +871,41 @@ components:
         speedSteps: { type: integer, enum: [14, 28, 128] }
         manufacturer: { type: string, maxLength: 128 }
         model: { type: string, maxLength: 128 }
+        functions:
+          type: [array, 'null']
+          maxItems: 69
+          description: >-
+            Function definitions, with unique numbers. Unlisted functions are
+            normal (momentary=false). Omitted or null on creation means all
+            functions are normal. Omitted or null on update preserves existing
+            definitions; [] explicitly clears them.
+          items: { $ref: '#/components/schemas/LocomotiveFunction' }
+    LocomotiveFunction:
+      type: object
+      additionalProperties: false
+      required: [number]
+      properties:
+        number: { type: integer, minimum: 0, maximum: 68 }
+        momentary:
+          type: boolean
+          default: false
+          description: Active while pressed; clients send OFF when released.
     Locomotive:
-      allOf:
-        - $ref: '#/components/schemas/LocomotiveInput'
-        - type: object
-          required: [id]
-          properties:
-            id: { type: string }
+      type: object
+      required: [id, name, dccAddress, addressKind, speedSteps]
+      properties:
+        id: { type: string }
+        name: { type: string, minLength: 1, maxLength: 128 }
+        dccAddress: { type: integer, minimum: 1, maximum: 10239 }
+        addressKind: { type: string, enum: [short, long] }
+        speedSteps: { type: integer, enum: [14, 28, 128] }
+        manufacturer: { type: string, maxLength: 128 }
+        model: { type: string, maxLength: 128 }
+        functions:
+          type: array
+          maxItems: 69
+          description: Function definitions. Unlisted functions are normal.
+          items: { $ref: '#/components/schemas/LocomotiveFunction' }
     ControlLease:
       type: object
       required: [id, locomotiveId, userId, sessionId, state, acquiredAt, renewedAt, expiresAt, heartbeatMillis]
