@@ -4,12 +4,88 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+Physical railway topology, integrated z21 R-BUS block occupancy, and momentary
+locomotive functions.
+
+### Added
+
+- Per-locomotive function definitions with a `momentary` setting, defaulting
+  to `false`. Momentary functions stay active while pressed and turn off on
+  release. Missing definitions preserve existing settings on update.
+- Server-side tracking of held momentary functions, with OFF commands after
+  client disconnection, lease release, expiration or takeover, and session
+  invalidation. Failed OFF commands are retained for retry.
+- Physical railway topology with validated nodes, track sections, turnout
+  ports and conditional connections, normalized SQLite persistence, and
+  deterministic export.
+- Indexed static topology graph with connected components, cycles and
+  structural diagnostics, plus conservative active views based on confirmed
+  reported turnout positions.
+- Topology queries and deterministic pathfinding with oriented traversals,
+  turnout requirements, and exclusions for sections, turnouts and blocks.
+- Authenticated topology REST reads, revision-based WebSocket synchronization,
+  and `dccctl topology` inspection and validation commands.
+- Physical block membership for track sections and turnouts, with ownership
+  and connectivity validation kept separate from detector mappings.
+- Optional entry and exit nodes on route definitions, physical-path validation,
+  and diagnostics for inconsistent routes or undeclared shared resources.
+- Integrated z21 R-BUS occupancy through persisted provider, sensor and block
+  mappings, with explicit `unknown`, `free` and `occupied` states.
+- Conservative multi-source occupancy aggregation, including source priority,
+  required observations, freshness and command-station availability. REST,
+  WebSocket snapshots and change events expose the same aggregated state.
+- Authenticated single and batch external occupancy observations through the
+  restricted `sensor` role, and per-source diagnostics for dispatchers.
+- Graphical layout presentation stored and imported atomically, with an
+  authenticated read API and a revision independent from physical topology.
+- Administrator-only layout archive dry-run validation with structured
+  diagnostics and rollback before publication.
+- Editor diagnostics for turnout endpoint vectors, duplicate addresses,
+  simple-turnout shape and topology position mismatches.
+- Optional feedback logging to STDOUT through `--log-feedback` or
+  `diagnostics.logFeedback`. R-BUS logs report state transitions and the
+  complete sorted list of occupied addresses, including unmapped detectors.
+- Linux `386` release archives alongside the existing macOS and Linux
+  `amd64` and `arm64` targets.
+
+### Changed
+
+- The HTTP contract advances from `1.7.0` to `1.14.0`, and the event
+  contract from `1.9.1` to `1.13.0`, including locomotive function definitions.
+- Layout archives advance to version 7, including physical topology, block
+  resource membership, occupancy provider configuration and graphical
+  presentation. Versions 1 through 6 remain importable.
+- Rolling-stock archives advance to version 7 to retain function definitions,
+  with support for importing older libraries.
+- Runtime occupancy observations are excluded from layout archives and are
+  not restored after a server restart.
+- Legacy feedback mappings migrate to the generic occupancy provider and
+  sensor model. Configuration alone never implies that a block is free.
+- Route reservation and activation reject both occupied blocks and blocks
+  with unknown occupancy. Activation rechecks occupancy before turnout commands.
+- WebSocket snapshots expose `topologyRevision` and
+  `layoutPresentationRevision` so clients can refresh the corresponding
+  definitions independently.
+
 ### Fixed
 
+- Server startup explicitly queries both R-BUS groups, covering inputs 1
+  through 160. Already occupied detectors update blocks and connected clients
+  without requiring a new physical transition.
+- Missing R-BUS group replies are retried. The driver retains a complete
+  startup snapshot and no longer discards observations when its feedback
+  queue fills.
+- Empty locomotive lists serialize as `[]` instead of `null`, allowing
+  clients to connect to a server with an empty rolling-stock database.
 - Benchmark feedback injections start from the simulator's current sensor
   states, are serialized per sensor, and advance local state only after
   success, preventing false missing-event failures across successive runs
   or when concurrent requests are reordered or rejected.
+
+## v1.0.0 - 2026-09-28
+
+### Fixed
+
 - Benchmark profiles can set a dedicated login timeout without relaxing
   command and WebSocket deadlines.
 - Simulator scenarios that miss the measurement deadline now fail explicitly instead of producing an empty summary.
@@ -43,37 +119,6 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Editor-facing turnout diagnostics now identify invalid endpoint vectors,
-  duplicate addresses, simple-turnout shape, and topology position mismatches.
-  Graphical rotation and mirroring remain separate from DCC endpoint inversion.
-  The HTTP contract is now version 1.13.0.
-- Administrator-only layout archive dry-run endpoint with structured diagnostics,
-  import-equivalent validation, and transaction rollback before publication.
-- Layout archives version 7 include graphical presentation and import it
-  atomically, with ID-based merge and compatibility with older archives.
-- Authenticated graphical layout presentation read API with an independent
-  SHA-256 revision in REST responses and WebSocket snapshots.
-- Conservative multi-source block occupancy with persisted providers and
-  sensor mappings, R-BUS adaptation, and authenticated single/batch external
-  observations through the restricted `sensor` role. REST, WebSocket snapshots
-  and change events expose explicit `unknown/free/occupied` state; dispatcher
-  diagnostics expose per-source freshness, and route commands fail safe on
-  unknown or occupied blocks.
-- Physical railway topology with validated nodes, track sections, conditional
-  turnout connections, normalized SQLite persistence, and deterministic export.
-- Indexed static topology graph with conditional turnout edges, connected
-  components, cycle support, and structural node diagnostics.
-- Conservative active topology views driven only by confirmed reported turnout
-  positions, with report quality retained as traversal metadata.
-- Deterministic topology queries and traversal-count pathfinding for static and
-  active graphs, with oriented traversals, turnout requirements, and caller
-  exclusions for sections, turnouts, and blocks.
-- Authenticated topology REST reads with a deterministic revision, compact
-  WebSocket snapshot synchronization, and `dccctl topology` inspection and
-  validation commands.
-- Optional topological endpoints on route definitions, with persisted archive
-  round-trips, constrained physical-path validation, stable error/warning
-  diagnostics, and undeclared shared-resource conflict warnings.
 - Typed station contract for binary DCC accessories, portable linear-address range validation, and a generic provider for qualified feedback.
 - z21 `LAN_X_SET_TURNOUT` accessory commands, configurable pulse and safe deactivation, correlated `LAN_X_GET_TURNOUT_INFO` queries, and state broadcasts without invented positions.
 - DCC-EX accessories aligned with `<a linear 0|1>`, including portable-range validation, `assumed` feedback, concurrent TCP tests, and no replay after reconnection.
@@ -137,15 +182,11 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Drivers now receive `position1` or `position2` through `SetBasicAccessory`, without geometric `straight`/`diverging` strings.
-- The OpenAPI contract is now version `1.9.0` and AsyncAPI is now `1.10.0`.
+- The OpenAPI contract is now version `1.7.0` and AsyncAPI is now `1.9.1`.
   Turnouts expose `reportQuality`, use `position` for commands, and retain the
   `turnout.commanded`, `turnout.state.changed`, and
-  `turnout.command.failed` events. Snapshots expose `topologyRevision` and the
-  full static definition is available from `GET /api/v1/topology`.
-- Layout archives are now version 6, retain physical topology, block
-  resource membership, and occupancy provider configuration while separating
-  configuration from runtime observations.
-  Versions 1 through 5 remain importable.
+  `turnout.command.failed` events.
+- Layout archives are now version 3 and separate turnout configuration from runtime state.
 - SQLite now uses the pure-Go `modernc.org/sqlite` driver.
 - A valid throttle or function command now renews the control lease.
 - The WebSocket snapshot now includes command-station capabilities and current status.
