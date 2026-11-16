@@ -25,7 +25,7 @@ and `priority` defaults.
 
 Provider and mapping configuration is persisted. Runtime observations are not
 persisted. After a server restart, every block therefore starts as `unknown`
-until the future aggregation service receives sufficient current observations.
+until the aggregation service receives sufficient current observations.
 
 ## Required and optional sources
 
@@ -98,6 +98,20 @@ The z21 adapter publishes R-BUS inputs through provider `z21-rbus`. Active
 inputs become `occupied`; inactive inputs become `free`. TrainPilot assigns a
 runtime monotonic sequence to each provider and address before passing the
 observation to `OccupancyService`.
+
+At connection time, the z21 driver subscribes to R-BUS broadcasts and explicitly
+requests both groups with `LAN_RMBUS_GETDATA` (groups 0 and 1, inputs 1 through
+160). This reads detectors that are already occupied without requiring a new
+physical transition. The requests follow section 7.2 of the
+[Z21 LAN protocol specification](https://www.z21.eu/media/Kwc_Basic_DownloadTag_Component/root-en-main_47-1652-959-downloadTag-download/default/d559b9cf/1699290380/z21-lan-protokoll-en.pdf).
+
+Groups without a complete reply are requested again by the station status
+loop. A missing reply never implies `free`: the corresponding blocks remain
+`unknown` until enough current observations arrive. Initial replies use the
+same occupancy aggregation and client event pipeline as subsequent changes.
+The driver buffers a complete 160-input snapshot before the feedback consumer
+starts and waits for queue space rather than discarding observations if the
+consumer falls behind. Closing the driver interrupts that wait.
 
 R-BUS feedback is event-driven and has no arbitrary timer expiry. Its
 `staleAfter` is disabled and freshness follows command-station health. When the

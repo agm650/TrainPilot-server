@@ -22,6 +22,10 @@ const (
 	lanXHeader                   = 0x0040
 	lanXSetTurnout               = 0x53
 	lanXGetTurnoutInfo           = 0x43
+	lanRMBusDataChanged          = 0x0080
+	lanRMBusGetData              = 0x0081
+	rbusGroupCount               = 2
+	rbusInputsPerGroup           = 80
 
 	// The z21 broadcast mask keeps the existing R-BUS feedback stream and adds
 	// driving/switching broadcasts, including LAN_X_TURNOUT_INFO.
@@ -41,6 +45,8 @@ type Driver struct {
 	accessoryWaiters   map[uint16][]chan station.AccessoryStateEvent
 	statusEvents       chan station.Status
 	statusMu           sync.Mutex
+	rbusMu             sync.Mutex
+	rbusReceived       [rbusGroupCount]bool
 	xStatusWaiters     []chan byte
 	systemStateWaiters []chan systemState
 	health             station.HealthTracker
@@ -63,8 +69,10 @@ func New(address string, offlineAfter, accessoryPulse time.Duration) *Driver {
 		accessoryPulse = DefaultAccessoryPulse
 	}
 	return &Driver{
-		address:          address,
-		feedback:         make(chan station.FeedbackEvent, 64),
+		address: address,
+		// Connect runs before the service consumes feedback. Keep a complete
+		// initial R-BUS snapshot, including the last inputs of both groups.
+		feedback:         make(chan station.FeedbackEvent, rbusGroupCount*rbusInputsPerGroup),
 		accessoryEvents:  make(chan station.AccessoryStateEvent, 64),
 		accessoryPulse:   accessoryPulse,
 		accessoryWaiters: make(map[uint16][]chan station.AccessoryStateEvent),
@@ -87,14 +95,14 @@ func (d *Driver) Connect(ctx context.Context) error {
 	d.mu.Unlock()
 	d.health.Connected()
 	go d.readLoop(c)
-	if err := d.send(ctx, broadcastFlagsPacket()); err != nil {
+	if err := d.initializeFeedback(ctx); err != nil {
 		d.mu.Lock()
 		if d.conn == c {
 			d.conn = nil
 		}
 		d.mu.Unlock()
 		_ = c.Close()
-		return fmt.Errorf("configure z21 broadcast flags: %w", err)
+		return err
 	}
 	go d.statusLoop()
 	return nil
@@ -182,6 +190,27 @@ func broadcastFlagsPacket() []byte {
 	payload := make([]byte, 4)
 	binary.LittleEndian.PutUint32(payload, broadcastFlags)
 	return lan(lanSetBroadcastFlags, payload...)
+}
+
+func (d *Driver) initializeFeedback(ctx context.Context) error {
+	if err := d.send(ctx, broadcastFlagsPacket()); err != nil {
+		return fmt.Errorf("configure z21 broadcast flags: %w", err)
+	}
+	return d.requestMissingRBusData(ctx)
+}
+
+func (d *Driver) requestMissingRBusData(ctx context.Context) error {
+	d.rbusMu.Lock()
+	received := d.rbusReceived
+	d.rbusMu.Unlock()
+	for group, complete := range received {
+		if !complete {
+			if err := d.send(ctx, lan(lanRMBusGetData, byte(group))); err != nil {
+				return fmt.Errorf("request z21 R-BUS group %d: %w", group, err)
+			}
+		}
+	}
+	return nil
 }
 
 func (d *Driver) send(ctx context.Context, b []byte) error {
@@ -345,12 +374,15 @@ func (d *Driver) parse(data []byte) {
 			d.parseTurnoutInfo(payload)
 		case header == 0x0084 && len(payload) == 16:
 			d.publishSystemState(parseSystemState(payload))
-		case header == 0x0080 && len(payload) >= 11:
+		case header == lanRMBusDataChanged && len(payload) == 11 && payload[0] < rbusGroupCount:
 			group := int(payload[0])
+			d.rbusMu.Lock()
+			d.rbusReceived[group] = true
+			d.rbusMu.Unlock()
 			for i := 1; i < len(payload); i++ {
 				bits := payload[i]
 				for bit := 0; bit < 8; bit++ {
-					addr := group*80 + (i-1)*8 + bit + 1
+					addr := group*rbusInputsPerGroup + (i-1)*8 + bit + 1
 					d.publish(station.FeedbackEvent{Source: "z21-rbus", Kind: "occupancy", Address: addr, Active: bits&(1<<bit) != 0})
 				}
 			}
@@ -515,6 +547,9 @@ func (d *Driver) statusLoop() {
 	for {
 		select {
 		case <-ticker.C:
+			// UDP requests or replies can be lost. Retry only groups for which
+			// no complete observation has arrived since startup.
+			_ = d.requestMissingRBusData(context.Background())
 			status, _ := d.Status(context.Background())
 			d.publishStatusEvent(status)
 		case <-d.done:
@@ -541,6 +576,6 @@ func (d *Driver) removeStatusWaiters(x chan byte, system chan systemState) {
 func (d *Driver) publish(e station.FeedbackEvent) {
 	select {
 	case d.feedback <- e:
-	default:
+	case <-d.done:
 	}
 }
