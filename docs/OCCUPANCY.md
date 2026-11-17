@@ -149,7 +149,7 @@ This atomicity applies to one group frame, not to two independently received
 groups. Public WebSocket events remain individual block changes; the contract
 does not promise an atomic multi-block update in each client view.
 
-The existing REST and WebSocket occupancy shapes remain unchanged. Hardware
+The existing block occupancy objects and WebSocket payload shapes remain unchanged. Hardware
 characterization and the post-fix acceptance procedure are recorded in
 [`hardware-tests/rbus/lot-A.md`](hardware-tests/rbus/lot-A.md).
 
@@ -158,6 +158,41 @@ provider/sensor/block table. The compatibility store methods use that same
 table, so there is no second occupancy pipeline. Migrated providers default to
 priority 100, required, and sticky freshness. Their settings can be changed in
 the persisted provider configuration.
+
+## Track-power-dependent providers
+
+Providers can declare `trackPowerDependent` as an optional boolean. `true`
+requires known ON track power without a short circuit or power-loss indication.
+`false` explicitly declares an independent sensor. When omitted, legacy
+`current-detection`, `z21-rbus`, `dccex` and wildcard providers default to
+dependent; other providers default to independent. An omitted field during a
+provider update or layout merge preserves a previously explicit declaration.
+
+The server starts with unknown track power. Dependent observations cannot
+declare a block free or occupied while power is OFF, unknown or faulty. Such
+observations are ignored for runtime occupancy, including during a batch that
+also contains usable independent observations. Independent observations continue
+through the normal freshness and aggregation rules. Any fresh independent
+occupied source still wins over missing dependent observations.
+
+Both power loss and restoration clear dependent observations. Restoration
+therefore cannot revive the previous free or occupied state. A separate power
+generation fences queued observations without invalidating independent sources.
+z21 renews its UDP endpoint and explicitly queries both groups; DCC-EX renews
+its TCP stream and sends the read-only `<Q>` sensor-status query documented in
+the [official DCC-EX command reference](https://github.com/DCC-EX/dcc-ex.github.io/blob/sphinx/docs/reference/software/command-summary-consolidated.rst).
+Missing responses remain unknown. No locomotive or accessory commands are
+replayed. A power-only synchronization does not report a network failure.
+Emergency stop alone does not imply electrical power loss.
+For stations exposing an observed status (including z21), an ON command is
+followed by a status query before detector validity is restored. A successful
+command write cannot override a station that still reports OFF or a fault.
+
+`GET /api/v1/blocks/{id}/occupancy-sources` includes the resolved
+`trackPowerDependent` flag; `available` and `fresh` include power validity.
+The HTTP contract is version 1.15.0; existing WebSocket payload shapes and their
+1.13.0 event contract remain unchanged. Layout archives version 8 retain provider
+power declarations; versions 1 through 7 remain importable.
 
 ## External observation API
 

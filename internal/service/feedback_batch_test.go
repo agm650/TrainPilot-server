@@ -40,6 +40,9 @@ func TestRBusFrameTransferIsAtomicAndLogsFinalOccupiedSet(t *testing.T) {
 	published, unsubscribe := bus.Subscribe(32)
 	defer unsubscribe()
 	r := NewRailwayService(db, newManualAccessoryStation(), bus)
+	if err := r.occupancy.SetTrackPowerAvailable(ctx, true); err != nil {
+		t.Fatal(err)
+	}
 	logs := make(feedbackLogWriter, 256)
 	r.SetFeedbackLogger(slog.New(slog.NewJSONHandler(logs, nil)))
 	frame := station.FeedbackEvent{Source: "z21-rbus", Kind: "occupancy", Inputs: make([]station.FeedbackInput, 80)}

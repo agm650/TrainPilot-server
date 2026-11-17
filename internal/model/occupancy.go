@@ -62,12 +62,22 @@ func (o BlockOccupancy) ChangedEvent() BlockOccupancyChanged {
 }
 
 type OccupancyProvider struct {
-	ID                string        `json:"id"`
-	Type              string        `json:"type"`
-	Priority          int           `json:"priority"`
-	Required          bool          `json:"required"`
-	StaleAfter        time.Duration `json:"staleAfter"`
-	FreshnessRequired bool          `json:"freshnessRequired"`
+	ID                  string        `json:"id"`
+	Type                string        `json:"type"`
+	Priority            int           `json:"priority"`
+	Required            bool          `json:"required"`
+	StaleAfter          time.Duration `json:"staleAfter"`
+	FreshnessRequired   bool          `json:"freshnessRequired"`
+	TrackPowerDependent *bool         `json:"trackPowerDependent,omitempty"`
+}
+
+// Legacy current detectors and station/wildcard mappings fail closed. An
+// explicitly independent provider keeps working when track power is absent.
+func (p OccupancyProvider) DependsOnTrackPower() bool {
+	if p.TrackPowerDependent != nil {
+		return *p.TrackPowerDependent
+	}
+	return p.Type == "current-detection" || p.ID == "z21-rbus" || p.ID == "dccex" || p.ID == "*"
 }
 
 type OccupancySensorMapping struct {
@@ -79,12 +89,13 @@ type OccupancySensorMapping struct {
 }
 
 type ResolvedOccupancySensorMapping struct {
-	ProviderID string        `json:"providerId"`
-	SensorID   string        `json:"sensorId"`
-	BlockID    string        `json:"blockId"`
-	Required   bool          `json:"required"`
-	Priority   int           `json:"priority"`
-	StaleAfter time.Duration `json:"staleAfter"`
+	ProviderID          string        `json:"providerId"`
+	SensorID            string        `json:"sensorId"`
+	BlockID             string        `json:"blockId"`
+	Required            bool          `json:"required"`
+	Priority            int           `json:"priority"`
+	StaleAfter          time.Duration `json:"staleAfter"`
+	TrackPowerDependent bool          `json:"trackPowerDependent"`
 }
 
 func (m OccupancySensorMapping) Resolve(provider OccupancyProvider) (ResolvedOccupancySensorMapping, error) {
@@ -106,12 +117,13 @@ func (m OccupancySensorMapping) Resolve(provider OccupancyProvider) (ResolvedOcc
 		priority = *m.Priority
 	}
 	return ResolvedOccupancySensorMapping{
-		ProviderID: m.ProviderID,
-		SensorID:   m.SensorID,
-		BlockID:    m.BlockID,
-		Required:   required,
-		Priority:   priority,
-		StaleAfter: provider.StaleAfter,
+		ProviderID:          m.ProviderID,
+		SensorID:            m.SensorID,
+		BlockID:             m.BlockID,
+		Required:            required,
+		Priority:            priority,
+		StaleAfter:          provider.StaleAfter,
+		TrackPowerDependent: provider.DependsOnTrackPower(),
 	}, nil
 }
 
@@ -126,18 +138,19 @@ type OccupancyObservation struct {
 }
 
 type SensorOccupancyState struct {
-	ProviderID string         `json:"providerId"`
-	SensorID   string         `json:"sensorId"`
-	BlockID    string         `json:"blockId"`
-	State      OccupancyState `json:"state"`
-	Sequence   uint64         `json:"sequence"`
-	ObservedAt time.Time      `json:"observedAt"`
-	ReceivedAt time.Time      `json:"receivedAt"`
-	Occupant   *OccupantRef   `json:"occupant,omitempty"`
-	Required   bool           `json:"required"`
-	Priority   int            `json:"priority"`
-	Fresh      bool           `json:"fresh"`
-	Available  bool           `json:"available"`
+	ProviderID          string         `json:"providerId"`
+	SensorID            string         `json:"sensorId"`
+	BlockID             string         `json:"blockId"`
+	State               OccupancyState `json:"state"`
+	Sequence            uint64         `json:"sequence"`
+	ObservedAt          time.Time      `json:"observedAt"`
+	ReceivedAt          time.Time      `json:"receivedAt"`
+	Occupant            *OccupantRef   `json:"occupant,omitempty"`
+	Required            bool           `json:"required"`
+	Priority            int            `json:"priority"`
+	Fresh               bool           `json:"fresh"`
+	Available           bool           `json:"available"`
+	TrackPowerDependent bool           `json:"trackPowerDependent"`
 }
 
 var ErrInvalidOccupancy = errors.New("invalid occupancy")

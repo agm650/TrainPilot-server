@@ -39,6 +39,9 @@ func TestFeedbackLoggingIncludesMappedAndUnmappedRBusInputs(t *testing.T) {
 	}
 	st := newManualAccessoryStation()
 	railway := NewRailwayService(db, st, events.New())
+	if err := railway.OccupancyService().SetTrackPowerAvailable(ctx, true); err != nil {
+		t.Fatal(err)
+	}
 	logs := make(feedbackLogWriter, 4)
 	railway.SetFeedbackLogger(slog.New(slog.NewJSONHandler(logs, nil)))
 	railway.StartFeedback(ctx)
@@ -115,6 +118,9 @@ func TestRBusFeedbackLogsOccupiedAddressesOnStateChanges(t *testing.T) {
 	}
 	st := newManualAccessoryStation()
 	railway := NewRailwayService(db, st, events.New())
+	if err := railway.OccupancyService().SetTrackPowerAvailable(ctx, true); err != nil {
+		t.Fatal(err)
+	}
 	logs := make(feedbackLogWriter, 32)
 	railway.SetFeedbackLogger(slog.New(slog.NewJSONHandler(logs, nil)))
 	railway.StartFeedback(ctx)

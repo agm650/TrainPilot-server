@@ -50,11 +50,12 @@ locomotive functions.
 
 ### Changed
 
-- The HTTP contract advances from `1.7.0` to `1.14.0`, and the event
+- The HTTP contract advances from `1.7.0` to `1.15.0`, and the event
   contract from `1.9.1` to `1.13.0`, including locomotive function definitions.
-- Layout archives advance to version 7, including physical topology, block
-  resource membership, occupancy provider configuration and graphical
-  presentation. Versions 1 through 6 remain importable.
+- Layout archives advance to version 8, including physical topology, block
+  resource membership, occupancy provider configuration, graphical
+  presentation and provider track-power dependencies. Versions 1 through 7
+  remain importable.
 - Rolling-stock archives advance to version 7 to retain function definitions,
   with support for importing older libraries.
 - Runtime occupancy observations are excluded from layout archives and are
@@ -69,6 +70,11 @@ locomotive functions.
 
 ### Fixed
 
+- RBUS-003: declare provider track-power dependencies, invalidate dependent
+  observations during OFF, unknown power or electrical faults, and acquire
+  fresh sensor states on recovery. Power generations reject queued old reports
+  while preserving independent providers. z21 and DCC-EX refresh sensor state
+  without replaying driving commands; source diagnostics expose the dependency.
 - RBUS-002: apply each 80-input R-BUS frame as one occupancy batch, ignoring
   unmapped inputs while preserving explicit-source and wildcard precedence.
   Same-block transfers no longer publish a false free state, and transition

@@ -35,9 +35,12 @@ func TestStationFeedbackFencesGenerationsIncludingWildcard(t *testing.T) {
 			f := newOccupancyTestFixture(t,
 				[]model.OccupancyProvider{occupancyProvider(mappingProvider, 100, true, 0)},
 				[]model.OccupancySensorMapping{occupancyMapping(mappingProvider, "1", "block-a"), occupancyMapping(mappingProvider, "81", "block-b")})
+			if err := f.service.SetTrackPowerAvailable(ctx, true); err != nil {
+				t.Fatal(err)
+			}
 			provider := &feedbackStateStub{state: station.FeedbackState{Source: "z21-rbus", Generation: 1, Available: true}}
 			observation := model.OccupancyObservation{ProviderID: mappingProvider, SensorID: "1", State: model.OccupancyFree, Sequence: 1, ObservedAt: time.Now().UTC()}
-			if err := f.service.ObserveStationBatch(ctx, []model.OccupancyObservation{observation}, provider, 1); err != nil {
+			if err := f.service.ObserveStationBatch(ctx, []model.OccupancyObservation{observation}, provider, 1, 0); err != nil {
 				t.Fatal(err)
 			}
 			provider.set(station.FeedbackState{Source: "z21-rbus", Generation: 2, Available: false})
@@ -49,14 +52,14 @@ func TestStationFeedbackFencesGenerationsIncludingWildcard(t *testing.T) {
 			}
 			provider.set(station.FeedbackState{Source: "z21-rbus", Generation: 2, Available: true})
 			observation.Sequence++
-			if err := f.service.ObserveStationBatch(ctx, []model.OccupancyObservation{observation}, provider, 1); !errors.Is(err, ErrFeedbackGenerationStale) {
+			if err := f.service.ObserveStationBatch(ctx, []model.OccupancyObservation{observation}, provider, 1, 0); !errors.Is(err, ErrFeedbackGenerationStale) {
 				t.Fatalf("old generation error=%v", err)
 			}
 			if got := f.service.BlockState("block-a").State; got != model.OccupancyUnknown {
 				t.Fatalf("online resurrected an old observation: %s", got)
 			}
 			observation.State = model.OccupancyOccupied
-			if err := f.service.ObserveStationBatch(ctx, []model.OccupancyObservation{observation}, provider, 2); err != nil {
+			if err := f.service.ObserveStationBatch(ctx, []model.OccupancyObservation{observation}, provider, 2, 0); err != nil {
 				t.Fatal(err)
 			}
 			if f.service.BlockState("block-a").State != model.OccupancyOccupied || f.service.BlockState("block-b").State != model.OccupancyUnknown {

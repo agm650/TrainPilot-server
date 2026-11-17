@@ -38,14 +38,15 @@ type OccupancyService struct {
 	clock   clock.Clock
 	metrics *observability.Metrics
 
-	mu             sync.RWMutex
-	updateMu       sync.Mutex // Orders mutations together with their publications.
-	observations   map[occupancySourceKey]model.OccupancyObservation
-	states         map[string]model.BlockOccupancy
-	availability   map[string]bool
-	feedbackStates map[string]station.FeedbackState
-	startedAt      time.Time
-	diagnostics    map[string]occupancyDiagnostics
+	mu                  sync.RWMutex
+	updateMu            sync.Mutex // Orders mutations together with their publications.
+	observations        map[occupancySourceKey]model.OccupancyObservation
+	states              map[string]model.BlockOccupancy
+	availability        map[string]bool
+	feedbackStates      map[string]station.FeedbackState
+	trackPowerAvailable bool
+	startedAt           time.Time
+	diagnostics         map[string]occupancyDiagnostics
 }
 
 func NewOccupancyService(s *store.Store, bus *events.Bus, c clock.Clock) *OccupancyService {
@@ -105,10 +106,10 @@ func (s *OccupancyService) Observe(ctx context.Context, observation model.Occupa
 
 // ObserveBatch validates the complete batch before changing runtime state.
 func (s *OccupancyService) ObserveBatch(ctx context.Context, observations []model.OccupancyObservation) error {
-	return s.observeBatch(ctx, observations, nil, 0)
+	return s.observeBatch(ctx, observations, nil, 0, 0)
 }
 
-func (s *OccupancyService) observeBatch(ctx context.Context, observations []model.OccupancyObservation, provider station.FeedbackStateProvider, generation uint64) error {
+func (s *OccupancyService) observeBatch(ctx context.Context, observations []model.OccupancyObservation, provider station.FeedbackStateProvider, generation, powerGeneration uint64) error {
 	s.updateMu.Lock()
 	defer s.updateMu.Unlock()
 	if len(observations) == 0 {
@@ -153,7 +154,7 @@ func (s *OccupancyService) observeBatch(ctx context.Context, observations []mode
 	if provider != nil {
 		state := provider.FeedbackState()
 		syncChanges = s.applyFeedbackStateLocked(configs, state, now)
-		if !state.Available || generation != state.Generation {
+		if !state.Available || generation != state.Generation || powerGeneration != state.PowerGeneration {
 			s.updateMetricsLocked(configs, now)
 			s.mu.Unlock()
 			for i := range syncChanges {
@@ -163,6 +164,9 @@ func (s *OccupancyService) observeBatch(ctx context.Context, observations []mode
 		}
 	}
 	for _, item := range prepared {
+		if item.mapping.TrackPowerDependent && !s.trackPowerAvailable {
+			continue
+		}
 		previous, exists := s.observations[item.key]
 		if !exists {
 			continue
@@ -182,6 +186,9 @@ func (s *OccupancyService) observeBatch(ctx context.Context, observations []mode
 	}
 	affectedBlocks := make(map[string]struct{})
 	for _, item := range prepared {
+		if item.mapping.TrackPowerDependent && !s.trackPowerAvailable {
+			continue
+		}
 		if previous, exists := s.observations[item.key]; exists && item.observation.Sequence == previous.Sequence {
 			continue
 		}
@@ -233,15 +240,16 @@ func (s *OccupancyService) ProviderStates(ctx context.Context, blockID string) (
 		}
 		key := occupancySourceKey{providerID: config.ProviderID, sensorID: config.SensorID}
 		observation, exists := s.observations[key]
-		available := s.providerAvailableLocked(config.ProviderID)
+		available := s.sourceAvailableLocked(config)
 		state := model.SensorOccupancyState{
-			ProviderID: config.ProviderID,
-			SensorID:   config.SensorID,
-			BlockID:    config.BlockID,
-			State:      model.OccupancyUnknown,
-			Required:   config.Required,
-			Priority:   config.Priority,
-			Available:  available,
+			ProviderID:          config.ProviderID,
+			SensorID:            config.SensorID,
+			BlockID:             config.BlockID,
+			State:               model.OccupancyUnknown,
+			Required:            config.Required,
+			Priority:            config.Priority,
+			Available:           available,
+			TrackPowerDependent: config.TrackPowerDependent,
 		}
 		if exists {
 			state.State = observation.State
@@ -337,7 +345,7 @@ func (s *OccupancyService) SetProviderAvailable(ctx context.Context, providerID 
 }
 
 func (s *OccupancyService) recomputeBlockLocked(blockID string, configs []model.ResolvedOccupancySensorMapping, now time.Time) *model.BlockOccupancy {
-	next, diagnostics := aggregateBlock(blockID, configs, s.observations, s.availability, now)
+	next, diagnostics := aggregateBlock(blockID, configs, s.observations, s.availability, now, s.trackPowerAvailable)
 	s.diagnostics[blockID] = diagnostics
 	previous, exists := s.states[blockID]
 	if !exists {
@@ -357,7 +365,7 @@ func (s *OccupancyService) recomputeBlockLocked(blockID string, configs []model.
 	return &changed
 }
 
-func aggregateBlock(blockID string, configs []model.ResolvedOccupancySensorMapping, observations map[occupancySourceKey]model.OccupancyObservation, availability map[string]bool, now time.Time) (model.BlockOccupancy, occupancyDiagnostics) {
+func aggregateBlock(blockID string, configs []model.ResolvedOccupancySensorMapping, observations map[occupancySourceKey]model.OccupancyObservation, availability map[string]bool, now time.Time, powerAvailable bool) (model.BlockOccupancy, occupancyDiagnostics) {
 	result := model.NewUnknownBlockOccupancy(blockID, now)
 	diagnostics := occupancyDiagnostics{}
 	hasRequired := false
@@ -380,6 +388,7 @@ func aggregateBlock(blockID string, configs []model.ResolvedOccupancySensorMappi
 		if !set {
 			available = true
 		}
+		available = available && (!config.TrackPowerDependent || powerAvailable)
 		fresh := exists && sourceFresh(config, observation, available, now)
 		if !fresh || observation.State == model.OccupancyUnknown {
 			if config.Required {
@@ -468,7 +477,7 @@ func (s *OccupancyService) updateMetricsLocked(configs []model.ResolvedOccupancy
 	for _, config := range configs {
 		key := occupancySourceKey{providerID: config.ProviderID, sensorID: config.SensorID}
 		observation, exists := s.observations[key]
-		if exists && sourceFresh(config, observation, s.providerAvailableLocked(config.ProviderID), now) {
+		if exists && sourceFresh(config, observation, s.sourceAvailableLocked(config), now) {
 			continue
 		}
 		if config.Required {

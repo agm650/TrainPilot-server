@@ -161,6 +161,11 @@ func newZ21OccupancyHTTPFixture(t *testing.T, parent context.Context, driver sta
 	authService := service.NewAuthService(db, users, clk, 15*time.Minute, time.Hour)
 	bus := events.New()
 	railway := service.NewRailwayService(db, driver, bus)
+	// This fake central is initially powered ON. Seed that known fixture state
+	// before consuming its queued initial replies; power-cycle tests start unknown.
+	if err := railway.OccupancyService().SetTrackPowerAvailable(ctx, true); err != nil {
+		t.Fatal(err)
+	}
 	railway.StartFeedback(ctx)
 	control := service.NewControlService(db, driver, bus, clk, time.Minute, time.Second, time.Hour)
 	control.SetOccupancyProvider(railway.OccupancyService(), "z21-rbus")
@@ -182,10 +187,12 @@ type z21OccupancyRequest struct {
 }
 
 type z21OccupancyServer struct {
-	conn     *net.UDPConn
-	requests chan z21OccupancyRequest
-	done     chan struct{}
-	drop     atomic.Bool
+	conn          *net.UDPConn
+	requests      chan z21OccupancyRequest
+	done          chan struct{}
+	drop          atomic.Bool
+	powerOff      atomic.Bool
+	ignorePowerOn atomic.Bool
 }
 
 func newZ21OccupancyServer(t *testing.T) *z21OccupancyServer {
@@ -217,10 +224,23 @@ func newZ21OccupancyServer(t *testing.T) *z21OccupancyServer {
 					s.requests <- z21OccupancyRequest{group: packet[4], from: from}
 				}
 			case 0x0085:
-				_, _ = conn.WriteToUDP(apiZ21LAN(0x0084, make([]byte, 16)), from)
+				payload := make([]byte, 16)
+				if s.powerOff.Load() {
+					payload[12] = 0x02
+				}
+				_, _ = conn.WriteToUDP(apiZ21LAN(0x0084, payload), from)
 			case 0x0040:
 				if len(packet) == 7 && packet[4] == 0x21 && packet[5] == 0x24 {
-					_, _ = conn.WriteToUDP(apiZ21XBus(0x62, 0x22, 0), from)
+					status := byte(0)
+					if s.powerOff.Load() {
+						status = 2
+					}
+					_, _ = conn.WriteToUDP(apiZ21XBus(0x62, 0x22, status), from)
+				}
+				if len(packet) == 7 && packet[4] == 0x21 && (packet[5] == 0x80 || packet[5] == 0x81) {
+					if packet[5] != 0x81 || !s.ignorePowerOn.Load() {
+						s.powerOff.Store(packet[5] == 0x80)
+					}
 				}
 			}
 		}

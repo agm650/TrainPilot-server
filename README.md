@@ -591,7 +591,8 @@ revision.
 ## Import and export
 
 Exports are ZIP archives containing `manifest.json` and a JSON document.
-Layout archives use version 7 and include graphical presentation; rolling stock
+Layout archives use version 8 and include graphical presentation and occupancy
+provider power-dependency declarations; rolling stock
 archives remain version 6. Layout versions 1 through 6 remain importable.
 Imports use `merge` by default. `--replace` replaces the corresponding library
 after validation. Layout merge updates graphical resources by ID; replace

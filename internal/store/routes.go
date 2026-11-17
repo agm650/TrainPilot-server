@@ -331,11 +331,11 @@ func (s *Store) importLayout(ctx context.Context, layout model.LayoutDefinition,
 				return err
 			}
 			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO occupancy_providers(id,type,priority,required,stale_after_ns,freshness_required)
-				VALUES(?,?,?,?,?,?)
+				INSERT INTO occupancy_providers(id,type,priority,required,stale_after_ns,freshness_required,track_power_dependent)
+				VALUES(?,?,?,?,?,?,?)
 				ON CONFLICT(id) DO UPDATE SET type=excluded.type,priority=excluded.priority,required=excluded.required,
-					stale_after_ns=excluded.stale_after_ns,freshness_required=excluded.freshness_required`,
-				provider.ID, provider.Type, provider.Priority, boolInt(provider.Required), int64(provider.StaleAfter), boolInt(provider.FreshnessRequired)); err != nil {
+					stale_after_ns=excluded.stale_after_ns,freshness_required=excluded.freshness_required,track_power_dependent=COALESCE(excluded.track_power_dependent,occupancy_providers.track_power_dependent)`,
+				provider.ID, provider.Type, provider.Priority, boolInt(provider.Required), int64(provider.StaleAfter), boolInt(provider.FreshnessRequired), nullableBool(provider.TrackPowerDependent)); err != nil {
 				return err
 			}
 		}

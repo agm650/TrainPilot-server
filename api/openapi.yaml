@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: DCC Control Server API
-  version: 1.14.0
+  version: 1.15.0
   description: >-
     Contract for native DCC clients. User administration is deliberately absent
     from this public API and is available only over the local administration socket.
@@ -1002,6 +1002,9 @@ components:
         priority: { type: integer, minimum: 0, maximum: 100 }
         fresh: { type: boolean }
         available: { type: boolean }
+        trackPowerDependent:
+          type: boolean
+          description: This source requires known ON track power without a track-affecting fault. Such observations are unavailable during OFF or unknown power and require fresh data after recovery.
     TopologyDefinition:
       type: object
       additionalProperties: false

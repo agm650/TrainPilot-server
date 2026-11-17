@@ -55,6 +55,48 @@ Les tests des pilotes individuels DCC-EX et simulateur restent applicables.
 La simultanéité entre deux groupes distincts n'est pas garantie. Les événements
 publics restent individuels, même si l'état serveur est recalculé en un lot.
 
-## RBUS-003
+## RBUS-003 — Alimentation de voie
 
-Travaux à traiter après le commit RBUS-002.
+Correction logicielle : déclaration persistante `trackPowerDependent`, défaut
+conservateur pour les détecteurs de courant et les mappings de centrale/wildcard,
+invalidation sur OFF, puissance inconnue ou défaut électrique, puis acquisition
+fraîche au retour ON. Une génération d'alimentation écarte les retours en attente.
+Les sources indépendantes conservent leurs observations. L'arrêt d'urgence seul
+n'est pas assimilé à une coupure électrique.
+
+Tests automatisés : états de puissance ON/OFF/inconnue, courts-circuits, perte
+d'alimentation, observations pendant OFF, maintien des capteurs indépendants,
+mappings wildcard, retours d'une ancienne génération, réponse partielle et
+nouvelle position du train après rétablissement, vérifiée dans REST/WebSocket.
+Une commande ON acceptée mais non confirmée par l'état observé de la centrale
+ne rétablit pas la validité des détecteurs.
+La migration SQLite et les archives de circuit version 8 sont également testées.
+Le pilote DCC-EX interroge les états des capteurs avec `<Q>` après renouvellement
+de son flux TCP, sans rejouer de commande de locomotive ou d'accessoire.
+
+Recette physique après correction : **à effectuer sur le nouveau binaire**.
+
+1. Confirmer les versions du serveur et des firmwares, le câblage d'alimentation
+   du 10819 et la déclaration des fournisseurs dépendants/indépendants.
+2. Train immobile détecté : passer VOIE OFF, vérifier l'état `unknown` de ses
+   détecteurs dépendants, puis VOIE ON sans déplacer le train.
+3. Vérifier le retour de l'occupation réelle sans mouvement supplémentaire.
+4. Refaire l'essai en déplaçant manuellement le train hors tension vers une
+   autre zone ; vérifier les deux zones après remise sous tension.
+5. Vérifier qu'un fournisseur indépendant conserve sa validité et ses états.
+6. Conserver les traces de puissance, de feedback et les réponses REST/WS.
+
+Ces corrections ne constituent pas encore une recette physique réussie. Les
+résultats matériels rapportés plus haut caractérisent la version antérieure.
+
+## Validation logicielle
+
+Chaque ticket a été vérifié avant son commit dédié.
+
+| Ticket | Tests standard | Tests avec `-race` | Autres contrôles |
+| --- | --- | --- | --- |
+| RBUS-001 | 1 079 réussis | 1 079 réussis | `go vet ./...`, `git diff --check` |
+| RBUS-002 | 1 082 réussis | 1 082 réussis | `go vet ./...`, `git diff --check` |
+| RBUS-003 | 1 096 réussis | 1 096 réussis | `go vet ./...`, `git diff --check` |
+
+Les contrats YAML et leurs références locales ont également été validés.

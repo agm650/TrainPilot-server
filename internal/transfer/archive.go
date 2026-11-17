@@ -22,7 +22,7 @@ import (
 const (
 	FormatID            = "org.dcc-control.package"
 	FormatVersion       = 7 // rolling-stock archives
-	LayoutFormatVersion = 7
+	LayoutFormatVersion = 8
 	OldestVersion       = 1
 	MaxArchiveSize      = 25 << 20
 	MaxEntrySize        = 10 << 20
@@ -74,12 +74,13 @@ type layoutArchiveDefinition struct {
 }
 
 type occupancyArchiveProvider struct {
-	ID                string `json:"id"`
-	Type              string `json:"type"`
-	Priority          int    `json:"priority"`
-	Required          bool   `json:"required"`
-	StaleAfter        string `json:"staleAfter"`
-	FreshnessRequired bool   `json:"freshnessRequired"`
+	ID                  string `json:"id"`
+	Type                string `json:"type"`
+	Priority            int    `json:"priority"`
+	Required            bool   `json:"required"`
+	StaleAfter          string `json:"staleAfter"`
+	FreshnessRequired   bool   `json:"freshnessRequired"`
+	TrackPowerDependent *bool  `json:"trackPowerDependent,omitempty"`
 }
 
 // MarshalJSON deliberately exports turnout configuration separately from its
@@ -109,7 +110,8 @@ func (d LayoutDocument) MarshalJSON() ([]byte, error) {
 		providers = append(providers, occupancyArchiveProvider{
 			ID: provider.ID, Type: provider.Type, Priority: provider.Priority,
 			Required: provider.Required, StaleAfter: provider.StaleAfter.String(),
-			FreshnessRequired: provider.FreshnessRequired,
+			FreshnessRequired:   provider.FreshnessRequired,
+			TrackPowerDependent: provider.TrackPowerDependent,
 		})
 	}
 	return json.Marshal(struct {
@@ -161,7 +163,8 @@ func (d *LayoutDocument) UnmarshalJSON(data []byte) error {
 		providers = append(providers, model.OccupancyProvider{
 			ID: provider.ID, Type: provider.Type, Priority: provider.Priority,
 			Required: provider.Required, StaleAfter: staleAfter,
-			FreshnessRequired: provider.FreshnessRequired,
+			FreshnessRequired:   provider.FreshnessRequired,
+			TrackPowerDependent: provider.TrackPowerDependent,
 		})
 	}
 	d.Layout = model.LayoutDefinition{

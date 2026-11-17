@@ -43,6 +43,7 @@ type ControlService struct {
 	metrics                      *observability.Metrics
 	occupancy                    *OccupancyService
 	occupancyProviderID          string
+	occupancyPowerMu             sync.Mutex
 	momentaryMu                  sync.Mutex
 	momentary                    map[momentaryKey]heldMomentaryFunction
 	clientConnections            map[string]int
@@ -220,6 +221,7 @@ func (c *ControlService) validateCommandLease(ctx context.Context, leaseID, loco
 
 func (c *ControlService) publishStationStatusChanges(status station.Status) {
 	c.observeSafetyStatus(status)
+	c.updateOccupancyTrackPower(context.Background(), status)
 	c.updateOccupancyProviderAvailability(status.Connectivity)
 	_, _, status.EmergencyStop = c.safetySnapshot()
 
@@ -325,6 +327,9 @@ func (c *ControlService) SetTrackPower(ctx context.Context, user model.User, ena
 		return err
 	}
 	if err := c.observeStationCommand("track_power", func() error { return c.station.SetTrackPower(ctx, enabled) }); err != nil {
+		if !enabled {
+			c.updateOccupancyTrackPower(ctx, station.Status{TrackPower: "unknown"})
+		}
 		return err
 	}
 
@@ -332,6 +337,24 @@ func (c *ControlService) SetTrackPower(ctx context.Context, user model.User, ena
 	// by TrainPilot. If the station later reports a different real state, the
 	// corrective status event will still be emitted.
 	c.rememberTrackPower(enabled)
+	power := "off"
+	if enabled {
+		power = "on"
+	}
+	powerStatus := station.Status{TrackPower: power}
+	if enabled && c.occupancy != nil && c.occupancy.stationDependsOnTrackPower(ctx, c.occupancyProviderID) {
+		// A successful ON write is not proof that an electrical fault cleared.
+		// Use the station's observed power/fault state before trusting detectors.
+		if provider, ok := c.station.(station.StatusProvider); ok {
+			observed, err := provider.Status(ctx)
+			if err != nil || observed.Connectivity != station.Online {
+				powerStatus.TrackPower = "unknown"
+			} else {
+				powerStatus = observed
+			}
+		}
+	}
+	c.updateOccupancyTrackPower(ctx, powerStatus)
 	if !enabled {
 		c.metrics.SafetyStop("track_power_off")
 	}
@@ -353,6 +376,8 @@ func (c *ControlService) StationStatus(ctx context.Context) (station.Status, err
 		if err == nil {
 			c.metrics.ObserveStationTransition("unknown", string(status.Connectivity))
 			c.observeSafetyStatus(status)
+			c.updateOccupancyProviderAvailability(status.Connectivity)
+			c.updateOccupancyTrackPower(ctx, status)
 			_, _, status.EmergencyStop = c.safetySnapshot()
 		}
 		return status, err
@@ -371,7 +396,10 @@ func (c *ControlService) StationStatus(ctx context.Context) (station.Status, err
 		connectivity = health.Connectivity
 		lastSeen = health.LastSeen
 	}
-	return station.Status{Connectivity: connectivity, LastSeen: lastSeen, TrackPower: trackPower, EmergencyStop: emergencyStop}, nil
+	status := station.Status{Connectivity: connectivity, LastSeen: lastSeen, TrackPower: trackPower, EmergencyStop: emergencyStop}
+	c.updateOccupancyProviderAvailability(connectivity)
+	c.updateOccupancyTrackPower(ctx, status)
+	return status, nil
 }
 
 func (c *ControlService) EmergencyStop(ctx context.Context, user model.User) error {

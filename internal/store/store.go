@@ -333,6 +333,15 @@ func (s *Store) migrateLocomotiveSchema(ctx context.Context) error {
 }
 
 func (s *Store) migrateOccupancySchema(ctx context.Context) error {
+	columns, err := s.tableColumns(ctx, "occupancy_providers")
+	if err != nil {
+		return err
+	}
+	if !columns["track_power_dependent"] {
+		if _, err := s.DB.ExecContext(ctx, `ALTER TABLE occupancy_providers ADD COLUMN track_power_dependent INTEGER CHECK(track_power_dependent IN (0,1))`); err != nil {
+			return err
+		}
+	}
 	rows, err := s.DB.QueryContext(ctx, `SELECT provider,address,block_id FROM feedback_mappings ORDER BY provider,address`)
 	if err != nil {
 		return fmt.Errorf("list legacy feedback mappings: %w", err)

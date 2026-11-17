@@ -29,7 +29,7 @@ func TestRBusRecoveryRenewsEndpointAndRejectsOldGeneration(t *testing.T) {
 		for len(driver.feedback) > 0 {
 			<-driver.feedback
 		}
-		driver.parseConnection(oldConnection, oldState.Generation, lan(lanRMBusDataChanged, payload...))
+		driver.parseConnection(oldConnection, oldState.Generation, oldState.PowerGeneration, lan(lanRMBusDataChanged, payload...))
 		if len(driver.feedback) != 0 || driver.FeedbackState().Available {
 			t.Fatal("late old-generation reply restored feedback")
 		}

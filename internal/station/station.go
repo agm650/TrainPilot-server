@@ -154,7 +154,8 @@ type FeedbackEvent struct {
 	Address int
 	Active  bool
 	// Generation fences queued observations across a station resynchronization.
-	Generation uint64
+	Generation      uint64
+	PowerGeneration uint64
 	// Non-nil Inputs is one complete frame, including an explicitly empty one.
 	// Nil preserves the legacy individual observation contract.
 	Inputs []FeedbackInput
@@ -168,13 +169,19 @@ type FeedbackInput struct {
 // FeedbackState describes transport/data validity, independently from the
 // public command-station connectivity status. Missing sensors remain unknown.
 type FeedbackState struct {
-	Source     string
-	Generation uint64
-	Available  bool
+	Source          string
+	Generation      uint64
+	Available       bool
+	PowerGeneration uint64
 }
 
 type FeedbackStateProvider interface {
 	FeedbackState() FeedbackState
+}
+
+type FeedbackPowerResynchronizer interface {
+	BeginFeedbackPowerSync()
+	RefreshFeedback(context.Context) error
 }
 
 type Status struct {

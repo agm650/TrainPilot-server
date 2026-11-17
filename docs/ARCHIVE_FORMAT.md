@@ -1,7 +1,7 @@
 # Format des archives DCC Control
 
-Versions actuelles : **7** pour `.dcclayout` et `.dcclib`.
-Les archives de circuit versions 1 à 6 restent importables.
+Versions actuelles : **8** pour `.dcclayout`, **7** pour `.dcclib`.
+Les archives de circuit versions 1 à 7 restent importables.
 Les bibliothèques de matériel versions 1 à 6 restent également importables.
 
 Les extensions recommandées sont :
@@ -17,7 +17,7 @@ Chaque archive contient obligatoirement `manifest.json` :
 ```json
 {
   "format": "org.dcc-control.package",
-  "version": 7,
+  "version": 8,
   "packageType": "layout",
   "createdAt": "2026-07-29T20:00:00Z"
 }
@@ -26,7 +26,16 @@ Chaque archive contient obligatoirement `manifest.json` :
 Chaque `linearAddress` d'endpoint doit être compris entre `1` et `2040`.
 Les adresses `2041..2044` sont exclues de la plage portable TrainPilot.
 
-`packageType` vaut `rolling-stock` ou `layout`. Les deux types utilisent la version 7 au maximum.
+`packageType` vaut `rolling-stock` ou `layout`. La version maximale est 7 pour
+`rolling-stock` et 8 pour `layout`.
+
+Depuis la version 8, un fournisseur d'occupation peut déclarer le booléen
+optionnel `trackPowerDependent`. `true` exige une alimentation de voie ON et
+sans défaut ; `false` déclare un capteur indépendant. Les anciennes définitions
+de détection de courant et les fournisseurs `z21-rbus`, `dccex` et wildcard
+restent dépendants par défaut. Les autres fournisseurs sont indépendants par
+défaut. Une omission en mode fusion conserve une déclaration explicite existante.
+Voir [les règles d'occupation](OCCUPANCY.md#track-power-dependent-providers).
 Un format, une version ou un type inconnu est refusé.
 
 ## Bibliothèque de matériel

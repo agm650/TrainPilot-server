@@ -14,15 +14,15 @@ func (s *Store) SetOccupancyProvider(ctx context.Context, provider model.Occupan
 		return err
 	}
 	_, err := s.DB.ExecContext(ctx, `
-		INSERT INTO occupancy_providers(id,type,priority,required,stale_after_ns,freshness_required)
-		VALUES(?,?,?,?,?,?)
+		INSERT INTO occupancy_providers(id,type,priority,required,stale_after_ns,freshness_required,track_power_dependent)
+		VALUES(?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			type=excluded.type,
 			priority=excluded.priority,
 			required=excluded.required,
 			stale_after_ns=excluded.stale_after_ns,
-			freshness_required=excluded.freshness_required`,
-		provider.ID, provider.Type, provider.Priority, boolInt(provider.Required), int64(provider.StaleAfter), boolInt(provider.FreshnessRequired))
+			freshness_required=excluded.freshness_required,track_power_dependent=COALESCE(excluded.track_power_dependent,occupancy_providers.track_power_dependent)`,
+		provider.ID, provider.Type, provider.Priority, boolInt(provider.Required), int64(provider.StaleAfter), boolInt(provider.FreshnessRequired), nullableBool(provider.TrackPowerDependent))
 	return err
 }
 
@@ -30,10 +30,11 @@ func (s *Store) OccupancyProvider(ctx context.Context, id string) (model.Occupan
 	var provider model.OccupancyProvider
 	var required, freshnessRequired int
 	var staleAfter int64
+	var power sql.NullInt64
 	err := s.DB.QueryRowContext(ctx, `
-		SELECT id,type,priority,required,stale_after_ns,freshness_required
+		SELECT id,type,priority,required,stale_after_ns,freshness_required,track_power_dependent
 		FROM occupancy_providers WHERE id=?`, id).Scan(
-		&provider.ID, &provider.Type, &provider.Priority, &required, &staleAfter, &freshnessRequired)
+		&provider.ID, &provider.Type, &provider.Priority, &required, &staleAfter, &freshnessRequired, &power)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.OccupancyProvider{}, ErrNotFound
 	}
@@ -43,12 +44,13 @@ func (s *Store) OccupancyProvider(ctx context.Context, id string) (model.Occupan
 	provider.Required = required != 0
 	provider.StaleAfter = time.Duration(staleAfter)
 	provider.FreshnessRequired = freshnessRequired != 0
+	provider.TrackPowerDependent = boolPointer(power)
 	return provider, nil
 }
 
 func (s *Store) ListOccupancyProviders(ctx context.Context) ([]model.OccupancyProvider, error) {
 	rows, err := s.DB.QueryContext(ctx, `
-		SELECT id,type,priority,required,stale_after_ns,freshness_required
+		SELECT id,type,priority,required,stale_after_ns,freshness_required,track_power_dependent
 		FROM occupancy_providers ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -59,12 +61,14 @@ func (s *Store) ListOccupancyProviders(ctx context.Context) ([]model.OccupancyPr
 		var provider model.OccupancyProvider
 		var required, freshnessRequired int
 		var staleAfter int64
-		if err := rows.Scan(&provider.ID, &provider.Type, &provider.Priority, &required, &staleAfter, &freshnessRequired); err != nil {
+		var power sql.NullInt64
+		if err := rows.Scan(&provider.ID, &provider.Type, &provider.Priority, &required, &staleAfter, &freshnessRequired, &power); err != nil {
 			return nil, err
 		}
 		provider.Required = required != 0
 		provider.StaleAfter = time.Duration(staleAfter)
 		provider.FreshnessRequired = freshnessRequired != 0
+		provider.TrackPowerDependent = boolPointer(power)
 		providers = append(providers, provider)
 	}
 	return providers, rows.Err()

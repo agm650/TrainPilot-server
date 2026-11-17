@@ -25,19 +25,20 @@ type RailwayService struct {
 	turnoutLocksMu sync.Mutex
 	turnoutLocks   map[string]*turnoutCommandLock
 
-	accessoryMu           sync.Mutex
-	accessoryStates       map[string]map[string]model.AccessoryPosition
-	accessoryReports      map[string]map[string]station.AccessoryReportState
-	accessoryQualities    map[string]map[string]station.AccessoryReportQuality
-	accessoryGenerations  map[string]map[string]uint64
-	turnoutRuntime        map[string]*turnoutCommandRuntime
-	metrics               *observability.Metrics
-	occupancy             *OccupancyService
-	feedbackSequencesMu   sync.Mutex
-	feedbackSequences     map[occupancySourceKey]uint64
-	feedbackLogger        *slog.Logger
-	feedbackLogGeneration uint64
-	rbusLogActive         map[int]bool // Accessed only by the feedback goroutine.
+	accessoryMu                sync.Mutex
+	accessoryStates            map[string]map[string]model.AccessoryPosition
+	accessoryReports           map[string]map[string]station.AccessoryReportState
+	accessoryQualities         map[string]map[string]station.AccessoryReportQuality
+	accessoryGenerations       map[string]map[string]uint64
+	turnoutRuntime             map[string]*turnoutCommandRuntime
+	metrics                    *observability.Metrics
+	occupancy                  *OccupancyService
+	feedbackSequencesMu        sync.Mutex
+	feedbackSequences          map[occupancySourceKey]uint64
+	feedbackLogger             *slog.Logger
+	feedbackLogGeneration      uint64
+	feedbackLogPowerGeneration uint64
+	rbusLogActive              map[int]bool // Accessed only by the feedback goroutine.
 }
 
 // SetFeedbackLogger configures optional feedback logging before StartFeedback.

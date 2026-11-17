@@ -35,28 +35,29 @@ const (
 )
 
 type Driver struct {
-	address            string
-	mu                 sync.Mutex
-	connectMu          sync.Mutex
-	conn               *net.UDPConn
-	retiredConnection  *net.UDPConn
-	started            bool
-	closed             bool
-	feedbackGeneration uint64
-	feedback           chan station.FeedbackEvent
-	accessoryEvents    chan station.AccessoryStateEvent
-	accessoryPulse     time.Duration
-	accessoryMu        sync.Mutex
-	accessoryWaiters   map[uint16][]chan station.AccessoryStateEvent
-	statusEvents       chan station.Status
-	statusMu           sync.Mutex
-	rbusReceived       [rbusGroupCount]bool
-	xStatusWaiters     []chan byte
-	systemStateWaiters []chan systemState
-	health             station.HealthTracker
-	lastStatus         *station.Status
-	done               chan struct{}
-	closeOnce          sync.Once
+	address                 string
+	mu                      sync.Mutex
+	connectMu               sync.Mutex
+	conn                    *net.UDPConn
+	retiredConnection       *net.UDPConn
+	started                 bool
+	closed                  bool
+	feedbackGeneration      uint64
+	feedbackPowerGeneration uint64
+	feedback                chan station.FeedbackEvent
+	accessoryEvents         chan station.AccessoryStateEvent
+	accessoryPulse          time.Duration
+	accessoryMu             sync.Mutex
+	accessoryWaiters        map[uint16][]chan station.AccessoryStateEvent
+	statusEvents            chan station.Status
+	statusMu                sync.Mutex
+	rbusReceived            [rbusGroupCount]bool
+	xStatusWaiters          []chan byte
+	systemStateWaiters      []chan systemState
+	health                  station.HealthTracker
+	lastStatus              *station.Status
+	done                    chan struct{}
+	closeOnce               sync.Once
 }
 
 type systemState struct {
@@ -160,20 +161,66 @@ func (d *Driver) loseConnection(c *net.UDPConn) {
 	d.conn = nil
 	d.retiredConnection = c
 	d.feedbackGeneration++
+	d.statusMu.Lock()
+	d.lastStatus = nil
+	d.statusMu.Unlock()
 	generation := d.feedbackGeneration
+	powerGeneration := d.feedbackPowerGeneration
 	d.rbusReceived = [rbusGroupCount]bool{}
 	d.mu.Unlock()
 	// Keep the old local port reserved until the replacement is bound.
 	// Interrupt its reader now; it cannot submit data to the new generation.
 	_ = c.SetReadDeadline(time.Now())
-	d.publish(station.FeedbackEvent{Source: "z21-rbus", Kind: "synchronization", Generation: generation})
+	d.publish(station.FeedbackEvent{Source: "z21-rbus", Kind: "synchronization", Generation: generation, PowerGeneration: powerGeneration})
 }
 
 func (d *Driver) FeedbackState() station.FeedbackState {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return station.FeedbackState{Source: "z21-rbus", Generation: d.feedbackGeneration,
-		Available: !d.closed && d.conn != nil && d.health.Health().Connectivity == station.Online}
+	return station.FeedbackState{Source: "z21-rbus", Generation: d.feedbackGeneration, PowerGeneration: d.feedbackPowerGeneration,
+		Available: !d.closed && d.health.Health().Connectivity == station.Online}
+}
+
+// Power epochs renew the UDP endpoint without reporting a network failure.
+// Independent providers retain their observations across this boundary.
+func (d *Driver) BeginFeedbackPowerSync() {
+	d.connectMu.Lock()
+	d.mu.Lock()
+	if d.closed {
+		d.mu.Unlock()
+		d.connectMu.Unlock()
+		return
+	}
+	c := d.conn
+	d.conn = nil
+	if c != nil {
+		d.retiredConnection = c
+	}
+	d.feedbackPowerGeneration++
+	d.rbusReceived = [rbusGroupCount]bool{}
+	event := station.FeedbackEvent{Source: "z21-rbus", Kind: "synchronization", Generation: d.feedbackGeneration, PowerGeneration: d.feedbackPowerGeneration}
+	d.mu.Unlock()
+	if c != nil {
+		_ = c.SetReadDeadline(time.Now())
+	}
+	d.connectMu.Unlock()
+	d.publish(event)
+}
+
+func (d *Driver) RefreshFeedback(ctx context.Context) error {
+	d.mu.Lock()
+	existing := d.conn != nil
+	d.mu.Unlock()
+	if err := d.ensureConnection(ctx); err != nil {
+		return err
+	}
+	if !existing {
+		return nil
+	}
+	d.mu.Lock()
+	d.rbusReceived = [rbusGroupCount]bool{}
+	d.mu.Unlock()
+	return d.initializeFeedback(ctx)
 }
 func (d *Driver) Close() error {
 	d.closeOnce.Do(func() { close(d.done) })
@@ -333,11 +380,9 @@ func (d *Driver) Status(ctx context.Context) (station.Status, error) {
 	d.statusMu.Unlock()
 	defer d.removeStatusWaiters(xReply, systemReply)
 	if err := d.send(ctx, xbus(0x21, 0x24)); err != nil {
-		d.health.CommunicationError()
 		return d.currentStatus(), nil
 	}
 	if err := d.send(ctx, lan(0x0085)); err != nil {
-		d.health.CommunicationError()
 		return d.currentStatus(), nil
 	}
 	timer := time.NewTimer(2 * time.Second)
@@ -430,6 +475,7 @@ func (d *Driver) AccessoryStateEvents() <-chan station.AccessoryStateEvent {
 func (d *Driver) readLoop(c *net.UDPConn) {
 	d.mu.Lock()
 	generation := d.feedbackGeneration
+	powerGeneration := d.feedbackPowerGeneration
 	d.mu.Unlock()
 	buf := make([]byte, 2048)
 	for {
@@ -438,17 +484,17 @@ func (d *Driver) readLoop(c *net.UDPConn) {
 			d.loseConnection(c)
 			return
 		}
-		d.parseConnection(c, generation, buf[:n])
+		d.parseConnection(c, generation, powerGeneration, buf[:n])
 	}
 }
 func (d *Driver) parse(data []byte) {
 	d.mu.Lock()
-	c, generation := d.conn, d.feedbackGeneration
+	c, generation, powerGeneration := d.conn, d.feedbackGeneration, d.feedbackPowerGeneration
 	d.mu.Unlock()
-	d.parseConnection(c, generation, data)
+	d.parseConnection(c, generation, powerGeneration, data)
 }
 
-func (d *Driver) parseConnection(c *net.UDPConn, generation uint64, data []byte) {
+func (d *Driver) parseConnection(c *net.UDPConn, generation, powerGeneration uint64, data []byte) {
 	for len(data) >= 4 {
 		length := int(binary.LittleEndian.Uint16(data[:2]))
 		if length < 4 || length > len(data) {
@@ -462,7 +508,7 @@ func (d *Driver) parseConnection(c *net.UDPConn, generation uint64, data []byte)
 			continue
 		}
 		d.mu.Lock()
-		if d.closed || d.conn != c || d.feedbackGeneration != generation {
+		if d.closed || d.conn != c || d.feedbackGeneration != generation || d.feedbackPowerGeneration != powerGeneration {
 			d.mu.Unlock()
 			return
 		}
@@ -474,11 +520,11 @@ func (d *Driver) parseConnection(c *net.UDPConn, generation uint64, data []byte)
 		case header == lanXHeader && len(payload) == 5 && payload[0] == lanXGetTurnoutInfo:
 			d.parseTurnoutInfo(payload)
 		case header == 0x0084 && len(payload) == 16:
-			d.publishSystemState(parseSystemState(payload))
+			d.publishSystemState(parseSystemState(payload), c, generation, powerGeneration)
 		case header == lanRMBusDataChanged && len(payload) == 11 && payload[0] < rbusGroupCount:
 			group := int(payload[0])
 			d.mu.Lock()
-			if d.feedbackGeneration != generation {
+			if d.feedbackGeneration != generation || d.feedbackPowerGeneration != powerGeneration {
 				d.mu.Unlock()
 				return
 			}
@@ -492,7 +538,7 @@ func (d *Driver) parseConnection(c *net.UDPConn, generation uint64, data []byte)
 					inputs = append(inputs, station.FeedbackInput{Address: addr, Active: bits&(1<<bit) != 0})
 				}
 			}
-			d.publish(station.FeedbackEvent{Source: "z21-rbus", Kind: "occupancy", Generation: generation, Inputs: inputs})
+			d.publish(station.FeedbackEvent{Source: "z21-rbus", Kind: "occupancy", Generation: generation, PowerGeneration: powerGeneration, Inputs: inputs})
 		}
 		data = data[length:]
 	}
@@ -614,13 +660,19 @@ func (d *Driver) publishXStatus(status byte) {
 		ch <- status
 	}
 }
-func (d *Driver) publishSystemState(status systemState) {
+func (d *Driver) publishSystemState(status systemState, c *net.UDPConn, generation, powerGeneration uint64) {
+	d.mu.Lock()
+	if d.closed || d.conn != c || d.feedbackGeneration != generation || d.feedbackPowerGeneration != powerGeneration {
+		d.mu.Unlock()
+		return
+	}
 	d.statusMu.Lock()
 	parsed := statusFromSystemState(status)
 	d.lastStatus = &parsed
 	waiters := d.systemStateWaiters
 	d.systemStateWaiters = nil
 	d.statusMu.Unlock()
+	d.mu.Unlock()
 	for _, ch := range waiters {
 		ch <- status
 	}

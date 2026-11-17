@@ -13,8 +13,8 @@ var ErrFeedbackGenerationStale = errors.New("station feedback belongs to an unav
 
 // Station observations are guarded at mutation time, after mapping resolution.
 // A queued observation cannot restore data after a resynchronization boundary.
-func (s *OccupancyService) ObserveStationBatch(ctx context.Context, observations []model.OccupancyObservation, provider station.FeedbackStateProvider, generation uint64) error {
-	return s.observeBatch(ctx, observations, provider, generation)
+func (s *OccupancyService) ObserveStationBatch(ctx context.Context, observations []model.OccupancyObservation, provider station.FeedbackStateProvider, generation, powerGeneration uint64) error {
+	return s.observeBatch(ctx, observations, provider, generation, powerGeneration)
 }
 
 func (s *OccupancyService) SyncStationFeedback(ctx context.Context, provider station.FeedbackStateProvider) error {
@@ -52,7 +52,7 @@ func (s *OccupancyService) applyFeedbackStateLocked(configs []model.ResolvedOccu
 		}
 		s.availability[config.ProviderID] = state.Available
 		blocks[config.BlockID] = true
-		if reset {
+		if reset || (known && previous.PowerGeneration != state.PowerGeneration && config.TrackPowerDependent) {
 			delete(s.observations, occupancySourceKey{providerID: config.ProviderID, sensorID: config.SensorID})
 		}
 	}

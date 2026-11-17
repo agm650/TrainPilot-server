@@ -26,12 +26,13 @@ func (r *RailwayService) handleFeedback(ctx context.Context, event station.Feedb
 			return
 		}
 		state := provider.FeedbackState()
-		if event.Kind == "synchronization" || !state.Available || event.Generation != state.Generation {
+		if event.Kind == "synchronization" || !state.Available || event.Generation != state.Generation || event.PowerGeneration != state.PowerGeneration {
 			return
 		}
 	}
-	if event.Source == "z21-rbus" && event.Generation != r.feedbackLogGeneration {
+	if event.Source == "z21-rbus" && (event.Generation != r.feedbackLogGeneration || event.PowerGeneration != r.feedbackLogPowerGeneration) {
 		r.feedbackLogGeneration = event.Generation
+		r.feedbackLogPowerGeneration = event.PowerGeneration
 		r.rbusLogActive = nil
 	}
 	inputs := event.Inputs
@@ -72,7 +73,7 @@ func (r *RailwayService) handleFeedback(ctx context.Context, event station.Feedb
 	err := mappingError
 	if err == nil && len(observations) > 0 {
 		if synchronized {
-			err = r.occupancy.ObserveStationBatch(ctx, observations, provider, event.Generation)
+			err = r.occupancy.ObserveStationBatch(ctx, observations, provider, event.Generation, event.PowerGeneration)
 		} else {
 			err = r.occupancy.ObserveBatch(ctx, observations)
 		}

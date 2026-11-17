@@ -23,23 +23,25 @@ const (
 type dialFunc func(context.Context, string) (net.Conn, error)
 
 type Driver struct {
-	address           string
-	mu                sync.Mutex
-	writeMu           sync.Mutex
-	conn              net.Conn
-	connectionID      uint64
-	reconnecting      bool
-	closed            bool
-	dial              dialFunc
-	reconnectInterval time.Duration
-	feedback          chan station.FeedbackEvent
-	accessoryEvents   chan station.AccessoryStateEvent
-	statusEvents      chan station.Status
-	health            station.HealthTracker
-	runCtx            context.Context
-	cancel            context.CancelFunc
-	closeOnce         sync.Once
-	wg                sync.WaitGroup
+	address                 string
+	mu                      sync.Mutex
+	writeMu                 sync.Mutex
+	conn                    net.Conn
+	connectionID            uint64
+	feedbackGeneration      uint64
+	feedbackPowerGeneration uint64
+	reconnecting            bool
+	closed                  bool
+	dial                    dialFunc
+	reconnectInterval       time.Duration
+	feedback                chan station.FeedbackEvent
+	accessoryEvents         chan station.AccessoryStateEvent
+	statusEvents            chan station.Status
+	health                  station.HealthTracker
+	runCtx                  context.Context
+	cancel                  context.CancelFunc
+	closeOnce               sync.Once
+	wg                      sync.WaitGroup
 }
 
 var _ station.HealthProvider = (*Driver)(nil)
@@ -51,7 +53,8 @@ func NewTCP(address string, offlineAfter time.Duration) *Driver {
 	runCtx, cancel := context.WithCancel(context.Background())
 	dialer := &net.Dialer{Timeout: defaultDialTimeout}
 	return &Driver{
-		address: address,
+		address:            address,
+		feedbackGeneration: 1,
 		dial: func(ctx context.Context, address string) (net.Conn, error) {
 			return dialer.DialContext(ctx, "tcp", address)
 		},
@@ -202,6 +205,9 @@ func (d *Driver) AccessoryStateEvents() <-chan station.AccessoryStateEvent {
 }
 func (d *Driver) readLoop(c net.Conn, connectionID uint64) {
 	defer d.wg.Done()
+	d.mu.Lock()
+	generation, powerGeneration := d.feedbackGeneration, d.feedbackPowerGeneration
+	d.mu.Unlock()
 	scanner := bufio.NewScanner(c)
 	scanner.Split(splitFrames)
 	for scanner.Scan() {
@@ -212,24 +218,31 @@ func (d *Driver) readLoop(c net.Conn, connectionID uint64) {
 		if !d.recordValidResponse(connectionID) {
 			return
 		}
-		d.handleFrame(frame)
+		d.handleFeedbackFrame(frame, generation, powerGeneration)
 	}
 	d.connectionLost(c, connectionID)
 }
 
 func (d *Driver) handleFrame(frame string) {
+	d.mu.Lock()
+	generation, powerGeneration := d.feedbackGeneration, d.feedbackPowerGeneration
+	d.mu.Unlock()
+	d.handleFeedbackFrame(frame, generation, powerGeneration)
+}
+
+func (d *Driver) handleFeedbackFrame(frame string, generation, powerGeneration uint64) {
 	var id int
 	var state int
 	if _, err := fmt.Sscanf(frame, "<Q %d>", &id); err == nil {
-		d.publish(station.FeedbackEvent{Source: "dccex", Kind: "sensor", Address: id, Active: true})
+		d.publish(station.FeedbackEvent{Source: "dccex", Kind: "sensor", Address: id, Active: true, Generation: generation, PowerGeneration: powerGeneration})
 		return
 	}
 	if _, err := fmt.Sscanf(frame, "<q %d>", &id); err == nil {
-		d.publish(station.FeedbackEvent{Source: "dccex", Kind: "sensor", Address: id, Active: false})
+		d.publish(station.FeedbackEvent{Source: "dccex", Kind: "sensor", Address: id, Active: false, Generation: generation, PowerGeneration: powerGeneration})
 		return
 	}
 	if _, err := fmt.Sscanf(frame, "<S %d %d>", &id, &state); err == nil {
-		d.publish(station.FeedbackEvent{Source: "dccex", Kind: "sensor", Address: id, Active: state != 0})
+		d.publish(station.FeedbackEvent{Source: "dccex", Kind: "sensor", Address: id, Active: state != 0, Generation: generation, PowerGeneration: powerGeneration})
 	}
 }
 
@@ -252,6 +265,7 @@ func (d *Driver) connectionLost(c net.Conn, connectionID uint64) {
 	}
 	d.conn = nil
 	d.health.CommunicationError()
+	d.feedbackGeneration++
 	startReconnect := !d.closed && !d.reconnecting
 	if startReconnect {
 		d.reconnecting = true
@@ -331,7 +345,7 @@ func (d *Driver) publishHealthStatus() {
 func (d *Driver) publish(e station.FeedbackEvent) {
 	select {
 	case d.feedback <- e:
-	default:
+	case <-d.runCtx.Done():
 	}
 }
 func (d *Driver) publishAccessoryState(event station.AccessoryStateEvent) {
