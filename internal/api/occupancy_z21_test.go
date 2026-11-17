@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"net"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -179,6 +180,7 @@ type z21OccupancyServer struct {
 	conn     *net.UDPConn
 	requests chan z21OccupancyRequest
 	done     chan struct{}
+	drop     atomic.Bool
 }
 
 func newZ21OccupancyServer(t *testing.T) *z21OccupancyServer {
@@ -198,6 +200,9 @@ func newZ21OccupancyServer(t *testing.T) *z21OccupancyServer {
 				return
 			}
 			packet := buffer[:n]
+			if s.drop.Load() {
+				continue
+			}
 			if len(packet) < 4 {
 				continue
 			}

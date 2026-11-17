@@ -13,6 +13,7 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
 	"github.com/agm650/TrainPilot-server/internal/observability"
+	"github.com/agm650/TrainPilot-server/internal/station"
 	"github.com/agm650/TrainPilot-server/internal/store"
 )
 
@@ -37,12 +38,14 @@ type OccupancyService struct {
 	clock   clock.Clock
 	metrics *observability.Metrics
 
-	mu           sync.RWMutex
-	observations map[occupancySourceKey]model.OccupancyObservation
-	states       map[string]model.BlockOccupancy
-	availability map[string]bool
-	startedAt    time.Time
-	diagnostics  map[string]occupancyDiagnostics
+	mu             sync.RWMutex
+	updateMu       sync.Mutex // Orders mutations together with their publications.
+	observations   map[occupancySourceKey]model.OccupancyObservation
+	states         map[string]model.BlockOccupancy
+	availability   map[string]bool
+	feedbackStates map[string]station.FeedbackState
+	startedAt      time.Time
+	diagnostics    map[string]occupancyDiagnostics
 }
 
 func NewOccupancyService(s *store.Store, bus *events.Bus, c clock.Clock) *OccupancyService {
@@ -51,14 +54,15 @@ func NewOccupancyService(s *store.Store, bus *events.Bus, c clock.Clock) *Occupa
 	}
 	now := c.Now().UTC()
 	service := &OccupancyService{
-		store:        s,
-		events:       bus,
-		clock:        c,
-		observations: make(map[occupancySourceKey]model.OccupancyObservation),
-		states:       make(map[string]model.BlockOccupancy),
-		availability: make(map[string]bool),
-		startedAt:    now,
-		diagnostics:  make(map[string]occupancyDiagnostics),
+		store:          s,
+		events:         bus,
+		clock:          c,
+		observations:   make(map[occupancySourceKey]model.OccupancyObservation),
+		states:         make(map[string]model.BlockOccupancy),
+		availability:   make(map[string]bool),
+		feedbackStates: make(map[string]station.FeedbackState),
+		startedAt:      now,
+		diagnostics:    make(map[string]occupancyDiagnostics),
 	}
 	if blocks, err := s.ListBlocks(context.Background()); err == nil {
 		for _, block := range blocks {
@@ -101,6 +105,12 @@ func (s *OccupancyService) Observe(ctx context.Context, observation model.Occupa
 
 // ObserveBatch validates the complete batch before changing runtime state.
 func (s *OccupancyService) ObserveBatch(ctx context.Context, observations []model.OccupancyObservation) error {
+	return s.observeBatch(ctx, observations, nil, 0)
+}
+
+func (s *OccupancyService) observeBatch(ctx context.Context, observations []model.OccupancyObservation, provider station.FeedbackStateProvider, generation uint64) error {
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
 	if len(observations) == 0 {
 		s.reject("invalid")
 		return fmt.Errorf("%w: at least one observation is required", model.ErrInvalidOccupancy)
@@ -139,6 +149,19 @@ func (s *OccupancyService) ObserveBatch(ctx context.Context, observations []mode
 	}
 
 	s.mu.Lock()
+	var syncChanges []model.BlockOccupancy
+	if provider != nil {
+		state := provider.FeedbackState()
+		syncChanges = s.applyFeedbackStateLocked(configs, state, now)
+		if !state.Available || generation != state.Generation {
+			s.updateMetricsLocked(configs, now)
+			s.mu.Unlock()
+			for i := range syncChanges {
+				s.publish(&syncChanges[i])
+			}
+			return ErrFeedbackGenerationStale
+		}
+	}
 	for _, item := range prepared {
 		previous, exists := s.observations[item.key]
 		if !exists {
@@ -173,6 +196,9 @@ func (s *OccupancyService) ObserveBatch(ctx context.Context, observations []mode
 	}
 	s.updateMetricsLocked(configs, now)
 	s.mu.Unlock()
+	for i := range syncChanges {
+		s.publish(&syncChanges[i])
+	}
 	for range prepared {
 		s.accept()
 	}
@@ -237,6 +263,8 @@ func (s *OccupancyService) ProviderStates(ctx context.Context, blockID string) (
 }
 
 func (s *OccupancyService) Recompute(ctx context.Context) error {
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
 	configs, err := s.resolvedMappings(ctx)
 	if err != nil {
 		return err
@@ -272,6 +300,8 @@ func (s *OccupancyService) Recompute(ctx context.Context) error {
 }
 
 func (s *OccupancyService) SetProviderAvailable(ctx context.Context, providerID string, available bool) error {
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
 	configs, err := s.resolvedMappings(ctx)
 	if err != nil {
 		return err

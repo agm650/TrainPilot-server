@@ -115,11 +115,26 @@ consumer falls behind. Closing the driver interrupts that wait.
 
 R-BUS feedback is event-driven and has no arbitrary timer expiry. Its
 `staleAfter` is disabled and freshness follows command-station health. When the
-station becomes `offline`, accepted observations from its provider are cleared
+station becomes `degraded`, accepted observations from its provider are cleared
 and required mappings become `unknown`. Returning `online` does not revive the
 old observation or invent `free`; a new feedback observation is required.
-`degraded` remains available until the existing station health policy reaches
-`offline`.
+The public station still progresses from `degraded` to `offline` according to
+`station.offlineAfter`; occupancy invalidation does not wait for that deadline.
+
+On a z21 network failure, TrainPilot advances a feedback generation, resets
+both group-received flags and renews the UDP endpoint before reacquiring data.
+The previous endpoint is reserved until the new one is bound, so delayed UDP
+replies to the previous endpoint cannot enter the new stream. Broadcast
+subscriptions are refreshed and only missing groups are queried again.
+Queued observations carry their generation and are checked again at occupancy
+mutation time. Generation changes invalidate both explicit `z21-rbus` mappings
+and station wildcard mappings. Independent providers are unaffected. A partial
+response restores only observed sensors; a station status reply does not imply
+that either R-BUS group has been synchronized.
+
+The existing REST and WebSocket occupancy shapes remain unchanged. Hardware
+characterization and the post-fix acceptance procedure are recorded in
+[`hardware-tests/rbus/lot-A.md`](hardware-tests/rbus/lot-A.md).
 
 Legacy numeric feedback mappings are migrated once to the generic
 provider/sensor/block table. The compatibility store methods use that same

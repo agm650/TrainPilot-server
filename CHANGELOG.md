@@ -69,6 +69,10 @@ locomotive functions.
 
 ### Fixed
 
+- RBUS-001: invalidate station occupancy from `degraded`, fence queued feedback
+  by generation, and reacquire both R-BUS groups after network loss using a
+  renewed UDP endpoint. Wildcard mappings are included and partial replies
+  never restore unobserved sensors.
 - Server startup explicitly queries both R-BUS groups, covering inputs 1
   through 160. Already occupied detectors update blocks and connected clients
   without requiring a new physical transition.

@@ -388,6 +388,16 @@ func (r *RailwayService) StartFeedback(ctx context.Context) {
 					return
 				}
 				started := time.Now()
+				provider, synchronized := r.station.(station.FeedbackStateProvider)
+				if synchronized {
+					if err := r.occupancy.SyncStationFeedback(ctx, provider); err != nil {
+						continue
+					}
+					state := provider.FeedbackState()
+					if event.Kind == "synchronization" || !state.Available || event.Generation != state.Generation {
+						continue
+					}
+				}
 				sensorID := strconv.Itoa(event.Address)
 				providerID := event.Source
 				mapping, err := r.store.ResolveOccupancySensorMapping(ctx, providerID, sensorID)
@@ -409,13 +419,18 @@ func (r *RailwayService) StartFeedback(ctx context.Context) {
 					state = model.OccupancyOccupied
 				}
 				before := r.occupancy.BlockState(mapping.BlockID)
-				err = r.occupancy.Observe(ctx, model.OccupancyObservation{
+				observation := model.OccupancyObservation{
 					ProviderID: providerID,
 					SensorID:   sensorID,
 					State:      state,
 					Sequence:   r.nextFeedbackSequence(providerID, sensorID),
 					ObservedAt: time.Now().UTC(),
-				})
+				}
+				if synchronized {
+					err = r.occupancy.ObserveStationBatch(ctx, []model.OccupancyObservation{observation}, provider, event.Generation)
+				} else {
+					err = r.occupancy.Observe(ctx, observation)
+				}
 				if err != nil {
 					r.metrics.ObserveFeedback(event.Source, "update_error", time.Since(started))
 					r.logFeedback(event, "update_error", mapping.BlockID, err)

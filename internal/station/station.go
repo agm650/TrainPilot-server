@@ -153,6 +153,20 @@ type FeedbackEvent struct {
 	Kind    string
 	Address int
 	Active  bool
+	// Generation fences queued observations across a station resynchronization.
+	Generation uint64
+}
+
+// FeedbackState describes transport/data validity, independently from the
+// public command-station connectivity status. Missing sensors remain unknown.
+type FeedbackState struct {
+	Source     string
+	Generation uint64
+	Available  bool
+}
+
+type FeedbackStateProvider interface {
+	FeedbackState() FeedbackState
 }
 
 type Status struct {

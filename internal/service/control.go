@@ -260,7 +260,13 @@ func (c *ControlService) updateOccupancyProviderAvailability(connectivity statio
 	if c.occupancy == nil || c.occupancyProviderID == "" {
 		return
 	}
-	_ = c.occupancy.SetProviderAvailable(context.Background(), c.occupancyProviderID, connectivity != station.Offline)
+	if provider, ok := c.station.(station.FeedbackStateProvider); ok {
+		_ = c.occupancy.SyncStationFeedback(context.Background(), provider)
+		return
+	}
+	available := connectivity == station.Online
+	_ = c.occupancy.SetProviderAvailable(context.Background(), c.occupancyProviderID, available)
+	_ = c.occupancy.SetProviderAvailable(context.Background(), "*", available)
 }
 
 func (c *ControlService) rememberTrackPower(enabled bool) {

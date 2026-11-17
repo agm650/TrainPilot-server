@@ -37,7 +37,12 @@ const (
 type Driver struct {
 	address            string
 	mu                 sync.Mutex
+	connectMu          sync.Mutex
 	conn               *net.UDPConn
+	retiredConnection  *net.UDPConn
+	started            bool
+	closed             bool
+	feedbackGeneration uint64
 	feedback           chan station.FeedbackEvent
 	accessoryEvents    chan station.AccessoryStateEvent
 	accessoryPulse     time.Duration
@@ -45,7 +50,6 @@ type Driver struct {
 	accessoryWaiters   map[uint16][]chan station.AccessoryStateEvent
 	statusEvents       chan station.Status
 	statusMu           sync.Mutex
-	rbusMu             sync.Mutex
 	rbusReceived       [rbusGroupCount]bool
 	xStatusWaiters     []chan byte
 	systemStateWaiters []chan systemState
@@ -69,7 +73,8 @@ func New(address string, offlineAfter, accessoryPulse time.Duration) *Driver {
 		accessoryPulse = DefaultAccessoryPulse
 	}
 	return &Driver{
-		address: address,
+		address:            address,
+		feedbackGeneration: 1,
 		// Connect runs before the service consumes feedback. Keep a complete
 		// initial R-BUS snapshot, including the last inputs of both groups.
 		feedback:         make(chan station.FeedbackEvent, rbusGroupCount*rbusInputsPerGroup),
@@ -82,6 +87,40 @@ func New(address string, offlineAfter, accessoryPulse time.Duration) *Driver {
 	}
 }
 func (d *Driver) Connect(ctx context.Context) error {
+	d.mu.Lock()
+	if d.started || d.closed {
+		d.mu.Unlock()
+		return errors.New("z21 driver is already started or closed")
+	}
+	d.started = true
+	d.mu.Unlock()
+	d.health.Connected()
+	if err := d.ensureConnection(ctx); err != nil {
+		_ = d.Close()
+		return err
+	}
+	go d.statusLoop()
+	return nil
+}
+
+// Recovery creates a new UDP endpoint. Delayed replies addressed to the old
+// endpoint cannot be mistaken for replies to the new generation's requests.
+func (d *Driver) ensureConnection(ctx context.Context) error {
+	d.connectMu.Lock()
+	defer d.connectMu.Unlock()
+	d.mu.Lock()
+	if d.closed || !d.started {
+		d.mu.Unlock()
+		return station.ErrOffline
+	}
+	if d.conn != nil {
+		d.mu.Unlock()
+		return nil
+	}
+	d.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	remote, err := net.ResolveUDPAddr("udp", d.address)
 	if err != nil {
 		return err
@@ -91,28 +130,63 @@ func (d *Driver) Connect(ctx context.Context) error {
 		return err
 	}
 	d.mu.Lock()
-	d.conn = c
-	d.mu.Unlock()
-	d.health.Connected()
-	go d.readLoop(c)
-	if err := d.initializeFeedback(ctx); err != nil {
-		d.mu.Lock()
-		if d.conn == c {
-			d.conn = nil
-		}
+	if d.closed {
 		d.mu.Unlock()
 		_ = c.Close()
+		return station.ErrOffline
+	}
+	d.conn = c
+	retired := d.retiredConnection
+	d.retiredConnection = nil
+	d.mu.Unlock()
+	if retired != nil {
+		_ = retired.Close()
+	}
+	go d.readLoop(c)
+	if err := d.initializeFeedback(ctx); err != nil {
+		d.loseConnection(c)
 		return err
 	}
-	go d.statusLoop()
 	return nil
+}
+
+func (d *Driver) loseConnection(c *net.UDPConn) {
+	d.mu.Lock()
+	if d.closed || c == nil || d.conn != c {
+		d.mu.Unlock()
+		return
+	}
+	d.health.CommunicationError()
+	d.conn = nil
+	d.retiredConnection = c
+	d.feedbackGeneration++
+	generation := d.feedbackGeneration
+	d.rbusReceived = [rbusGroupCount]bool{}
+	d.mu.Unlock()
+	// Keep the old local port reserved until the replacement is bound.
+	// Interrupt its reader now; it cannot submit data to the new generation.
+	_ = c.SetReadDeadline(time.Now())
+	d.publish(station.FeedbackEvent{Source: "z21-rbus", Kind: "synchronization", Generation: generation})
+}
+
+func (d *Driver) FeedbackState() station.FeedbackState {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return station.FeedbackState{Source: "z21-rbus", Generation: d.feedbackGeneration,
+		Available: !d.closed && d.conn != nil && d.health.Health().Connectivity == station.Online}
 }
 func (d *Driver) Close() error {
 	d.closeOnce.Do(func() { close(d.done) })
 	d.mu.Lock()
+	d.closed = true
 	c := d.conn
+	retired := d.retiredConnection
 	d.conn = nil
+	d.retiredConnection = nil
 	d.mu.Unlock()
+	if retired != nil {
+		_ = retired.Close()
+	}
 	if c != nil {
 		return c.Close()
 	}
@@ -200,9 +274,9 @@ func (d *Driver) initializeFeedback(ctx context.Context) error {
 }
 
 func (d *Driver) requestMissingRBusData(ctx context.Context) error {
-	d.rbusMu.Lock()
+	d.mu.Lock()
 	received := d.rbusReceived
-	d.rbusMu.Unlock()
+	d.mu.Unlock()
 	for group, complete := range received {
 		if !complete {
 			if err := d.send(ctx, lan(lanRMBusGetData, byte(group))); err != nil {
@@ -218,18 +292,20 @@ func (d *Driver) send(ctx context.Context, b []byte) error {
 		return err
 	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	if d.conn == nil {
+		d.mu.Unlock()
 		return station.ErrOffline
 	}
+	c := d.conn
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = d.conn.SetWriteDeadline(deadline)
 	} else {
 		_ = d.conn.SetWriteDeadline(time.Time{})
 	}
-	_, err := d.conn.Write(b)
+	_, err := c.Write(b)
+	d.mu.Unlock()
 	if err != nil {
-		d.health.CommunicationError()
+		d.loseConnection(c)
 	}
 	return err
 }
@@ -242,6 +318,13 @@ func (d *Driver) SetTrackPower(ctx context.Context, on bool) error {
 }
 func (d *Driver) EmergencyStop(ctx context.Context) error { return d.send(ctx, xbus(0x80)) }
 func (d *Driver) Status(ctx context.Context) (station.Status, error) {
+	if err := d.ensureConnection(ctx); err != nil {
+		d.health.CommunicationError()
+		return d.currentStatus(), err
+	}
+	d.mu.Lock()
+	connection := d.conn
+	d.mu.Unlock()
 	xReply := make(chan byte, 1)
 	systemReply := make(chan systemState, 1)
 	d.statusMu.Lock()
@@ -267,8 +350,10 @@ func (d *Driver) Status(ctx context.Context) (station.Status, error) {
 			systemReply = nil
 		case <-ctx.Done():
 			return d.currentStatus(), ctx.Err()
+		case <-d.done:
+			return d.currentStatus(), station.ErrOffline
 		case <-timer.C:
-			d.health.CommunicationError()
+			d.loseConnection(connection)
 			return d.currentStatus(), nil
 		}
 	}
@@ -343,17 +428,27 @@ func (d *Driver) AccessoryStateEvents() <-chan station.AccessoryStateEvent {
 	return d.accessoryEvents
 }
 func (d *Driver) readLoop(c *net.UDPConn) {
+	d.mu.Lock()
+	generation := d.feedbackGeneration
+	d.mu.Unlock()
 	buf := make([]byte, 2048)
 	for {
 		n, err := c.Read(buf)
 		if err != nil {
-			d.health.CommunicationError()
+			d.loseConnection(c)
 			return
 		}
-		d.parse(buf[:n])
+		d.parseConnection(c, generation, buf[:n])
 	}
 }
 func (d *Driver) parse(data []byte) {
+	d.mu.Lock()
+	c, generation := d.conn, d.feedbackGeneration
+	d.mu.Unlock()
+	d.parseConnection(c, generation, data)
+}
+
+func (d *Driver) parseConnection(c *net.UDPConn, generation uint64, data []byte) {
 	for len(data) >= 4 {
 		length := int(binary.LittleEndian.Uint16(data[:2]))
 		if length < 4 || length > len(data) {
@@ -366,7 +461,13 @@ func (d *Driver) parse(data []byte) {
 			data = data[length:]
 			continue
 		}
+		d.mu.Lock()
+		if d.closed || d.conn != c || d.feedbackGeneration != generation {
+			d.mu.Unlock()
+			return
+		}
 		d.health.ValidResponse()
+		d.mu.Unlock()
 		switch {
 		case header == 0x0040 && len(payload) == 4 && payload[0] == 0x62 && payload[1] == 0x22 && xor(payload[:3]) == payload[3]:
 			d.publishXStatus(payload[2])
@@ -376,14 +477,18 @@ func (d *Driver) parse(data []byte) {
 			d.publishSystemState(parseSystemState(payload))
 		case header == lanRMBusDataChanged && len(payload) == 11 && payload[0] < rbusGroupCount:
 			group := int(payload[0])
-			d.rbusMu.Lock()
+			d.mu.Lock()
+			if d.feedbackGeneration != generation {
+				d.mu.Unlock()
+				return
+			}
 			d.rbusReceived[group] = true
-			d.rbusMu.Unlock()
+			d.mu.Unlock()
 			for i := 1; i < len(payload); i++ {
 				bits := payload[i]
 				for bit := 0; bit < 8; bit++ {
 					addr := group*rbusInputsPerGroup + (i-1)*8 + bit + 1
-					d.publish(station.FeedbackEvent{Source: "z21-rbus", Kind: "occupancy", Address: addr, Active: bits&(1<<bit) != 0})
+					d.publish(station.FeedbackEvent{Source: "z21-rbus", Kind: "occupancy", Address: addr, Active: bits&(1<<bit) != 0, Generation: generation})
 				}
 			}
 		}
@@ -549,7 +654,7 @@ func (d *Driver) statusLoop() {
 		case <-ticker.C:
 			// UDP requests or replies can be lost. Retry only groups for which
 			// no complete observation has arrived since startup.
-			_ = d.requestMissingRBusData(context.Background())
+			_ = d.initializeFeedback(context.Background())
 			status, _ := d.Status(context.Background())
 			d.publishStatusEvent(status)
 		case <-d.done:
