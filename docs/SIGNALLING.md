@@ -1,7 +1,9 @@
 # Signalisation — spécification SIG-001
 
 Version cible du serveur : **2.0.0**, avec les autres lots de signalisation.
-Ce document propose le contrat à relire avant SIG-002 à SIG-007. Les exemples
+Ce document fixe le contrat validé le 18 novembre 2026 pour SIG-002 à SIG-007.
+La validation comprend les précisions de généricité apportées par l'utilisateur.
+Les exemples
 décrivent des données futures, pas des fonctionnalités déjà disponibles.
 
 ## Décisions confirmées le 18 novembre 2026
@@ -10,12 +12,17 @@ décrivent des données futures, pas des fonctionnalités déjà disponibles.
 - Le banc utilisera un décodeur de feux maison à base d'ATtiny.
 - Ce décodeur recevra les paquets **Extended Accessory Decoder Control**.
 - Le mapping des aspects métier vers les codes du décodeur sera configurable.
+- Tout décodeur conforme au protocole étendu peut être ciblé, selon les plages
+  et capacités de la centrale. Le fabricant et le microcontrôleur ne sont pas
+  des critères d'acceptation dans le serveur.
+- Les profils de signalisation sont configurables. `SNCF_BAL_3` est un profil
+  fourni, sans imposer ses noms, couleurs ou codes aux profils personnalisés.
 - Le LEC000043 pourra participer à une étude ultérieure du freinage ABC.
   La compatibilité du montage complet avec le Roco 10819 reste à vérifier.
 
 Le firmware de la z21, celui de l'ATtiny et sa table de codes ne sont pas encore
-consignés. Ils devront figurer dans la recette du banc. La validation de la
-présente proposition de contrat reste à obtenir avant l'implémentation.
+consignés. Ils devront figurer dans la recette du banc. Ce manque concerne la
+recette matérielle ; il ne bloque pas le modèle générique et le simulateur.
 
 ## Périmètre du premier jalon
 
@@ -36,8 +43,10 @@ automatique restent hors de ce premier jalon.
 | Protection des aiguillages | Carré et règles d'itinéraire | Extension SIG-023 |
 | Cibles complexes | Combinaisons, extinction et clignotement, jusqu'à neuf feux | Extension SIG-024 |
 
-Les profils d'extension ne sont pas acceptés comme profils opérationnels tant
-que leurs règles ne sont pas implémentées. Le modèle réserve leur extension.
+Les règles automatiques des extensions ne sont pas disponibles tant qu'elles
+ne sont pas implémentées. Un profil personnalisé valide pourra être utilisé
+en commande manuelle dès la livraison de celle-ci. Il ne reçoit aucune règle
+SNCF implicite. Le calcul BAL automatique sera livré au lot D.
 Neuf feux décrivent une représentation ; ils n'imposent ni neuf sorties DCC,
 ni neuf adresses, ni une correspondance entre un bit et une lampe.
 
@@ -54,11 +63,57 @@ définit son profil, son implantation orientée, son canton protégé, son aval,
 son mode, son repli et son endpoint. Le mapping matériel appartient à
 l'endpoint ; les règles BAL ne dépendent jamais des codes du décodeur.
 
+Quatre éléments sont configurés séparément :
+
+| Élément | Contenu |
+| --- | --- |
+| Profil de signalisation | Identifiants et noms d'aspects, cibles, feux et couleurs |
+| Sémantique des aspects | Rôles `stop`, `caution`, `proceed` ou `other`, indépendants des noms |
+| Jeu de règles | `bal-3` pour le premier calcul automatique ; absent pour un profil manuel |
+| Endpoint matériel | Adresse DCC et mapping des identifiants d'aspects vers les codes du décodeur |
+
+Le jeu `bal-3` exige trois aspects, un par rôle `stop`, `caution`, `proceed`.
+Un profil personnalisé peut réutiliser ce jeu avec d'autres identifiants et
+représentations. Un profil plus complexe peut déclarer plusieurs aspects du
+même rôle en mode manuel. Il exige un jeu de règles adapté pour l'automatique.
+Le rôle `other` ne devient jamais implicitement un aspect permissif.
+
+Un profil définit son aspect de repli, de rôle `stop`. La définition d'un
+signal peut le préciser avec un autre aspect `stop` du même profil.
+Le cœur générique ne recherche jamais les chaînes `S`, `A` ou `VL`.
+
+Exemple de profil personnalisé réutilisant la sémantique BAL :
+
+```json
+{
+  "id": "CUSTOM_3",
+  "name": "Profil personnalisé à trois aspects",
+  "ruleSetId": "bal-3",
+  "fallbackAspect": "HALT",
+  "targets": [{ "id": "main", "name": "Cible principale" }],
+  "lights": [
+    { "id": "l1", "targetId": "main", "color": "#FF0000" },
+    { "id": "l2", "targetId": "main", "color": "#FFFF00" },
+    { "id": "l3", "targetId": "main", "color": "#00FF00" }
+  ],
+  "aspects": [
+    { "id": "HALT", "name": "Arrêt", "role": "stop", "indications": [{ "lightId": "l1", "state": "on" }] },
+    { "id": "WARN", "name": "Prudence", "role": "caution", "indications": [{ "lightId": "l2", "state": "on" }] },
+    { "id": "GO", "name": "Passage", "role": "proceed", "indications": [{ "lightId": "l3", "state": "on" }] }
+  ]
+}
+```
+
+La liste des indications est parcimonieuse : un feu absent est éteint et une
+liste vide décrit l'extinction complète. Les feux peuvent être regroupés sur
+plusieurs cibles. Le modèle réserve l'état `flashing` ; son exécution et sa
+présentation détaillée relèvent des extensions prévues.
+
 Un seul endpoint étendu suffit au premier jalon. La représentation du profil
 peut contenir plusieurs cibles. La commande coordonnée de plusieurs endpoints
 pour un même signal nécessite un contrat ultérieur de succès partiel.
 
-Exemple de définition proposée :
+Exemple de définition avec le profil SNCF fourni :
 
 ```json
 {
@@ -84,9 +139,12 @@ Exemple de définition proposée :
 }
 ```
 
-Les codes `0`, `1`, `2` sont un exemple de convention pour le firmware maison.
-Ils ne constituent pas une table universelle SNCF ou DCC. Le firmware ATtiny
-et la configuration du circuit devront utiliser la même table.
+Les codes `0`, `1`, `2` sont un exemple de convention. Ils ne constituent pas
+une table universelle SNCF ou DCC. Pour un autre décodeur, seule l'adresse et
+la table `aspectCodes` changent. Les codes configurés doivent correspondre
+aux indications documentées ou programmées dans ce décodeur.
+Un profil `CUSTOM_3` pourrait, par exemple, mapper `HALT`, `WARN`, `GO` vers
+`0`, `7`, `16`, sans ajouter un pilote propre au fabricant.
 
 L'état opérationnel distingue au minimum :
 
@@ -100,7 +158,8 @@ L'état opérationnel distingue au minimum :
 | `pending` | Commande en cours, sans présumer de confirmation physique |
 | `synchronized` | Validité des données nécessaires au calcul courant |
 
-Au démarrage et après import, les cibles reviennent au repli `S`. Les champs
+Au démarrage et après import, les cibles reviennent au repli du signal ou du
+profil, `S` dans l'exemple SNCF. Les champs
 de commande et de retour sont inconnus. Une écriture réussie permet d'actualiser
 `commandedAspect`, mais ne produit jamais une confirmation `physical`.
 L'absence de retour est représentée par une valeur nulle, y compris pour la
@@ -148,11 +207,14 @@ Les champs des deux formes sont exclusifs. Exemple de limite proposée :
 Cette limite est une référence logique restrictive. Elle ne représente pas
 un signal physique automatiquement découvert ou commandé. Avec un canton
 protégé libre, elle conduit à `A` sur le signal précédent. Le premier jalon
-n'autorise pas de terminal implicite à `VL`.
+n'autorise pas de terminal implicite à `VL`. Pour un profil personnalisé,
+l'aspect terminal est un identifiant `stop` de ce profil. Un signal aval
+d'un autre profil est interprété par le rôle de son aspect, pas par son nom.
 
 Un aval manquant, orphelin, orienté à contre-sens ou ambigu est une erreur
 de configuration. L'import est refusé atomiquement. Si cette incohérence est
-détectée à l'exécution, la cible est `S` et la synchronisation est invalide.
+détectée à l'exécution, la cible est le repli du profil et la synchronisation
+est invalide.
 Les boucles BAL valides restent autorisées ; leur évaluation ne doit pas
 utiliser une récursion sans borne ni dépendre de l'ordre d'itération.
 
@@ -160,10 +222,13 @@ utiliser une récursion sans borne ni dépendre de l'ordre d'itération.
 
 Le mode `manual` est le défaut d'une nouvelle définition. Il permet à un
 opérateur autorisé de demander un aspect supporté. Le mode `automatic`
-applique les règles BAL. Un changement de mode ne restaure pas une ancienne
+requiert un jeu de règles compatible explicitement déclaré par le profil.
+Un jeu absent ou non supporté interdit le mode automatique. Un changement
+de mode ne restaure pas une ancienne
 commande permissive. Les restrictions communes restent prioritaires.
 
-La matrice ci-dessous concerne le calcul BAL. Les premières lignes ont priorité.
+La matrice ci-dessous concerne le profil SNCF BAL. Les premières lignes ont
+priorité. Le moteur traduit ses résultats par les rôles des aspects configurés.
 Un aval « fiable » désigne ici un aspect logique valide dans la génération
 courante, avec un état d'envoi exploitable, sans échec ou commande obsolète.
 Une confirmation physique n'est pas exigée en l'absence de capteur, mais son
@@ -200,6 +265,9 @@ prouve pas que sa commande a pu atteindre le décodeur pendant une coupure.
 Ajouter une interface optionnelle `ExtendedAccessoryController`. La commande
 contient une adresse et un code d'aspect validés avant toute émission.
 `CommandStation.SetBasicAccessory` garde son contrat et ses limites actuelles.
+Ce contrat transporte une adresse et un entier. Il ne connaît ni fabricant,
+ni ATtiny, ni SNCF, ni couleur. Un décodeur conforme utilise le même chemin
+de commande ; ses particularités se déclarent dans la configuration du signal.
 
 La convention publique proposée utilise des adresses linéaires à partir de
 `1`. La plage portable initiale proposée est `1..2040`. Cette borne est un

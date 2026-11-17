@@ -105,8 +105,10 @@ Elles seront introduites avec un contrat distinct.
 
 ## Préparation de la signalisation pour le serveur 2.0.0
 
-La [proposition SIG-001](SIGNALLING.md) décrit les contrats à valider avant
-implémentation. La version majeure du serveur ne change pas automatiquement
+La [spécification SIG-001](SIGNALLING.md) décrit les contrats validés pour
+l'implémentation. Les profils et mappings matériels sont configurables sans
+dépendance au fabricant du décodeur ni au système SNCF.
+La version majeure du serveur ne change pas automatiquement
 les majeures HTTP ou événements. Les ajouts compatibles peuvent conserver
 `/api/v1`, selon la politique ci-dessus.
 

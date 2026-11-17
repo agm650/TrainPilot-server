@@ -8,10 +8,11 @@ Planned server release: 2.0.0.
 
 ### Added
 
-- SIG-001 signalling specification draft for the 2.0.0 work: explicit
-  downstream signals or terminal limits, BAL profiles, separate logical and
-  reported states, configurable DCC extended-accessory aspect codes for the
-  ATtiny decoder, compatibility planning and acceptance criteria. ABC braking
+- SIG-001 signalling specification for the 2.0.0 work: explicit downstream
+  signals or terminal limits, configurable signalling profiles and semantic
+  roles, separate logical and reported states, and manufacturer-independent
+  DCC extended-accessory aspect mappings. The ATtiny decoder is the initial
+  test bench. Includes compatibility planning and acceptance criteria. ABC braking
   remains a separate future hardware study.
 
 ## v1.1.1 - 2026-11-18
