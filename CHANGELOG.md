@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v1.1.1 - 2026-11-18
+
+Documentation-only release; no functional changes from v1.1.0.
+
+### Fixed
+
+- Move the changes shipped in v1.1.0 out of `Unreleased` into a dated release
+  section so distribution archives include the corrected release history.
+
+## v1.1.0 - 2026-11-18
+
 Physical railway topology, integrated z21 R-BUS block occupancy, and momentary
 locomotive functions.
 
