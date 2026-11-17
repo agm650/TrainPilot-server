@@ -102,3 +102,15 @@ Un client annonçant la prise en charge de l'API 1.5 ou des événements 1.7 doi
 
 Les commandes REST multi-endpoints ne font pas partie de cette évolution.
 Elles seront introduites avec un contrat distinct.
+
+## Préparation de la signalisation pour le serveur 2.0.0
+
+La [proposition SIG-001](SIGNALLING.md) décrit les contrats à valider avant
+implémentation. La version majeure du serveur ne change pas automatiquement
+les majeures HTTP ou événements. Les ajouts compatibles peuvent conserver
+`/api/v1`, selon la politique ci-dessus.
+
+Cette spécification n'ajoute aucun endpoint ni événement disponible. Les
+capacités, schémas et versions seront mis à jour avec leur implémentation.
+Le calcul d'un aspect, l'envoi de sa commande et l'observation des feux devront
+rester distincts dans les réponses et événements futurs.

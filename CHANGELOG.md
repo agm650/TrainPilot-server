@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+Planned server release: 2.0.0.
+
+### Added
+
+- SIG-001 signalling specification draft for the 2.0.0 work: explicit
+  downstream signals or terminal limits, BAL profiles, separate logical and
+  reported states, configurable DCC extended-accessory aspect codes for the
+  ATtiny decoder, compatibility planning and acceptance criteria. ABC braking
+  remains a separate future hardware study.
+
 ## v1.1.1 - 2026-11-18
 
 Documentation-only release; no functional changes from v1.1.0.

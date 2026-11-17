@@ -38,6 +38,16 @@ défaut. Une omission en mode fusion conserve une déclaration explicite existan
 Voir [les règles d'occupation](OCCUPANCY.md#track-power-dependent-providers).
 Un format, une version ou un type inconnu est refusé.
 
+### Évolution prévue pour la signalisation
+
+La [proposition SIG-001](SIGNALLING.md) prépare un format de circuit **9** pour
+les définitions et symboles de signaux. Il devra conserver la lecture des
+versions 1 à 8, sans restaurer d'aspect opérationnel ou de confirmation physique.
+Le format du matériel roulant restera **7**.
+
+Cette évolution relève de SIG-007. Le format actuellement implémenté reste
+**8** ; les archives de version 9 ne sont pas encore acceptées.
+
 ## Bibliothèque de matériel
 
 Une archive de type `rolling-stock` contient `rolling-stock.json` :
