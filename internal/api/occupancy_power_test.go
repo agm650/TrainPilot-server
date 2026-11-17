@@ -19,8 +19,13 @@ func TestZ21TrackPowerRecoveryQueriesFreshOccupancyAndUpdatesClients(t *testing.
 	if err := driver.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// Slow CI can trigger a retry before startup replies are consumed. Leave
+	// that retry queued to verify that recovery selects the renewed endpoint.
+	if err := driver.RefreshFeedback(ctx); err != nil {
+		t.Fatal(err)
+	}
 	server, apiClient, token, railway := newZ21OccupancyHTTPFixture(t, ctx, driver)
-	fake.replyToScan(t)
+	startup := fake.replyToScan(t)
 	waitForStartupOccupancy(t, railway, map[string]model.OccupancyState{"block-a": model.OccupancyOccupied, "block-b": model.OccupancyFree, "block-c": model.OccupancyOccupied})
 	ws := dialTestWebSocket(t, server.URL, token)
 	defer ws.close()
@@ -42,18 +47,7 @@ func TestZ21TrackPowerRecoveryQueriesFreshOccupancyAndUpdatesClients(t *testing.
 		t.Fatalf("wrong epoch transition: before=%+v after=%+v", before, after)
 	}
 	waitForStartupOccupancy(t, railway, unknown)
-	var requests [2]z21OccupancyRequest
-	for group := 0; group < 2; group++ {
-		select {
-		case request := <-fake.requests:
-			if request.group != byte(group) {
-				t.Fatalf("power resync group=%d want=%d", request.group, group)
-			}
-			requests[group] = request
-		case <-time.After(time.Second):
-			t.Fatal("power ON did not request both R-BUS groups")
-		}
-	}
+	requests := fake.scanAfter(t, startup[0].from)
 	// The train moved to input 81 while power was OFF. Group 1 is deliberately
 	// withheld until after checking that partial data cannot revive old states.
 	payload := make([]byte, 11)

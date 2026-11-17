@@ -19,8 +19,13 @@ func TestZ21NetworkRecoveryRefreshesRESTAndWebSocketWithoutPhysicalChange(t *tes
 	if err := driver.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// Keep an unanswered startup retry, as happens when fixture initialization
+	// exceeds the driver's polling interval on a loaded CI runner.
+	if err := driver.RefreshFeedback(ctx); err != nil {
+		t.Fatal(err)
+	}
 	server, apiClient, token, railway := newZ21OccupancyHTTPFixture(t, ctx, driver)
-	fake.replyToScan(t)
+	startup := fake.replyToScan(t)
 	waitForStartupOccupancy(t, railway, map[string]model.OccupancyState{"block-a": model.OccupancyOccupied, "block-b": model.OccupancyFree, "block-c": model.OccupancyOccupied})
 	websocket := dialTestWebSocket(t, server.URL, token)
 	defer websocket.close()
@@ -39,18 +44,7 @@ func TestZ21NetworkRecoveryRefreshesRESTAndWebSocketWithoutPhysicalChange(t *tes
 	fake.drop.Store(false)
 	statusDone := make(chan error, 1)
 	go func() { _, err := driver.Status(ctx); statusDone <- err }()
-	var requests [2]z21OccupancyRequest
-	for group := 0; group < 2; group++ {
-		select {
-		case request := <-fake.requests:
-			if request.group != byte(group) {
-				t.Fatalf("resync group=%d want=%d", request.group, group)
-			}
-			requests[group] = request
-		case <-time.After(5 * time.Second):
-			t.Fatal("no explicit R-BUS request after network recovery")
-		}
-	}
+	requests := fake.scanAfter(t, startup[0].from)
 	// The train moved from input 80 to 81 during the outage. No spontaneous
 	// feedback is sent; only responses to the explicit group queries follow.
 	payload := make([]byte, 11)

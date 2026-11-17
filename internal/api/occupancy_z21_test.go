@@ -248,21 +248,47 @@ func newZ21OccupancyServer(t *testing.T) *z21OccupancyServer {
 	return s
 }
 
-func (s *z21OccupancyServer) replyToScan(t *testing.T) {
+// Retries can remain queued while the HTTP fixture initializes. Recovery must
+// answer a complete scan addressed to the renewed endpoint, not those retries.
+func (s *z21OccupancyServer) scanAfter(t *testing.T, previous *net.UDPAddr) [2]z21OccupancyRequest {
 	t.Helper()
-	for group := byte(0); group < 2; group++ {
+	var requests [2]z21OccupancyRequest
+	var received [2]bool
+	var endpoint string
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for !received[0] || !received[1] {
 		select {
 		case request := <-s.requests:
-			if request.group != group {
-				t.Fatalf("requested group=%d want %d", request.group, group)
+			if previous != nil && request.from.String() == previous.String() {
+				continue
 			}
-			payload := make([]byte, 11)
-			payload[0], payload[10] = group, 0x80 // Inputs 80 and 160 occupied.
-			if _, err := s.conn.WriteToUDP(apiZ21LAN(0x0080, payload), request.from); err != nil {
-				t.Fatal(err)
+			if request.group >= byte(len(requests)) {
+				t.Fatalf("unexpected R-BUS group %d", request.group)
 			}
-		case <-time.After(time.Second):
-			t.Fatalf("server did not query R-BUS group %d at startup", group)
+			if endpoint == "" {
+				endpoint = request.from.String()
+			} else if endpoint != request.from.String() {
+				t.Fatalf("R-BUS scan changed endpoint: %s -> %s", endpoint, request.from)
+			}
+			requests[request.group] = request
+			received[request.group] = true
+		case <-timer.C:
+			t.Fatalf("incomplete R-BUS scan: received=%v endpoint=%s previous=%v", received, endpoint, previous)
 		}
 	}
+	return requests
+}
+
+func (s *z21OccupancyServer) replyToScan(t *testing.T) [2]z21OccupancyRequest {
+	t.Helper()
+	requests := s.scanAfter(t, nil)
+	for group, request := range requests {
+		payload := make([]byte, 11)
+		payload[0], payload[10] = byte(group), 0x80 // Inputs 80 and 160 occupied.
+		if _, err := s.conn.WriteToUDP(apiZ21LAN(0x0080, payload), request.from); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return requests
 }

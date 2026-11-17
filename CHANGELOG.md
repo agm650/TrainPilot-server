@@ -70,6 +70,9 @@ locomotive functions.
 
 ### Fixed
 
+- R-BUS recovery integration tests select scan requests for the renewed UDP
+  endpoint, ignoring startup retries left queued on slower CI runners. Both
+  network and track-power recovery tests now exercise this case explicitly.
 - RBUS-003: declare provider track-power dependencies, invalidate dependent
   observations during OFF, unknown power or electrical faults, and acquire
   fresh sensor states on recovery. Power generations reject queued old reports
