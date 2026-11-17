@@ -39,11 +39,11 @@ func TestZ21StartupOccupancyReachesRESTAndWebSocket(t *testing.T) {
 			if earlyReply {
 				fake.replyToScan(t)
 				deadline := time.Now().Add(time.Second)
-				for len(driver.Feedback()) < 160 && time.Now().Before(deadline) {
+				for len(driver.Feedback()) < 2 && time.Now().Before(deadline) {
 					time.Sleep(time.Millisecond)
 				}
-				if got := len(driver.Feedback()); got != 160 {
-					t.Fatalf("buffered startup observations=%d want 160", got)
+				if got := len(driver.Feedback()); got != 2 {
+					t.Fatalf("buffered startup frames=%d want 2", got)
 				}
 			}
 			httpServer, apiClient, token, railway := newZ21OccupancyHTTPFixture(t, ctx, driver)
@@ -123,7 +123,7 @@ func waitForStartupOccupancy(t *testing.T, railway *service.RailwayService, want
 	t.Fatal("startup detector observations did not reach block occupancy")
 }
 
-func newZ21OccupancyHTTPFixture(t *testing.T, parent context.Context, driver station.CommandStation) (*httptest.Server, *client.Client, string, *service.RailwayService) {
+func newZ21OccupancyHTTPFixture(t *testing.T, parent context.Context, driver station.CommandStation, extraMappings ...model.FeedbackMapping) (*httptest.Server, *client.Client, string, *service.RailwayService) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(parent)
 	db, err := store.Open(":memory:")
@@ -145,6 +145,11 @@ func newZ21OccupancyHTTPFixture(t *testing.T, parent context.Context, driver sta
 	}
 	for address, blockID := range map[int]string{80: "block-a", 81: "block-b", 160: "block-c"} {
 		if err := db.SetFeedbackMapping(ctx, "z21-rbus", address, blockID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, mapping := range extraMappings {
+		if err := db.SetFeedbackMapping(ctx, mapping.Provider, mapping.Address, mapping.BlockID); err != nil {
 			t.Fatal(err)
 		}
 	}

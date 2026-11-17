@@ -132,6 +132,23 @@ and station wildcard mappings. Independent providers are unaffected. A partial
 response restores only observed sensors; a station status reply does not imply
 that either R-BUS group has been synchronized.
 
+Each R-BUS wire frame is delivered as one internal feedback event containing
+all 80 inputs. The service resolves explicit source mappings before wildcard
+mappings, ignores unmapped inputs, and submits the remaining observations in
+one `ObserveBatch` operation. Empty or completely unmapped frames do not invoke
+the batch observation API. Other drivers may continue emitting individual
+feedback events, which use the same pipeline as single-observation batches.
+
+All affected blocks are recomputed before the first business event is
+published. A train transferring between two inputs of the same block in one
+frame cannot produce an intermediate `free` state. Unchanged frames refresh
+observation sequences without emitting another business event. R-BUS transition
+logs use the final occupied-address set for the entire frame, including unmapped
+inputs. The internal queue is bounded to 64 frames and applies backpressure.
+This atomicity applies to one group frame, not to two independently received
+groups. Public WebSocket events remain individual block changes; the contract
+does not promise an atomic multi-block update in each client view.
+
 The existing REST and WebSocket occupancy shapes remain unchanged. Hardware
 characterization and the post-fix acceptance procedure are recorded in
 [`hardware-tests/rbus/lot-A.md`](hardware-tests/rbus/lot-A.md).

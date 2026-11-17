@@ -34,16 +34,25 @@ func TestRBusSnapshotRetainsAllInputsBeforeFeedbackConsumerStarts(t *testing.T) 
 		payload[0], payload[1], payload[10] = group, 0x01, 0x80
 		driver.parse(lan(0x0080, payload...))
 	}
-	for address := 1; address <= 160; address++ {
+	for group := 0; group < 2; group++ {
 		select {
 		case event := <-driver.Feedback():
-			wantActive := address == 1 || address == 80 || address == 81 || address == 160
-			if event.Source != "z21-rbus" || event.Kind != "occupancy" || event.Address != address || event.Active != wantActive {
-				t.Fatalf("input %d: event=%+v want active=%v", address, event, wantActive)
+			if event.Source != "z21-rbus" || event.Kind != "occupancy" || len(event.Inputs) != 80 || event.Generation == 0 {
+				t.Fatalf("invalid group frame: %+v", event)
+			}
+			for i, input := range event.Inputs {
+				address := group*80 + i + 1
+				wantActive := address == 1 || address == 80 || address == 81 || address == 160
+				if input.Address != address || input.Active != wantActive {
+					t.Fatalf("input %d: got=%+v want active=%v", address, input, wantActive)
+				}
 			}
 		default:
-			t.Fatalf("startup snapshot lost input %d", address)
+			t.Fatalf("startup snapshot lost group %d", group)
 		}
+	}
+	if len(driver.feedback) != 0 {
+		t.Fatal("frame was also emitted as individual observations")
 	}
 }
 
@@ -87,7 +96,8 @@ func TestMalformedRBusReplyDoesNotCompleteScan(t *testing.T) {
 func TestFeedbackBackpressurePreservesObservationsAndCloseUnblocks(t *testing.T) {
 	driver := New("unused", station.DefaultOfflineAfter, DefaultAccessoryPulse)
 	t.Cleanup(func() { _ = driver.Close() })
-	for address := 1; address <= 160; address++ {
+	capacity := cap(driver.feedback)
+	for address := 1; address <= capacity; address++ {
 		driver.publish(station.FeedbackEvent{Address: address})
 	}
 	done := make(chan struct{})
@@ -95,10 +105,10 @@ func TestFeedbackBackpressurePreservesObservationsAndCloseUnblocks(t *testing.T)
 		driver.publish(station.FeedbackEvent{Address: 1, Active: true})
 		close(done)
 	}()
-	for i := 0; i < 161; i++ {
+	for i := 0; i <= capacity; i++ {
 		select {
 		case event := <-driver.Feedback():
-			if i == 160 && (event.Address != 1 || !event.Active) {
+			if i == capacity && (event.Address != 1 || !event.Active) {
 				t.Fatalf("last observation=%+v", event)
 			}
 		case <-time.After(time.Second):
@@ -106,7 +116,7 @@ func TestFeedbackBackpressurePreservesObservationsAndCloseUnblocks(t *testing.T)
 		}
 	}
 	<-done
-	for address := 1; address <= 160; address++ {
+	for address := 1; address <= capacity; address++ {
 		driver.publish(station.FeedbackEvent{Address: address})
 	}
 	done = make(chan struct{})

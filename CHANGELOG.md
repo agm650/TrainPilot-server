@@ -69,6 +69,10 @@ locomotive functions.
 
 ### Fixed
 
+- RBUS-002: apply each 80-input R-BUS frame as one occupancy batch, ignoring
+  unmapped inputs while preserving explicit-source and wildcard precedence.
+  Same-block transfers no longer publish a false free state, and transition
+  logs report the final occupied-address set for the frame.
 - RBUS-001: invalidate station occupancy from `degraded`, fence queued feedback
   by generation, and reacquire both R-BUS groups after network loss using a
   renewed UDP endpoint. Wildcard mappings are included and partial replies

@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,18 +25,19 @@ type RailwayService struct {
 	turnoutLocksMu sync.Mutex
 	turnoutLocks   map[string]*turnoutCommandLock
 
-	accessoryMu          sync.Mutex
-	accessoryStates      map[string]map[string]model.AccessoryPosition
-	accessoryReports     map[string]map[string]station.AccessoryReportState
-	accessoryQualities   map[string]map[string]station.AccessoryReportQuality
-	accessoryGenerations map[string]map[string]uint64
-	turnoutRuntime       map[string]*turnoutCommandRuntime
-	metrics              *observability.Metrics
-	occupancy            *OccupancyService
-	feedbackSequencesMu  sync.Mutex
-	feedbackSequences    map[occupancySourceKey]uint64
-	feedbackLogger       *slog.Logger
-	rbusLogActive        map[int]bool // Accessed only by the feedback goroutine.
+	accessoryMu           sync.Mutex
+	accessoryStates       map[string]map[string]model.AccessoryPosition
+	accessoryReports      map[string]map[string]station.AccessoryReportState
+	accessoryQualities    map[string]map[string]station.AccessoryReportQuality
+	accessoryGenerations  map[string]map[string]uint64
+	turnoutRuntime        map[string]*turnoutCommandRuntime
+	metrics               *observability.Metrics
+	occupancy             *OccupancyService
+	feedbackSequencesMu   sync.Mutex
+	feedbackSequences     map[occupancySourceKey]uint64
+	feedbackLogger        *slog.Logger
+	feedbackLogGeneration uint64
+	rbusLogActive         map[int]bool // Accessed only by the feedback goroutine.
 }
 
 // SetFeedbackLogger configures optional feedback logging before StartFeedback.
@@ -387,59 +386,7 @@ func (r *RailwayService) StartFeedback(ctx context.Context) {
 				if !ok {
 					return
 				}
-				started := time.Now()
-				provider, synchronized := r.station.(station.FeedbackStateProvider)
-				if synchronized {
-					if err := r.occupancy.SyncStationFeedback(ctx, provider); err != nil {
-						continue
-					}
-					state := provider.FeedbackState()
-					if event.Kind == "synchronization" || !state.Available || event.Generation != state.Generation {
-						continue
-					}
-				}
-				sensorID := strconv.Itoa(event.Address)
-				providerID := event.Source
-				mapping, err := r.store.ResolveOccupancySensorMapping(ctx, providerID, sensorID)
-				if errors.Is(err, store.ErrNotFound) {
-					providerID = "*"
-					mapping, err = r.store.ResolveOccupancySensorMapping(ctx, providerID, sensorID)
-				}
-				if err != nil {
-					result := "mapping_error"
-					if errors.Is(err, store.ErrNotFound) {
-						result = "unmapped"
-					}
-					r.metrics.ObserveFeedback(event.Source, result, time.Since(started))
-					r.logFeedback(event, result, "", err)
-					continue
-				}
-				state := model.OccupancyFree
-				if event.Active {
-					state = model.OccupancyOccupied
-				}
-				before := r.occupancy.BlockState(mapping.BlockID)
-				observation := model.OccupancyObservation{
-					ProviderID: providerID,
-					SensorID:   sensorID,
-					State:      state,
-					Sequence:   r.nextFeedbackSequence(providerID, sensorID),
-					ObservedAt: time.Now().UTC(),
-				}
-				if synchronized {
-					err = r.occupancy.ObserveStationBatch(ctx, []model.OccupancyObservation{observation}, provider, event.Generation)
-				} else {
-					err = r.occupancy.Observe(ctx, observation)
-				}
-				if err != nil {
-					r.metrics.ObserveFeedback(event.Source, "update_error", time.Since(started))
-					r.logFeedback(event, "update_error", mapping.BlockID, err)
-					continue
-				}
-				after := r.occupancy.BlockState(mapping.BlockID)
-				r.metrics.ObserveFeedbackOccupancy(event.Source, before.State != after.State)
-				r.metrics.ObserveFeedback(event.Source, "mapped", time.Since(started))
-				r.logFeedback(event, "mapped", mapping.BlockID, nil)
+				r.handleFeedback(ctx, event)
 			}
 		}
 	}()
@@ -462,28 +409,7 @@ func (r *RailwayService) StartFeedback(ctx context.Context) {
 	}()
 }
 
-func (r *RailwayService) logFeedback(event station.FeedbackEvent, result, blockID string, err error) {
-	if r.feedbackLogger == nil {
-		return
-	}
-	var occupiedAddresses []int
-	if event.Source == "z21-rbus" && event.Kind == "occupancy" {
-		// An address starts free for logging, independently of occupancy state.
-		if r.rbusLogActive[event.Address] == event.Active {
-			return
-		}
-		if r.rbusLogActive == nil {
-			r.rbusLogActive = make(map[int]bool)
-		}
-		r.rbusLogActive[event.Address] = event.Active
-		occupiedAddresses = make([]int, 0)
-		for address, active := range r.rbusLogActive {
-			if active {
-				occupiedAddresses = append(occupiedAddresses, address)
-			}
-		}
-		sort.Ints(occupiedAddresses)
-	}
+func (r *RailwayService) emitFeedbackLog(event station.FeedbackEvent, result, blockID string, err error, occupiedAddresses []int) {
 	attrs := []any{
 		"source", event.Source,
 		"kind", event.Kind,

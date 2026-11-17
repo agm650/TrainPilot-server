@@ -155,6 +155,14 @@ type FeedbackEvent struct {
 	Active  bool
 	// Generation fences queued observations across a station resynchronization.
 	Generation uint64
+	// Non-nil Inputs is one complete frame, including an explicitly empty one.
+	// Nil preserves the legacy individual observation contract.
+	Inputs []FeedbackInput
+}
+
+type FeedbackInput struct {
+	Address int
+	Active  bool
 }
 
 // FeedbackState describes transport/data validity, independently from the

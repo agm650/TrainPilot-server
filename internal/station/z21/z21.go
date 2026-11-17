@@ -77,7 +77,7 @@ func New(address string, offlineAfter, accessoryPulse time.Duration) *Driver {
 		feedbackGeneration: 1,
 		// Connect runs before the service consumes feedback. Keep a complete
 		// initial R-BUS snapshot, including the last inputs of both groups.
-		feedback:         make(chan station.FeedbackEvent, rbusGroupCount*rbusInputsPerGroup),
+		feedback:         make(chan station.FeedbackEvent, 64),
 		accessoryEvents:  make(chan station.AccessoryStateEvent, 64),
 		accessoryPulse:   accessoryPulse,
 		accessoryWaiters: make(map[uint16][]chan station.AccessoryStateEvent),
@@ -484,13 +484,15 @@ func (d *Driver) parseConnection(c *net.UDPConn, generation uint64, data []byte)
 			}
 			d.rbusReceived[group] = true
 			d.mu.Unlock()
+			inputs := make([]station.FeedbackInput, 0, rbusInputsPerGroup)
 			for i := 1; i < len(payload); i++ {
 				bits := payload[i]
 				for bit := 0; bit < 8; bit++ {
 					addr := group*rbusInputsPerGroup + (i-1)*8 + bit + 1
-					d.publish(station.FeedbackEvent{Source: "z21-rbus", Kind: "occupancy", Address: addr, Active: bits&(1<<bit) != 0, Generation: generation})
+					inputs = append(inputs, station.FeedbackInput{Address: addr, Active: bits&(1<<bit) != 0})
 				}
 			}
+			d.publish(station.FeedbackEvent{Source: "z21-rbus", Kind: "occupancy", Generation: generation, Inputs: inputs})
 		}
 		data = data[length:]
 	}

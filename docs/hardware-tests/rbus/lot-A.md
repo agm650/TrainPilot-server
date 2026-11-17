@@ -39,6 +39,22 @@ Recette physique après correction : **à effectuer sur le nouveau binaire**.
 Une réponse partielle ne prouve pas la synchronisation des zones absentes.
 L'état d'un fournisseur indépendant peut toujours maintenir un canton occupé.
 
-## RBUS-002 et RBUS-003
+## RBUS-002 — Traitement groupé
 
-Travaux à traiter après le commit RBUS-001, dans cet ordre.
+Correction logicielle : chaque trame de 80 entrées est traitée en un lot. Les
+entrées non configurées sont ignorées ; les mappings explicites précèdent les
+wildcards. Tous les blocs sont recalculés avant publication et les logs de
+transition partagent l'ensemble final des adresses occupées.
+
+Tests automatisés : transfert entre deux détecteurs du même canton sans
+libération intermédiaire, priorité des mappings, 77 entrées non configurées,
+trames identiques, lot vide, séquences monotones, états mis à jour avant le
+premier événement, backpressure et contrôle REST/WebSocket du transfert réel.
+Les tests des pilotes individuels DCC-EX et simulateur restent applicables.
+
+La simultanéité entre deux groupes distincts n'est pas garantie. Les événements
+publics restent individuels, même si l'état serveur est recalculé en un lot.
+
+## RBUS-003
+
+Travaux à traiter après le commit RBUS-002.
