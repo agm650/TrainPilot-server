@@ -44,7 +44,7 @@ func TestSignalDefinitionsReachTopologyClients(t *testing.T) {
 	ws := dialTestWebSocket(t, f.server.URL, f.accessToken)
 	defer ws.close()
 	snapshot := readTestSnapshot(t, ws)
-	if snapshot.Payload.TopologyRevision != definition.Revision {
+	if snapshot.Payload.TopologyRevision != definition.Revision || snapshot.Payload.SignallingRevision != definition.SignallingRevision {
 		t.Fatal("REST and WebSocket revisions differ")
 	}
 }

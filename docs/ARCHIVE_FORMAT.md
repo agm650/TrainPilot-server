@@ -1,7 +1,7 @@
 # Format des archives DCC Control
 
-Versions actuelles : **8** pour `.dcclayout`, **7** pour `.dcclib`.
-Les archives de circuit versions 1 à 7 restent importables.
+Versions actuelles : **9** pour `.dcclayout`, **7** pour `.dcclib`.
+Les archives de circuit versions 1 à 8 restent importables.
 Les bibliothèques de matériel versions 1 à 6 restent également importables.
 
 Les extensions recommandées sont :
@@ -17,7 +17,7 @@ Chaque archive contient obligatoirement `manifest.json` :
 ```json
 {
   "format": "org.dcc-control.package",
-  "version": 8,
+  "version": 9,
   "packageType": "layout",
   "createdAt": "2026-07-29T20:00:00Z"
 }
@@ -27,7 +27,7 @@ Chaque `linearAddress` d'endpoint doit être compris entre `1` et `2040`.
 Les adresses `2041..2044` sont exclues de la plage portable TrainPilot.
 
 `packageType` vaut `rolling-stock` ou `layout`. La version maximale est 7 pour
-`rolling-stock` et 8 pour `layout`.
+`rolling-stock` et 9 pour `layout`.
 
 Depuis la version 8, un fournisseur d'occupation peut déclarer le booléen
 optionnel `trackPowerDependent`. `true` exige une alimentation de voie ON et
@@ -38,15 +38,25 @@ défaut. Une omission en mode fusion conserve une déclaration explicite existan
 Voir [les règles d'occupation](OCCUPANCY.md#track-power-dependent-providers).
 Un format, une version ou un type inconnu est refusé.
 
-### Évolution prévue pour la signalisation
+### Signalisation dans le format 9
 
-La [proposition SIG-001](SIGNALLING.md) prépare un format de circuit **9** pour
-les définitions et symboles de signaux. Il devra conserver la lecture des
-versions 1 à 8, sans restaurer d'aspect opérationnel ou de confirmation physique.
-Le format du matériel roulant restera **7**.
+SIG-007 ajoute `signalProfiles`, `signals` et `presentation.signals`. Les profils
+contiennent les aspects, rôles, cibles, feux et repli. Les définitions conservent
+le mode, la section orientée, le canton protégé, l'aval explicite et le mapping
+vers l'adresse et les codes DCC étendus. Les symboles contiennent `signalId`,
+`x`, `y`, `rotationDegrees` et `mirrored` ; leur placement graphique reste
+indépendant de la direction logique.
 
-Cette évolution relève de SIG-007. Le format actuellement implémenté reste
-**8** ; les archives de version 9 ne sont pas encore acceptées.
+Les commandes en attente, aspects calculés, envoyés ou observés et confirmations
+physiques ne sont pas exportés. L'import strict refuse ces champs runtime dans
+les définitions. Les références invalides sont refusées avant publication et
+la transaction entière est annulée. Les signaux et leurs symboles ne sont pas
+acceptés sous un manifeste de version antérieure à 9.
+
+Les anciennes archives sans signaux restent importables. En fusion, une
+collection omise conserve les définitions et symboles existants. Un remplacement
+complet par un ancien circuit produit un circuit sans signalisation. Le format
+matériel roulant reste **7**. Voir [la spécification](SIGNALLING.md).
 
 ## Bibliothèque de matériel
 

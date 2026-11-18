@@ -108,10 +108,10 @@ ID, while ports, positions, and connections preserve their declared order.
 Referenced nodes and turnouts cannot be deleted implicitly. A complete layout
 replacement removes their topology explicitly within the same transaction.
 
-Layout archive version 8 stores graphical `presentation` alongside block
+Layout archive version 9 stores graphical `presentation` alongside block
 `trackSectionIds` and `turnoutIds`, `nodes`, `trackSections`, and
-`turnoutTopologies` and occupancy provider power dependencies. Versions 1 through
-7 remain importable. Blocks from
+`turnoutTopologies`, occupancy provider power dependencies, and signal profiles
+and definitions. Versions 1 through 8 remain importable. Blocks from
 versions 1 through 4 have empty resource memberships. Versions 1 through 3
 also produce an empty topology. TrainPilot never infers physical membership
 from route block references during database or archive migration.
@@ -306,7 +306,7 @@ The coordinate system is `layout-units`; omitted grid spacing defaults to 20
 layout units and defines the layout grid interval. Zoom and viewport offsets
 stay in the client. Block colors use `#RRGGBB`, with opacity from 0 to 1.
 The store persists this presentation, exposes it through
-`GET /api/v1/layout/presentation`, and exports it in `.dcclayout` version 8.
+`GET /api/v1/layout/presentation`, and exports it in `.dcclayout` version 9.
 Topology V1 has no operating direction,
 signaling rules, resource reservation, train location, or progressive route
 release. Physical pathfinding is descriptive only and makes no operating or
@@ -323,3 +323,15 @@ block without additional evidence.
 The planned order is train localization first, then safe route interlocking
 based on atomic resource reservations, then signaling. Real z21/R-BUS behavior
 and the five-zone physical layout remain hardware validation work.
+
+
+## Signal definitions and drawing
+
+HTTP 1.18 adds optional `signalProfiles` and `signals` to the revisioned topology,
+and signal symbol positions to the independent presentation. Profile and logical
+configuration changes affect the optional `signallingRevision`; physical changes
+affect `topologyRevision`, whose historical checksum is preserved. Moving a symbol
+affects only `layoutPresentationRevision`. These revisions exclude runtime aspects.
+See [the signalling contract](SIGNALLING.md). Missing signalling coverage never
+implies free track or movement authority. Automatic aspect calculation and live
+signal commands belong to the later signalling lots.

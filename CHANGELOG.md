@@ -8,6 +8,12 @@ Planned server release: 2.0.0.
 
 ### Added
 
+- SIG-007 layout archives version 9 with configurable signal profiles,
+  definitions and independent graphical symbols. Older layouts remain importable,
+  invalid references roll back atomically and runtime aspects are excluded.
+  Rolling-stock archives remain version 7; HTTP advances to 1.18.0 and events
+  to 1.15.0. An optional signallingRevision separates signal metadata from the
+  historical topology checksum, preserving existing graph clients.
 - SIG-006 signal definitions in the revisioned topology, with oriented block
   membership, explicit downstream continuity, cycle-safe validation, endpoint
   ownership and atomic layout replacement. Legacy layouts remain compatible;

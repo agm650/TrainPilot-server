@@ -22,7 +22,7 @@ import (
 const (
 	FormatID            = "org.dcc-control.package"
 	FormatVersion       = 7 // rolling-stock archives
-	LayoutFormatVersion = 8
+	LayoutFormatVersion = 9
 	OldestVersion       = 1
 	MaxArchiveSize      = 25 << 20
 	MaxEntrySize        = 10 << 20
@@ -61,6 +61,8 @@ type layoutArchiveBlockDefinition struct {
 }
 
 type layoutArchiveDefinition struct {
+	SignalProfiles          []model.SignalProfile          `json:"signalProfiles"`
+	Signals                 []model.SignalDefinition       `json:"signals"`
 	Presentation            model.LayoutPresentation       `json:"presentation"`
 	Nodes                   []model.TopologyNode           `json:"nodes"`
 	TrackSections           []model.TrackSection           `json:"trackSections"`
@@ -117,6 +119,7 @@ func (d LayoutDocument) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Layout layoutArchiveDefinition `json:"layout"`
 	}{Layout: layoutArchiveDefinition{
+		SignalProfiles: append([]model.SignalProfile{}, d.Layout.SignalProfiles...), Signals: append([]model.SignalDefinition{}, d.Layout.Signals...),
 		Presentation: presentation,
 		Nodes:        d.Layout.TopologyNodes, TrackSections: d.Layout.TrackSections,
 		TurnoutTopologies: d.Layout.TurnoutTopologies,
@@ -130,6 +133,8 @@ func (d LayoutDocument) MarshalJSON() ([]byte, error) {
 func (d *LayoutDocument) UnmarshalJSON(data []byte) error {
 	var document struct {
 		Layout struct {
+			SignalProfiles          []model.SignalProfile          `json:"signalProfiles"`
+			Signals                 []model.SignalDefinition       `json:"signals"`
 			Presentation            *model.LayoutPresentation      `json:"presentation"`
 			Nodes                   []model.TopologyNode           `json:"nodes"`
 			TrackSections           []model.TrackSection           `json:"trackSections"`
@@ -168,6 +173,7 @@ func (d *LayoutDocument) UnmarshalJSON(data []byte) error {
 		})
 	}
 	d.Layout = model.LayoutDefinition{
+		SignalProfiles: document.Layout.SignalProfiles, Signals: document.Layout.Signals,
 		Presentation:            document.Layout.Presentation,
 		TopologyNodes:           document.Layout.Nodes,
 		TrackSections:           document.Layout.TrackSections,
@@ -264,7 +270,7 @@ func (s *Service) ImportLayout(ctx context.Context, user model.User, data []byte
 		return fmt.Errorf("%w: %v", ErrInvalidArchive, err)
 	}
 	if err := s.store.ImportLayout(ctx, doc.Layout, replace); err != nil {
-		if errors.Is(err, model.ErrInvalidLayoutPresentation) {
+		if errors.Is(err, model.ErrInvalidLayoutPresentation) || errors.Is(err, model.ErrInvalidSignalLayout) || errors.Is(err, model.ErrInvalidSignal) || errors.Is(err, model.ErrInvalidSignalProfile) {
 			return fmt.Errorf("%w: %v", ErrInvalidArchive, err)
 		}
 		return err
@@ -330,7 +336,15 @@ func readArchive(data []byte, packageType, documentName string, target any) erro
 	if manifest.Format != FormatID || manifest.Version < OldestVersion || manifest.Version > maxVersion || manifest.PackageType != packageType {
 		return fmt.Errorf("unsupported archive format %q version %d type %q", manifest.Format, manifest.Version, manifest.PackageType)
 	}
-	return decodeZipJSON(docFile, target)
+	if err := decodeZipJSON(docFile, target); err != nil {
+		return err
+	}
+	if doc, ok := target.(*LayoutDocument); ok && manifest.Version < 9 {
+		if len(doc.Layout.Signals) > 0 || len(doc.Layout.SignalProfiles) > 0 || (doc.Layout.Presentation != nil && len(doc.Layout.Presentation.Signals) > 0) {
+			return errors.New("signal definitions require layout format 9")
+		}
+	}
+	return nil
 }
 func decodeZipJSON(file *zip.File, target any) error {
 	r, err := file.Open()
@@ -373,6 +387,9 @@ func validateLocomotives(items []model.Locomotive) error {
 func validateLayout(layout *model.LayoutDefinition) error {
 	if layout == nil {
 		return errors.New("layout is required")
+	}
+	if err := model.ValidateSignalDefinitions(*layout); err != nil {
+		return err
 	}
 	blocks := map[string]bool{}
 	turnouts := map[string]model.Turnout{}

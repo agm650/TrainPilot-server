@@ -5,8 +5,8 @@ Dernière validation : 18 septembre 2026.
 Versions du contrat actuellement documentées :
 
 - serveur : `0.2.0` ;
-- API HTTP : `1.17.0` ;
-- API événementielle : `1.14.0` ;
+- API HTTP : `1.18.0` ;
+- API événementielle : `1.15.0` ;
 - format des scénarios du simulateur : `1`.
 
 Ce guide explique comment utiliser TrainPilot-server comme banc virtuel pour
@@ -256,9 +256,9 @@ Exemple :
 ```json
 {
   "serverVersion": "0.2.0",
-  "apiVersion": "1.17.0",
+  "apiVersion": "1.18.0",
   "minimumClientApiVersion": "1.0.0",
-  "eventApiVersion": "1.14.0",
+  "eventApiVersion": "1.15.0",
   "minimumClientEventApiVersion": "1.3.0",
   "station": {
     "driver": "simulator",
@@ -1500,3 +1500,12 @@ goreleaser check
 
 Le test `TestReferenceSimulatorScenarios` fait partie de `go test ./...` et
 constitue la non-régression principale de ce banc virtuel.
+
+
+### Cache des définitions de signalisation
+
+Depuis HTTP 1.18 et événements 1.15, le snapshot peut aussi contenir
+`signallingRevision`. Cette clé concerne les profils et définitions de signaux
+lus dans `GET /api/v1/topology`. Le client récent suit cette clé ainsi que
+`topologyRevision`. Le checksum topologique historique reste physique ; les
+positions des symboles utilisent toujours `layoutPresentationRevision`.

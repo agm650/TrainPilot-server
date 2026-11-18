@@ -115,6 +115,25 @@ func readLayoutPresentation(ctx context.Context, reader presentationReader) (mod
 		return model.LayoutPresentation{}, err
 	}
 	rows.Close()
+	rows, err = reader.QueryContext(ctx, `SELECT signal_id,x,y,rotation_degrees,mirrored FROM layout_signal_positions ORDER BY signal_id`)
+	if err != nil {
+		return model.LayoutPresentation{}, err
+	}
+	for rows.Next() {
+		var value model.LayoutSignalPosition
+		var mirrored int
+		if err := rows.Scan(&value.SignalID, &value.X, &value.Y, &value.RotationDegrees, &mirrored); err != nil {
+			rows.Close()
+			return model.LayoutPresentation{}, err
+		}
+		value.Mirrored = mirrored != 0
+		p.Signals = append(p.Signals, value)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return model.LayoutPresentation{}, err
+	}
 	return p, nil
 }
 
@@ -135,7 +154,7 @@ func replaceLayoutPresentation(ctx context.Context, tx *sqlite.Tx, p model.Layou
 	if err := model.ValidateLayoutPresentation(p, resources); err != nil {
 		return err
 	}
-	for _, table := range []string{"layout_track_paths", "layout_node_positions", "layout_turnout_positions", "layout_block_styles"} {
+	for _, table := range []string{"layout_signal_positions", "layout_track_paths", "layout_node_positions", "layout_turnout_positions", "layout_block_styles"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return fmt.Errorf("clear %s: %w", table, err)
 		}
@@ -165,6 +184,11 @@ func replaceLayoutPresentation(ctx context.Context, tx *sqlite.Tx, p model.Layou
 	for _, block := range p.Blocks {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO layout_block_styles(block_id,color,opacity) VALUES(?,?,?)`, block.BlockID, block.Color, block.Opacity); err != nil {
 			return fmt.Errorf("store block style %q: %w", block.BlockID, err)
+		}
+	}
+	for _, value := range p.Signals {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO layout_signal_positions(signal_id,x,y,rotation_degrees,mirrored) VALUES(?,?,?,?,?)`, value.SignalID, value.X, value.Y, value.RotationDegrees, boolInt(value.Mirrored)); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -243,6 +267,14 @@ func layoutPresentationResources(ctx context.Context, tx *sqlite.Tx) (model.Layo
 		return layout, err
 	}
 	rows.Close()
+	layout.Signals, err = readSignals(ctx, tx)
+	if err != nil {
+		return layout, err
+	}
+	layout.SignalProfiles, err = readSignalProfiles(ctx, tx)
+	if err != nil {
+		return layout, err
+	}
 	return layout, nil
 }
 
@@ -251,6 +283,10 @@ func effectivePresentationResources(current, incoming model.LayoutDefinition, re
 		return incoming, nil
 	}
 	var err error
+	current.Signals, err = mergePresentationItems(current.Signals, incoming.Signals, "signal", func(v model.SignalDefinition) string { return v.ID })
+	if err != nil {
+		return model.LayoutDefinition{}, err
+	}
 	current.TopologyNodes, err = mergePresentationItems(current.TopologyNodes, incoming.TopologyNodes, "node", func(item model.TopologyNode) string { return item.ID })
 	if err != nil {
 		return model.LayoutDefinition{}, err
@@ -284,6 +320,10 @@ func effectiveLayoutPresentation(current model.LayoutPresentation, incoming *mod
 		current.GridSpacing = incoming.GridSpacing
 	}
 	var err error
+	current.Signals, err = mergePresentationItems(current.Signals, incoming.Signals, "signal symbol", func(v model.LayoutSignalPosition) string { return v.SignalID })
+	if err != nil {
+		return model.LayoutPresentation{}, err
+	}
 	current.Nodes, err = mergePresentationItems(current.Nodes, incoming.Nodes, "node", func(item model.LayoutNodePosition) string { return item.NodeID })
 	if err != nil {
 		return model.LayoutPresentation{}, err

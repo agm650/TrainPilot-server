@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: DCC Control Server Events
-  version: 1.14.0
+  version: 1.15.0
   description: >-
     WebSocket event contract for native clients, including complete sequenced
     snapshots and explicit resynchronization requests. After a snapshot, clients
@@ -307,6 +307,10 @@ components:
             type: object
             required: [station, stationStatus, locomotives, controlLeases, locomotiveControlStates, blocks, turnouts, routes, topologyRevision, layoutPresentationRevision]
             properties:
+              signallingRevision:
+                type: string
+                pattern: '^[0-9a-f]{64}$'
+                description: Optional independent cache key for signal profiles and definitions in GET /api/v1/topology.
               station: { $ref: '#/components/schemas/StationCapabilities' }
               stationStatus: { $ref: '#/components/schemas/StationStatus' }
               locomotives:

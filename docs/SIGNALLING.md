@@ -35,7 +35,7 @@ Les tests couvrent aussi un profil personnalisé, des codes matériels
 arbitraires, plusieurs cibles, neuf feux, l'extinction et les indications
 combinées. Le modèle représente `flashing` sans exécuter de clignotement.
 Un état opérationnel neuf utilise le repli du profil et n'a aucun retour
-confirmé. Ces types ne sont pas encore exposés par une API ni persistés.
+confirmé. Leur persistance et leur lecture HTTP sont maintenant livrées par SIG-005 à SIG-007.
 
 Le modèle valide la forme des références ; leur existence et leur continuité
 orientée dans le circuit seront vérifiées par SIG-006. Le jeu `bal-3` est
@@ -48,7 +48,7 @@ la commande validée et `SendExtendedAccessory`. Les limites portables sont
 s'appliquent. Sans `extendedAccessoryControl: true`, la commande est refusée.
 L'interface et la capacité doivent toutes deux être présentes. Les pilotes
 z21 et DCC-EX annoncent encore le support étendu à `false`.
-Le contrat HTTP est 1.16.0 ; le contrat événements est 1.14.0.
+SIG-003 introduit le contrat HTTP 1.16.0 et le contrat événements 1.14.0.
 L'ajout de capacités optionnelles n'impose pas de migration des anciens clients.
 
 Le retour optionnel `ExtendedAccessoryStateEvent` distingue un aspect connu
@@ -228,7 +228,8 @@ et ne présente pas le calcul ou l'écho de la centrale comme un retour physique
 
 SIG-006 valide ces références dans la transaction d'import et lors des mises
 à jour de signaux ou de profils. Les définitions et profils sont exposés par
-la topologie en HTTP 1.17.0 et participent à sa révision. Une configuration
+la topologie. Depuis SIG-007, leur révision `signallingRevision` est distincte
+du checksum physique historique, pour préserver les clients existants. Une configuration
 vide conserve le comportement et la révision historiques. Les collections
 de configuration sont ordonnées par identifiant pour le calcul de révision.
 `UnsignalledBlockIDs` identifie les cantons sans signal déclaré, sans en
@@ -369,7 +370,7 @@ listes vides sont non nulles. Les tables ne contiennent aucun état runtime.
 - Conserver une révision de présentation indépendante des états opérationnels.
 - Importer les archives sans signaux comme des circuits sans signalisation.
 
-Le format de circuit courant est **8**. SIG-007 proposera le format **9** pour
+Le format de circuit courant est **9** depuis SIG-007 pour
 les signaux, avec lecture des versions 1 à 8. Le format du matériel roulant
 reste **7**. Aucun aspect runtime ne figure dans l'archive.
 
@@ -395,7 +396,8 @@ manuelles et changements de mode seront réservés à `dispatcher` et
 | Lots C/D | REST, WebSocket, concurrence, commandes obsolètes et repli après resynchronisation |
 | SIG-019 | z21 + ATtiny, table réelle des codes, pertes réseau/DCC et état réel des feux |
 
-Aucun de ces essais n'est déclaré exécuté par ce document. La recette
+Les tests logiciels des fondations sont exécutés à chaque commit dédié.
+Les recettes des lots C/D et les essais matériels restent à réaliser. La recette
 matérielle devra relever les firmwares, le câblage et la version du circuit.
 Elle couvrira notamment un redémarrage avec canton occupé, les réponses
 partielles, les défauts d'envoi et la reprise sans mouvement supplémentaire.
@@ -430,3 +432,39 @@ logicielles feront l'objet d'un travail distinct.
 - [LEC000043 : détection et exemple de relais commandant un freinage](https://lectix.fr/produit/detecteur-doccupation-dcc-par-consommation-de-courant-3a/).
 - [LEC001021 : module de freinage ABC](https://lectix.fr/notices/LEC001021-notice-fr.pdf).
 - [Roco 10819 : détection de courant et R-BUS](https://www.roco.cc/ren/products/control/10819-z21-detector-x16.html).
+
+
+## Livraison SIG-007
+
+Le format 9 conserve les profils personnalisés, définitions, politiques,
+orientations et codes matériels, ainsi que les symboles graphiques. Les champs
+runtime sont exclus. Le format 7 du matériel roulant ne change pas.
+La présentation HTTP 1.18 expose `signals` (placements optionnels) sans
+modifier la topologie logique. Une suppression de signal supprime son symbole
+si elle réussit ; un échec de référence annule aussi cette suppression graphique.
+Un remplacement de définitions conservant un identifiant préserve son symbole.
+Les mises à jour de présentation seules ne changent pas la révision topologique.
+
+
+La version HTTP finale du lot B est **1.18.0**, celle des événements **1.15.0**.
+`signallingRevision` est un champ optionnel de la topologie et du snapshot.
+Il change lors d'une modification des profils ou définitions. `topologyRevision`
+conserve son calcul physique historique, y compris pour les clients qui ignorent
+les nouveaux champs. Le client récent suit les deux clés pour sa lecture de
+`GET /api/v1/topology`. La révision de présentation reste indépendante.
+
+## Validation du lot B — 18 novembre 2026
+
+| Ticket | Suite standard avant commit | Contrôles complémentaires |
+| --- | --- | --- |
+| SIG-003 | 1 158 tests réussis | `go vet`, YAML et références locales |
+| SIG-004 | 1 166 tests réussis | Suite complète `-race`, `go vet` |
+| SIG-005 | 1 168 tests réussis | Migration, redémarrage, rollback, `go vet` |
+| SIG-006 | 1 187 tests réussis | REST/WS, cycles, références, `go vet`, YAML |
+| SIG-007 et intégration finale | 1 200 tests réussis | Suite complète `-race`, suite `CGO_ENABLED=0`, `go vet`, YAML |
+
+Les différences et le formatage Go sont vérifiés. Les cinq fixtures de circuit
+ont été régénérées au format 9 ; les archives de matériel roulant sont inchangées.
+Les quatre exemples JSON du présent document et ses liens locaux sont valides.
+Ces contrôles utilisent des simulateurs et des sockets locaux. Aucun essai
+physique z21, ATtiny, LEC000043 ou ABC n'a été exécuté dans le cadre du lot B.

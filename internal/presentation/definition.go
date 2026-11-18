@@ -15,6 +15,8 @@ import (
 // revision. Runtime state and physical topology are intentionally absent.
 func Definition(value model.LayoutPresentation) (model.LayoutPresentationDefinition, error) {
 	value = model.NormalizeLayoutPresentation(value)
+	value.Signals = slices.Clone(value.Signals)
+	slices.SortFunc(value.Signals, func(a, b model.LayoutSignalPosition) int { return cmp.Compare(a.SignalID, b.SignalID) })
 	value.Nodes = slices.Clone(value.Nodes)
 	value.TrackSections = slices.Clone(value.TrackSections)
 	value.Turnouts = slices.Clone(value.Turnouts)

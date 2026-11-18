@@ -110,8 +110,17 @@ func TestSignalsConstraintsRollbackAndProfileUpdate(t *testing.T) {
 	if err := s.SetSignal(ctx, two); err != nil {
 		t.Fatal(err)
 	}
+	view := model.EmptyLayoutPresentation()
+	view.Signals = []model.LayoutSignalPosition{{SignalID: "s1", X: 5, Y: 10}}
+	if err := s.ReplaceLayoutPresentation(ctx, view); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.DeleteSignal(ctx, "s1"); !errors.Is(err, ErrConflict) {
 		t.Fatal("referenced signal deleted", err)
+	}
+	retainedView, err := s.GetLayoutPresentation(ctx)
+	if err != nil || len(retainedView.Signals) != 1 {
+		t.Fatal("failed deletion removed symbol", err)
 	}
 	if err := s.DeleteSignalProfile(ctx, p.ID); !errors.Is(err, ErrConflict) {
 		t.Fatal("referenced profile deleted", err)

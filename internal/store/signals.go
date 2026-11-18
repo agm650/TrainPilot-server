@@ -27,6 +27,10 @@ func (s *Store) migrateSignalSchema(ctx context.Context) error {
 			 definition_json TEXT NOT NULL,
 			 UNIQUE(endpoint_kind,linear_address)
 			)`,
+			`CREATE TABLE IF NOT EXISTS layout_signal_positions(
+			 signal_id TEXT PRIMARY KEY REFERENCES signals(id) DEFERRABLE INITIALLY DEFERRED,
+			 x REAL NOT NULL,y REAL NOT NULL,rotation_degrees REAL NOT NULL,mirrored INTEGER NOT NULL
+			)`,
 		} {
 			if _, err := tx.ExecContext(ctx, query); err != nil {
 				return err
@@ -208,6 +212,11 @@ func deleteSignalRow(ctx context.Context, tx *sqlite.Tx, table, id string) error
 	if table != "signals" && table != "signal_profiles" {
 		return ErrConflict
 	}
+	if table == "signals" {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM layout_signal_positions WHERE signal_id=?`, id); err != nil {
+			return err
+		}
+	}
 	result, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE id=?", id)
 	if err != nil {
 		return err
@@ -232,6 +241,9 @@ func (s *Store) DeleteSignalProfile(ctx context.Context, id string) error {
 // check their final state; no intermediate configuration is published.
 func replaceSignalDefinitions(ctx context.Context, tx *sqlite.Tx, profiles []model.SignalProfile, signals []model.SignalDefinition, replace bool) error {
 	if replace {
+		if err := deleteUnretainedSignalSymbols(ctx, tx, signals); err != nil {
+			return err
+		}
 		for _, query := range []string{`DELETE FROM signals`, `DELETE FROM signal_profiles`} {
 			if _, err := tx.ExecContext(ctx, query); err != nil {
 				return err
@@ -259,7 +271,7 @@ func replaceSignalDefinitions(ctx context.Context, tx *sqlite.Tx, profiles []mod
 		}
 		seen[value.ID] = true
 		if err := upsertSignal(ctx, tx, value, allProfiles); err != nil {
-			return err
+			return signalStoreError(err)
 		}
 	}
 	return validateStoredSignalProfiles(ctx, tx)

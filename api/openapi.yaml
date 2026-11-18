@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: DCC Control Server API
-  version: 1.17.0
+  version: 1.18.0
   description: >-
     Contract for native DCC clients. User administration is deliberately absent
     from this public API and is available only over the local administration socket.
@@ -1022,6 +1022,10 @@ components:
       additionalProperties: false
       required: [revision, nodes, trackSections, turnoutTopologies, blocks]
       properties:
+        signallingRevision:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: Independent revision of canonical signal profiles and definitions.
         signalProfiles:
           type: array
           items: { $ref: '#/components/schemas/SignalProfile' }
@@ -1031,7 +1035,7 @@ components:
         revision:
           type: string
           pattern: '^[0-9a-f]{64}$'
-          description: SHA-256 of the canonical topology, block membership and signal definitions.
+          description: SHA-256 of the canonical physical topology and block membership.
         nodes:
           type: array
           items: { $ref: '#/components/schemas/TopologyNode' }
@@ -1049,6 +1053,9 @@ components:
       additionalProperties: false
       required: [revision, coordinateSystem, gridSpacing, nodes, trackSections, turnouts, blocks]
       properties:
+        signals:
+          type: array
+          items: { $ref: '#/components/schemas/LayoutSignalPosition' }
         revision:
           type: string
           pattern: '^[0-9a-f]{64}$'
@@ -1467,3 +1474,14 @@ components:
                 type: "integer"
                 minimum: 0
                 maximum: 255
+
+    LayoutSignalPosition:
+      type: object
+      additionalProperties: false
+      required: [signalId, x, y, rotationDegrees, mirrored]
+      properties:
+        signalId: { type: string, minLength: 1 }
+        x: { type: number }
+        y: { type: number }
+        rotationDegrees: { type: number }
+        mirrored: { type: boolean }

@@ -58,13 +58,14 @@ type TurnoutTopologyPosition struct {
 // railway topology. Runtime state and DCC endpoint configuration stay on the
 // existing turnout and block resources.
 type TopologyDefinition struct {
-	SignalProfiles    []SignalProfile    `json:"signalProfiles,omitempty"`
-	Signals           []SignalDefinition `json:"signals,omitempty"`
-	Revision          string             `json:"revision"`
-	Nodes             []TopologyNode     `json:"nodes"`
-	TrackSections     []TrackSection     `json:"trackSections"`
-	TurnoutTopologies []TurnoutTopology  `json:"turnoutTopologies"`
-	Blocks            []BlockDefinition  `json:"blocks"`
+	SignallingRevision string             `json:"signallingRevision,omitempty"`
+	SignalProfiles     []SignalProfile    `json:"signalProfiles,omitempty"`
+	Signals            []SignalDefinition `json:"signals,omitempty"`
+	Revision           string             `json:"revision"`
+	Nodes              []TopologyNode     `json:"nodes"`
+	TrackSections      []TrackSection     `json:"trackSections"`
+	TurnoutTopologies  []TurnoutTopology  `json:"turnoutTopologies"`
+	Blocks             []BlockDefinition  `json:"blocks"`
 }
 
 type PortConnection struct {

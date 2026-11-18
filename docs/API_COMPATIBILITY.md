@@ -116,3 +116,11 @@ Cette spécification n'ajoute aucun endpoint ni événement disponible. Les
 capacités, schémas et versions seront mis à jour avec leur implémentation.
 Le calcul d'un aspect, l'envoi de sa commande et l'observation des feux devront
 rester distincts dans les réponses et événements futurs.
+
+
+Pour préserver les anciens clients qui recalculent le checksum physique,
+`topologyRevision` garde son calcul historique. Les profils et définitions de
+signaux utilisent le champ optionnel `signallingRevision`, dans la lecture de
+la topologie et les snapshots. Un client récent suit les deux clés ; un ancien
+client peut ignorer la signalisation et conserver ses lectures de graphe.
+Les contrats du lot B sont HTTP 1.18.0 et événements 1.15.0.

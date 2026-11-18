@@ -19,8 +19,8 @@ func TestLayoutPowerDependencyRoundTripAndLegacyMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if version := archiveManifest(t, data).Version; version != 8 {
-		t.Fatalf("layout version=%d want 8", version)
+	if version := archiveManifest(t, data).Version; version != LayoutFormatVersion {
+		t.Fatalf("layout version=%d want current format", version)
 	}
 	db := openArchiveStore(t)
 	svc := New(db, events.New(), clock.Real{})

@@ -11,9 +11,9 @@ import (
 
 const (
 	serverVersion                = "0.2.0"
-	apiVersion                   = "1.17.0"
+	apiVersion                   = "1.18.0"
 	minimumClientAPIVersion      = "1.0.0"
-	eventAPIVersion              = "1.14.0"
+	eventAPIVersion              = "1.15.0"
 	minimumClientEventAPIVersion = "1.3.0"
 )
 

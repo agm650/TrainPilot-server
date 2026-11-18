@@ -11,13 +11,16 @@ import (
 	"github.com/agm650/TrainPilot-server/internal/model"
 )
 
+type signallingContent struct {
+	SignalProfiles []model.SignalProfile    `json:"signalProfiles,omitempty"`
+	Signals        []model.SignalDefinition `json:"signals,omitempty"`
+}
+
 type definitionContent struct {
-	SignalProfiles    []model.SignalProfile    `json:"signalProfiles,omitempty"`
-	Signals           []model.SignalDefinition `json:"signals,omitempty"`
-	Nodes             []model.TopologyNode     `json:"nodes"`
-	TrackSections     []model.TrackSection     `json:"trackSections"`
-	TurnoutTopologies []model.TurnoutTopology  `json:"turnoutTopologies"`
-	Blocks            []model.BlockDefinition  `json:"blocks"`
+	Nodes             []model.TopologyNode    `json:"nodes"`
+	TrackSections     []model.TrackSection    `json:"trackSections"`
+	TurnoutTopologies []model.TurnoutTopology `json:"turnoutTopologies"`
+	Blocks            []model.BlockDefinition `json:"blocks"`
 }
 
 // DefinitionFromLayout validates and canonicalizes the public topology. Its
@@ -30,26 +33,26 @@ func DefinitionFromLayout(layout model.LayoutDefinition) (model.TopologyDefiniti
 	if err := model.ValidateSignalDefinitions(layout); err != nil {
 		return model.TopologyDefinition{}, err
 	}
+	metadata := signallingContent{SignalProfiles: slices.Clone(layout.SignalProfiles), Signals: slices.Clone(layout.Signals)}
 	content := definitionContent{
-		SignalProfiles: slices.Clone(layout.SignalProfiles), Signals: slices.Clone(layout.Signals),
 		Nodes:             graph.Nodes(),
 		TrackSections:     graph.TrackSections(),
 		TurnoutTopologies: graph.TurnoutTopologies(),
 		Blocks:            graph.Blocks(),
 	}
-	slices.SortFunc(content.SignalProfiles, func(a, b model.SignalProfile) int { return cmp.Compare(a.ID, b.ID) })
-	slices.SortFunc(content.Signals, func(a, b model.SignalDefinition) int { return cmp.Compare(a.ID, b.ID) })
-	for i, p := range content.SignalProfiles {
-		content.SignalProfiles[i] = model.NormalizeSignalProfile(p)
+	slices.SortFunc(metadata.SignalProfiles, func(a, b model.SignalProfile) int { return cmp.Compare(a.ID, b.ID) })
+	slices.SortFunc(metadata.Signals, func(a, b model.SignalDefinition) int { return cmp.Compare(a.ID, b.ID) })
+	for i, p := range metadata.SignalProfiles {
+		metadata.SignalProfiles[i] = model.NormalizeSignalProfile(p)
 	}
-	for i, value := range content.Signals {
-		for _, p := range content.SignalProfiles {
+	for i, value := range metadata.Signals {
+		for _, p := range metadata.SignalProfiles {
 			if value.ProfileID == p.ID {
 				value, _ = model.NormalizeSignalDefinition(value, p)
 				break
 			}
 		}
-		content.Signals[i] = value
+		metadata.Signals[i] = value
 	}
 	for topologyIndex := range content.TurnoutTopologies {
 		item := &content.TurnoutTopologies[topologyIndex]
@@ -77,9 +80,18 @@ func DefinitionFromLayout(layout model.LayoutDefinition) (model.TopologyDefiniti
 	if err != nil {
 		return model.TopologyDefinition{}, fmt.Errorf("encode topology revision: %w", err)
 	}
+	signalRevision := ""
+	if len(metadata.SignalProfiles) > 0 || len(metadata.Signals) > 0 {
+		data, err := json.Marshal(metadata)
+		if err != nil {
+			return model.TopologyDefinition{}, err
+		}
+		checksum := sha256.Sum256(data)
+		signalRevision = hex.EncodeToString(checksum[:])
+	}
 	digest := sha256.Sum256(encoded)
 	return model.TopologyDefinition{
-		SignalProfiles: content.SignalProfiles, Signals: content.Signals,
+		SignallingRevision: signalRevision, SignalProfiles: metadata.SignalProfiles, Signals: metadata.Signals,
 		Revision:          hex.EncodeToString(digest[:]),
 		Nodes:             content.Nodes,
 		TrackSections:     content.TrackSections,
@@ -103,7 +115,7 @@ func BuildDefinition(definition model.TopologyDefinition, turnouts []model.Turno
 	if err != nil {
 		return nil, err
 	}
-	if definition.Revision != canonical.Revision {
+	if definition.Revision != canonical.Revision || definition.SignallingRevision != canonical.SignallingRevision {
 		return nil, fmt.Errorf("%w: topology revision mismatch", ErrInvalidGraph)
 	}
 	return Build(layout)

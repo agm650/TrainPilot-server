@@ -42,8 +42,8 @@ func TestSignalLayoutImportAndRevisionAreAtomic(t *testing.T) {
 	}
 	after, _ = s.ExportLayout(ctx)
 	changed, err := topology.DefinitionFromLayout(after)
-	if err != nil || changed.Revision == retained.Revision {
-		t.Fatal("profile edit did not change topology revision", err)
+	if err != nil || changed.SignallingRevision == retained.SignallingRevision || changed.Revision != retained.Revision {
+		t.Fatal("profile edit must change only signalling revision", err)
 	}
 	if _, err := topology.BuildDefinition(changed, nil); err != nil {
 		t.Fatal("published definition cannot be consumed", err)

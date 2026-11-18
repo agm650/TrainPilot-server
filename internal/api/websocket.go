@@ -12,6 +12,7 @@ import (
 )
 
 type systemSnapshotPayload struct {
+	SignallingRevision         string                         `json:"signallingRevision,omitempty"`
 	Station                    station.Capabilities           `json:"station"`
 	StationStatus              station.Status                 `json:"stationStatus"`
 	Locomotives                []model.Locomotive             `json:"locomotives"`
@@ -86,6 +87,7 @@ func (s *Server) buildSystemSnapshot(ctx context.Context, session model.Session)
 		Sequence:   sequence,
 		CapturedAt: time.Now().UTC(),
 		Payload: systemSnapshotPayload{
+			SignallingRevision:         topologyDefinition.SignallingRevision,
 			Station:                    s.station.Capabilities(),
 			StationStatus:              status,
 			Locomotives:                snapshotItems(locomotives),

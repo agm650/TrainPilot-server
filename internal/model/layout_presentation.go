@@ -49,9 +49,18 @@ type LayoutBlockStyle struct {
 	Opacity float64 `json:"opacity"`
 }
 
+type LayoutSignalPosition struct {
+	SignalID        string  `json:"signalId"`
+	X               float64 `json:"x"`
+	Y               float64 `json:"y"`
+	RotationDegrees float64 `json:"rotationDegrees"`
+	Mirrored        bool    `json:"mirrored"`
+}
+
 // LayoutPresentation contains only drawing data. It does not define physical
 // connectivity or operational state.
 type LayoutPresentation struct {
+	Signals          []LayoutSignalPosition  `json:"signals,omitempty"`
 	CoordinateSystem string                  `json:"coordinateSystem"`
 	GridSpacing      float64                 `json:"gridSpacing"`
 	Nodes            []LayoutNodePosition    `json:"nodes"`
@@ -236,6 +245,20 @@ func ValidateLayoutPresentation(p LayoutPresentation, layout LayoutDefinition) e
 		if !finite(block.Opacity) || block.Opacity < 0 || block.Opacity > 1 {
 			return invalidResource("layout_block_style_invalid", "block", block.BlockID, "block %q opacity is outside 0..1", block.BlockID)
 		}
+	}
+	signals := map[string]bool{}
+	for _, signal := range layout.Signals {
+		signals[signal.ID] = true
+	}
+	placed := map[string]bool{}
+	for _, symbol := range p.Signals {
+		if !signals[symbol.SignalID] || placed[symbol.SignalID] {
+			return invalidResource("layout_signal_reference_invalid", "signal", symbol.SignalID, "unknown or duplicate signal %q", symbol.SignalID)
+		}
+		if !finite(symbol.X) || !finite(symbol.Y) || !finite(symbol.RotationDegrees) {
+			return invalidResource("layout_signal_position_invalid", "signal", symbol.SignalID, "signal %q has non-finite coordinates", symbol.SignalID)
+		}
+		placed[symbol.SignalID] = true
 	}
 	return nil
 }
