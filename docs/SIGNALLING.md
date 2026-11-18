@@ -28,8 +28,8 @@ Ces déclarations ne constituent pas une validation matérielle des pilotes éte
 
 ## Décisions confirmées pour le lot D
 
-Ces décisions préparent SIG-014 à SIG-020. Le code du lot D n'est pas encore
-implémenté.
+Ces décisions encadrent SIG-014 à SIG-020. Les livraisons logicielles sont
+décrites ci-dessous ; elles ne remplacent pas les recettes matérielles.
 
 - **SIG-017 — Délai d'arrêt d'urgence :** objectif de **100 ms** côté serveur
   avant l'appel au pilote. Ce budget devra être réglable dans le fichier de
@@ -56,6 +56,18 @@ matérielles ne seront pas déclarées réussies à partir des seuls tests simul
 Le report de SIG-020 ne retire pas le support logiciel DCC-EX livré par SIG-013.
 
 ## État de l'implémentation
+
+SIG-014 fournit `CalculateBAL`, une fonction pure sans horloge, transport ni
+persistance. Elle utilise les rôles des profils et n'impose pas les identifiants
+SNCF. Un canton occupé ou inconnu reste au repli. Un terminal explicite restrictif
+donne l'avertissement si le canton protégé est libre. Une voie libre exige un
+aval non restrictif déjà commandé, fiable dans la génération courante et sans
+nouvelle condition de repli. L'absence de retour physique n'est pas transformée
+en confirmation. Un aval manuel fiable est utilisable par le calcul amont.
+Deux passes bornées traitent également les boucles, sans récursion ni dépendance
+à l'ordre des signaux. Les entrées du calcul restent inchangées.
+L'activation de l'automatique attend son intégration événementielle et les
+protections SIG-015 à SIG-017.
 
 SIG-013 implémente `<A adresse code>` pour DCC-EX. Le pilote interroge l'identité
 et la puissance avec `<s>` au démarrage et après reconnexion réseau. Il annonce
