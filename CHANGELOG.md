@@ -8,6 +8,9 @@ Planned server release: 2.0.0.
 
 ### Added
 
+- SIG-005 transactional SQLite persistence for signal profiles, definitions,
+  oriented references and unique extended endpoints. Existing databases migrate
+  without restoring runtime observations; conflicting edits roll back atomically.
 - SIG-004 extended-accessory simulation with independent addresses, command
   history, assumed reports, deterministic delays/errors, reset/reconnection
   fencing and replayable scenario actions. Binary accessory state is separate.

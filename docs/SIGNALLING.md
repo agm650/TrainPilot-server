@@ -342,6 +342,13 @@ Le pilote DCC-EX sera traité séparément par SIG-013 et SIG-020.
 
 ## Persistance, archives et contrats clients
 
+SIG-005 persiste les définitions dans `signal_profiles` et `signals`. Les
+profils sont stockés sous forme JSON normalisée. Les colonnes relationnelles
+portent les références et l'unicité des endpoints. Les clés étrangères aval
+sont différées pour permettre les boucles lors d'un remplacement transactionnel.
+Une modification de profil qui invalide un signal existant est refusée. Les
+listes vides sont non nulles. Les tables ne contiennent aucun état runtime.
+
 - Stocker les définitions, profils configurables, politiques et références.
 - Ne jamais restaurer de commande en attente ou d'aspect physique confirmé.
 - Migrer les bases existantes sans perdre le circuit ni l'occupation configurée.

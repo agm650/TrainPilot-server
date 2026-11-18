@@ -316,7 +316,10 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if err := s.migrateLocomotiveSchema(ctx); err != nil {
 		return err
 	}
-	return s.migrateOccupancySchema(ctx)
+	if err := s.migrateOccupancySchema(ctx); err != nil {
+		return err
+	}
+	return s.migrateSignalSchema(ctx)
 }
 
 func (s *Store) migrateLocomotiveSchema(ctx context.Context) error {
