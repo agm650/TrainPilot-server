@@ -8,6 +8,10 @@ Planned server release: 2.0.0.
 
 ### Added
 
+- SIG-010 authenticated REST signal/profile reads, aspect/mode commands, typed
+  Go client methods and conformance inventory/checks. HTTP advances to 1.19.0
+  with optional server signalling capabilities. Layout imports cancel pending
+  signal commands and reload restrictive runtime state before acknowledging.
 - SIG-009 manual signal aspect/mode commands for dispatchers and administrators,
   with actor/result auditing, protected-block checks and priority cancellation
   of pending openings by stop commands. Manual openings are not replayed after

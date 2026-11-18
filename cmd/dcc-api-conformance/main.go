@@ -143,6 +143,22 @@ func run(ctx context.Context, cfg configuration, output io.Writer) int {
 	add("authenticated client reads graphical layout presentation", presentationErr)
 	_, err = c1.Routes(ctx)
 	add("authenticated client lists routes", err)
+	signals, signalErr := c1.Signals(ctx)
+	add("authenticated client lists signals", signalErr)
+	_, err = c1.SignalProfiles(ctx)
+	add("authenticated client lists signal profiles", err)
+	if signalErr == nil && len(signals) > 0 {
+		_, err = c1.Signal(ctx, signals[0].Definition.ID)
+		add("authenticated client reads signal state", err)
+	}
+	_, err = c1.Signal(ctx, "conformance-unknown-signal")
+	add("unknown signal returns not found", expectHTTPError(err, http.StatusNotFound, "not_found", "signal_not_found"))
+	// Only unauthorized roles are exercised without the active-command opt-in.
+	me, meErr := c1.Me(ctx)
+	if meErr == nil && (me.Role == model.RoleDriver || me.Role == model.RoleViewer) {
+		add("signal aspect commands require dispatch permission", expectHTTPError(c1.SetSignalAspect(ctx, "conformance-unknown-signal", "S"), http.StatusForbidden, "authorization", "permission_denied"))
+		add("signal mode commands require dispatch permission", expectHTTPError(c1.SetSignalMode(ctx, "conformance-unknown-signal", model.SignalModeManual), http.StatusForbidden, "authorization", "permission_denied"))
+	}
 	_, err = c1.StationStatus(ctx)
 	add("authenticated client reads station status", err)
 	_, err = c1.TrackPowerStatus(ctx)

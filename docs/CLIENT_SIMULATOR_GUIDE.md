@@ -5,7 +5,7 @@ Dernière validation : 18 septembre 2026.
 Versions du contrat actuellement documentées :
 
 - serveur : `0.2.0` ;
-- API HTTP : `1.18.0` ;
+- API HTTP : `1.19.0` ;
 - API événementielle : `1.15.0` ;
 - format des scénarios du simulateur : `1`.
 
@@ -256,7 +256,7 @@ Exemple :
 ```json
 {
   "serverVersion": "0.2.0",
-  "apiVersion": "1.18.0",
+  "apiVersion": "1.19.0",
   "minimumClientApiVersion": "1.0.0",
   "eventApiVersion": "1.15.0",
   "minimumClientEventApiVersion": "1.3.0",
@@ -1509,3 +1509,13 @@ Depuis HTTP 1.18 et événements 1.15, le snapshot peut aussi contenir
 lus dans `GET /api/v1/topology`. Le client récent suit cette clé ainsi que
 `topologyRevision`. Le checksum topologique historique reste physique ; les
 positions des symboles utilisent toujours `layoutPresentationRevision`.
+
+## Signalisation manuelle (lot C)
+
+Les lectures `GET /api/v1/signals`, `/signals/{id}` et `/signal-profiles`
+exposent les définitions et les états opérationnels. Les listes vides contiennent
+`items: []`. Un dispatcher ou administrateur peut envoyer
+`PUT /api/v1/signals/{id}/aspect` avec `{"aspect":"S"}`, ou `/mode` avec
+`{"mode":"manual"}`. Tout aspect autre que `stop` exige un canton connu libre.
+L’envoi réussi ne confirme pas l’état physique des feux. Le mode automatique
+reste indisponible jusqu’au lot D. Voir [SIGNALLING.md](SIGNALLING.md).

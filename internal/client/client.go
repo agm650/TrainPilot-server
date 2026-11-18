@@ -47,6 +47,38 @@ type SystemInfo struct {
 	EventAPIVersion              string               `json:"eventApiVersion"`
 	MinimumClientEventAPIVersion string               `json:"minimumClientEventApiVersion"`
 	Station                      station.Capabilities `json:"station"`
+	Signalling                   struct {
+		ManualControl    bool `json:"manualControl"`
+		AutomaticControl bool `json:"automaticControl"`
+	} `json:"signalling"`
+}
+
+func (c *Client) Signals(ctx context.Context) ([]model.Signal, error) {
+	var out struct {
+		Items []model.Signal `json:"items"`
+	}
+	_, err := c.Do(ctx, http.MethodGet, "/api/v1/signals", nil, &out)
+	return out.Items, err
+}
+func (c *Client) Signal(ctx context.Context, id string) (model.Signal, error) {
+	var out model.Signal
+	_, err := c.Do(ctx, http.MethodGet, "/api/v1/signals/"+url.PathEscape(id), nil, &out)
+	return out, err
+}
+func (c *Client) SignalProfiles(ctx context.Context) ([]model.SignalProfile, error) {
+	var out struct {
+		Items []model.SignalProfile `json:"items"`
+	}
+	_, err := c.Do(ctx, http.MethodGet, "/api/v1/signal-profiles", nil, &out)
+	return out.Items, err
+}
+func (c *Client) SetSignalAspect(ctx context.Context, id string, aspect model.SignalAspectID) error {
+	_, err := c.Do(ctx, http.MethodPut, "/api/v1/signals/"+url.PathEscape(id)+"/aspect", map[string]any{"aspect": aspect}, nil)
+	return err
+}
+func (c *Client) SetSignalMode(ctx context.Context, id string, mode model.SignalMode) error {
+	_, err := c.Do(ctx, http.MethodPut, "/api/v1/signals/"+url.PathEscape(id)+"/mode", map[string]any{"mode": mode}, nil)
+	return err
 }
 
 func (e *HTTPError) Error() string {

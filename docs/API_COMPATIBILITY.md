@@ -124,3 +124,12 @@ signaux utilisent le champ optionnel `signallingRevision`, dans la lecture de
 la topologie et les snapshots. Un client récent suit les deux clés ; un ancien
 client peut ignorer la signalisation et conserver ses lectures de graphe.
 Les contrats du lot B sont HTTP 1.18.0 et événements 1.15.0.
+
+SIG-010 porte HTTP à **1.19.0**, sans modifier le minimum client. Les routes
+`/signals`, `/signals/{id}` et `/signal-profiles` ajoutent des lectures avec
+permission `view`. Les commandes `PUT /signals/{id}/aspect` et `/mode` exigent
+`dispatcher` ou `administrator`. Les listes vides conservent `items: []`.
+`system/info.signalling.manualControl` annonce le service ; il faut aussi
+vérifier `station.extendedAccessoryControl` pour commander un matériel.
+`automaticControl` reste faux jusqu'au lot D. Les anciens clients peuvent
+ignorer ces nouveaux champs et routes. Les événements restent en 1.15.0.

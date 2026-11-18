@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/agm650/TrainPilot-server/internal/events"
@@ -33,7 +34,10 @@ type Server struct {
 	eventBuffer       int
 	eventWriteTimeout time.Duration
 	metrics           *observability.Metrics
+	signals           atomic.Pointer[service.SignalService]
 }
+
+func (s *Server) SetSignalService(signals *service.SignalService) { s.signals.Store(signals) }
 
 func New(auth *service.AuthService, control *service.ControlService, railway *service.RailwayService, routes *service.RouteService, transferSvc *transfer.Service, s *store.Store, b *events.Bus, st station.CommandStation, sim *simulator.Simulator, testAPI bool, metrics ...*observability.Metrics) *Server {
 	x := &Server{
@@ -93,6 +97,11 @@ func (s *Server) register(testAPI bool) {
 	s.mux.Handle("GET /api/v1/topology", s.requireAuth(http.HandlerFunc(s.getTopology)))
 	s.mux.Handle("GET /api/v1/layout/presentation", s.requireAuth(http.HandlerFunc(s.getLayoutPresentation)))
 	s.mux.Handle("GET /api/v1/turnouts", s.requireAuth(http.HandlerFunc(s.listTurnouts)))
+	s.mux.Handle("GET /api/v1/signals", s.requireAuth(http.HandlerFunc(s.listSignals)))
+	s.mux.Handle("GET /api/v1/signals/{id}", s.requireAuth(http.HandlerFunc(s.getSignal)))
+	s.mux.Handle("GET /api/v1/signal-profiles", s.requireAuth(http.HandlerFunc(s.listSignalProfiles)))
+	s.mux.Handle("PUT /api/v1/signals/{id}/aspect", s.requireAuth(http.HandlerFunc(s.setSignalAspect)))
+	s.mux.Handle("PUT /api/v1/signals/{id}/mode", s.requireAuth(http.HandlerFunc(s.setSignalMode)))
 	s.mux.Handle("PUT /api/v1/turnouts/{id}", s.requireAuth(http.HandlerFunc(s.setTurnout)))
 	s.mux.Handle("GET /api/v1/exports/rolling-stock", s.requireAuth(http.HandlerFunc(s.exportRollingStock)))
 	s.mux.Handle("POST /api/v1/imports/rolling-stock", s.requireAuth(http.HandlerFunc(s.importRollingStock)))

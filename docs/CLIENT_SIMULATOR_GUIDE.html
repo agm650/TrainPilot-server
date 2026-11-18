@@ -137,7 +137,7 @@
 <p>Versions du contrat actuellement documentées :</p>
 <ul>
 <li>serveur : <code>0.2.0</code> ;</li>
-<li>API HTTP : <code>1.18.0</code> ;</li>
+<li>API HTTP : <code>1.19.0</code> ;</li>
 <li>API événementielle : <code>1.15.0</code> ;</li>
 <li>format des scénarios du simulateur : <code>2</code>.</li>
 </ul>
@@ -338,7 +338,7 @@ utiliser : elles appartiennent exclusivement au harnais de test.</p>
 <p>Exemple :</p>
 <pre class="hljs"><code class="language-json"><span class="hljs-punctuation">{</span>
   <span class="hljs-attr">&quot;serverVersion&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;0.2.0&quot;</span><span class="hljs-punctuation">,</span>
-  <span class="hljs-attr">&quot;apiVersion&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;1.18.0&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;apiVersion&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;1.19.0&quot;</span><span class="hljs-punctuation">,</span>
   <span class="hljs-attr">&quot;minimumClientApiVersion&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;1.0.0&quot;</span><span class="hljs-punctuation">,</span>
   <span class="hljs-attr">&quot;eventApiVersion&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;1.15.0&quot;</span><span class="hljs-punctuation">,</span>
   <span class="hljs-attr">&quot;minimumClientEventApiVersion&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;1.3.0&quot;</span><span class="hljs-punctuation">,</span>
@@ -1562,5 +1562,6 @@ constitue la non-régression principale de ce banc virtuel.</p>
 </div>
 
 <section><h3>Cache des définitions de signalisation</h3><p>Depuis HTTP 1.18 et événements 1.15, le snapshot peut aussi contenir <code>signallingRevision</code>. Cette clé concerne les profils et définitions lus dans <code>GET /api/v1/topology</code>. Le client suit cette clé et <code>topologyRevision</code>. Le checksum topologique historique reste physique ; les positions des symboles utilisent <code>layoutPresentationRevision</code>.</p></section>
+<section id="signalling-lot-c"><h2>Signalisation manuelle (lot C)</h2><p>Les lectures <code>GET /api/v1/signals</code>, <code>/signals/{id}</code> et <code>/signal-profiles</code> exposent les définitions et états. Les listes vides contiennent <code>items: []</code>. Les commandes <code>PUT /api/v1/signals/{id}/aspect</code> et <code>/mode</code> exigent dispatcher ou administrator. Tout aspect autre que stop exige un canton connu libre. Un envoi réussi ne confirme pas les feux. Le mode automatique reste indisponible jusqu’au lot D. Voir <a href="SIGNALLING.md">SIGNALLING.md</a>.</p></section>
 </body>
 </html>

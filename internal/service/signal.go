@@ -45,6 +45,7 @@ type SignalService struct {
 	lifecycle          sync.Mutex
 	reloadMu           sync.Mutex
 	configurationValid bool
+	lastLayoutSequence uint64
 }
 
 func NewSignalService(db *store.Store, st station.CommandStation, bus *events.Bus, occupancy *OccupancyService) *SignalService {
@@ -104,7 +105,7 @@ func (s *SignalService) Start(ctx context.Context) error {
 					return
 				}
 				if e.Type == "layout.imported" {
-					_ = s.Reload(s.ctx)
+					_ = s.reloadForEvent(s.ctx, e.Sequence)
 				}
 			case <-s.wake:
 			case <-ticker.C:
@@ -144,6 +145,19 @@ func (s *SignalService) notify() {
 func (s *SignalService) Reload(ctx context.Context) error {
 	s.reloadMu.Lock()
 	defer s.reloadMu.Unlock()
+	return s.reloadLocked(ctx)
+}
+
+func (s *SignalService) reloadForEvent(ctx context.Context, sequence uint64) error {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+	if sequence <= s.lastLayoutSequence {
+		return nil
+	}
+	return s.reloadLocked(ctx)
+}
+
+func (s *SignalService) reloadLocked(ctx context.Context) error {
 	profiles, definitions, err := s.store.SignalConfiguration(ctx)
 	if err != nil {
 		s.Invalidate("configuration_unavailable")
@@ -172,12 +186,47 @@ func (s *SignalService) Reload(ctx context.Context) error {
 	}
 	s.entries = next
 	s.configurationValid = true
+	s.lastLayoutSequence = s.events.CurrentSequence()
 	for _, r := range next {
 		s.setReasonLocked(r)
 	}
 	s.mu.Unlock()
 	s.notify()
 	return nil
+}
+
+// ApplyLayout cancels the old configuration before its transaction can commit.
+// Even a failed import reloads the retained definitions at their stop fallback.
+func (s *SignalService) ApplyLayout(ctx context.Context, apply func() error) error {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+	s.Invalidate("configuration_unavailable")
+	release, err := s.gate.acquire(ctx, true)
+	if err == nil {
+		defer release()
+		err = apply()
+	}
+	reloadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), signalCommandTimeout)
+	defer cancel()
+	return errors.Join(err, s.reloadLocked(reloadCtx))
+}
+
+func (s *SignalService) Signals() []model.Signal {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]model.Signal, 0, len(s.entries))
+	for _, r := range s.entries {
+		d := r.definition
+		d.Endpoint.AspectCodes = make(map[model.SignalAspectID]int, len(r.definition.Endpoint.AspectCodes))
+		for id, code := range r.definition.Endpoint.AspectCodes {
+			d.Endpoint.AspectCodes[id] = code
+		}
+		result = append(result, model.Signal{Definition: d, State: cloneSignalState(r.state)})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Definition.ID < result[j].Definition.ID })
+	return result
 }
 
 func (s *SignalService) Snapshot() []model.SignalState {

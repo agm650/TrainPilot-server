@@ -119,6 +119,7 @@ func serve(args []string) error {
 	control.SetMetrics(metrics)
 	routes.SetMetrics(metrics)
 	transferSvc := transfer.New(db, bus, clk)
+	transferSvc.SetSignalService(signals)
 	runCtx, runCancel := context.WithCancel(context.Background())
 	defer runCancel()
 	railway.StartFeedback(runCtx)
@@ -129,6 +130,7 @@ func serve(args []string) error {
 	}
 	defer signals.Close()
 	api := httpapi.New(authSvc, control, railway, routes, transferSvc, db, bus, st, sim, cfg.TestAPI, metrics)
+	api.SetSignalService(signals)
 	httpServer := &http.Server{Addr: cfg.HTTP.Listen, Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second}
 	var diagnosticsServer *http.Server
 	if cfg.Diagnostics.Enabled {

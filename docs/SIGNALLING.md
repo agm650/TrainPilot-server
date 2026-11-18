@@ -27,6 +27,18 @@ Ces déclarations ne constituent pas une validation matérielle des pilotes éte
 
 ## État de l'implémentation
 
+SIG-010 expose les signaux sous `/api/v1/signals` et les profils sous
+`/api/v1/signal-profiles`. Un signal lu contient `definition` et `state`.
+Les lectures exigent la permission `view`. Les commandes `PUT /signals/{id}/aspect`
+avec `{"aspect":"S"}` et `PUT /signals/{id}/mode` avec `{"mode":"manual"}`
+exigent la permission `dispatch`. Elles renvoient 204 après acceptation.
+L'activation automatique reste refusée en 409 `signal_automatic_unavailable`.
+Un canton non libre donne 409 `signal_unsafe`, une indisponibilité donne
+503 `signal_unavailable`. `system/info.signalling` distingue la disponibilité
+du service des capacités du pilote. Le contrat HTTP est **1.19.0**.
+Les imports passent par une barrière qui annule les anciennes commandes avant
+la transaction et recharge les définitions avant l'accusé de réception HTTP.
+
 SIG-009 fournit les commandes manuelles d'aspect et de mode aux rôles
 `dispatcher` et `administrator`. Tout aspect autre que le rôle `stop` exige
 un canton protégé connu libre, y compris un aspect personnalisé de rôle `other`.

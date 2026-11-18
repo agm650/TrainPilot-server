@@ -463,6 +463,8 @@ func newHTTPFixture(t *testing.T) (*httptest.Server, *client.Client, *client.Cli
 }
 
 type detailedHTTPFixture struct {
+	api           *Server
+	control       *service.ControlService
 	server        *httptest.Server
 	dispatcher    *client.Client
 	viewer        *client.Client
@@ -527,7 +529,7 @@ func newDetailedHTTPFixture(t *testing.T) detailedHTTPFixture {
 	if _, err := sensor.Login(ctx, "sensor", "correct-horse-1", "sensor-client"); err != nil {
 		t.Fatal(err)
 	}
-	return detailedHTTPFixture{server: server, dispatcher: dispatcher, viewer: viewer, administrator: administrator, sensor: sensor, db: db, simulator: sim, bus: bus, occupancy: railway.OccupancyService()}
+	return detailedHTTPFixture{api: apiServer, control: control, server: server, dispatcher: dispatcher, viewer: viewer, administrator: administrator, sensor: sensor, db: db, simulator: sim, bus: bus, occupancy: railway.OccupancyService()}
 }
 
 func TestRouteActivationHTTPRejectsLateInvalidation(t *testing.T) {

@@ -189,10 +189,14 @@ func (d *LayoutDocument) UnmarshalJSON(data []byte) error {
 }
 
 type Service struct {
-	store  *store.Store
-	events *events.Bus
-	clock  clock.Clock
+	signals *service.SignalService
+	store   *store.Store
+	events  *events.Bus
+	clock   clock.Clock
 }
+
+// SetSignalService is configured before serving imports.
+func (s *Service) SetSignalService(signals *service.SignalService) { s.signals = signals }
 
 func New(s *store.Store, b *events.Bus, c clock.Clock) *Service {
 	return &Service{store: s, events: b, clock: c}
@@ -269,14 +273,20 @@ func (s *Service) ImportLayout(ctx context.Context, user model.User, data []byte
 	if err := validateLayout(&doc.Layout); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidArchive, err)
 	}
-	if err := s.store.ImportLayout(ctx, doc.Layout, replace); err != nil {
-		if errors.Is(err, model.ErrInvalidLayoutPresentation) || errors.Is(err, model.ErrInvalidSignalLayout) || errors.Is(err, model.ErrInvalidSignal) || errors.Is(err, model.ErrInvalidSignalProfile) {
-			return fmt.Errorf("%w: %v", ErrInvalidArchive, err)
+	apply := func() error {
+		if err := s.store.ImportLayout(ctx, doc.Layout, replace); err != nil {
+			if errors.Is(err, model.ErrInvalidLayoutPresentation) || errors.Is(err, model.ErrInvalidSignalLayout) || errors.Is(err, model.ErrInvalidSignal) || errors.Is(err, model.ErrInvalidSignalProfile) {
+				return fmt.Errorf("%w: %v", ErrInvalidArchive, err)
+			}
+			return err
 		}
-		return err
+		s.events.Publish("layout.imported", map[string]any{"blocks": len(doc.Layout.Blocks), "turnouts": len(doc.Layout.Turnouts), "routes": len(doc.Layout.Routes), "replace": replace, "userId": user.ID})
+		return nil
 	}
-	s.events.Publish("layout.imported", map[string]any{"blocks": len(doc.Layout.Blocks), "turnouts": len(doc.Layout.Turnouts), "routes": len(doc.Layout.Routes), "replace": replace, "userId": user.ID})
-	return nil
+	if s.signals != nil {
+		return s.signals.ApplyLayout(ctx, apply)
+	}
+	return apply()
 }
 
 func writeArchive(manifest Manifest, name string, doc any) ([]byte, error) {

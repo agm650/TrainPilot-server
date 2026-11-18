@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: DCC Control Server API
-  version: 1.18.0
+  version: 1.19.0
   description: >-
     Contract for native DCC clients. User administration is deliberately absent
     from this public API and is available only over the local administration socket.
@@ -459,6 +459,111 @@ paths:
                 turnouts: []
                 blocks: []
         '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/signals:
+    get:
+      operationId: listSignals
+      description: Signal definitions and current runtime states. Requires view permission.
+      responses:
+        '200':
+          description: 'Signals; an empty list is items: [].'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Signal' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/signals/{signalId}:
+    parameters:
+      - { name: signalId, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: getSignal
+      responses:
+        '200':
+          description: Signal definition and current runtime state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Signal' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/signal-profiles:
+    get:
+      operationId: listSignalProfiles
+      description: Configurable profiles. Configuration changes use layout import.
+      responses:
+        '200':
+          description: 'Profiles; an empty list is items: [].'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/SignalProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/signals/{signalId}/aspect:
+    parameters:
+      - { name: signalId, in: path, required: true, schema: { type: string } }
+    put:
+      operationId: setSignalAspect
+      description: >-
+        Dispatcher or administrator, manual mode only. Any non-stop role needs a
+        known-free protected block and usable station/power. Success means the
+        command was written; it is not physical confirmation. A stop preempts
+        a pending opening. No command is replayed after recovery.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [aspect]
+              properties:
+                aspect: { type: string, minLength: 1 }
+      responses:
+        '204': { description: Aspect command sent. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/signals/{signalId}/mode:
+    parameters:
+      - { name: signalId, in: path, required: true, schema: { type: string } }
+    put:
+      operationId: setSignalMode
+      description: >-
+        Dispatcher or administrator. Persists mode configuration and resets the
+        runtime target on transition. Automatic activation currently returns
+        409 signal_automatic_unavailable until the SIG-014 engine is delivered.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [mode]
+              properties:
+                mode: { type: string, enum: [manual, automatic] }
+      responses:
+        '204': { description: Mode accepted. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/turnouts:
     get:
       operationId: listTurnouts
@@ -741,7 +846,7 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     ServiceUnavailable:
-      description: Command station is offline. The problem code is `station_offline`.
+      description: Command station or signal service is unavailable; codes include station_offline and signal_unavailable.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -866,6 +971,12 @@ components:
       type: object
       required: [serverVersion, apiVersion, minimumClientApiVersion, eventApiVersion, minimumClientEventApiVersion, station]
       properties:
+        signalling:
+          type: object
+          required: [manualControl, automaticControl]
+          properties:
+            manualControl: { type: boolean, description: Server has a signal controller; check station.extendedAccessoryControl separately. }
+            automaticControl: { type: boolean, const: false }
         serverVersion: { type: string }
         apiVersion: { type: string }
         minimumClientApiVersion: { type: string }
@@ -1401,6 +1512,31 @@ components:
             $ref: "#/components/schemas/SignalAspect"
           minItems: 1
 
+    Signal:
+      type: object
+      required: [definition, state]
+      properties:
+        definition: { $ref: '#/components/schemas/SignalDefinition' }
+        state: { $ref: '#/components/schemas/SignalState' }
+    SignalState:
+      type: object
+      required: [id, computedAspect, desiredAspect, commandedAspect, reportedAspect, reportQuality, pending, synchronized, error]
+      properties:
+        id: { type: string }
+        computedAspect: { type: string }
+        desiredAspect: { type: string }
+        commandedAspect: { type: [string, 'null'] }
+        reportedAspect: { type: [string, 'null'] }
+        reportQuality: { type: [string, 'null'], enum: [assumed, station, physical, null] }
+        pending: { type: boolean }
+        synchronized: { type: boolean }
+        inhibitedReason: { type: string }
+        error:
+          type: [object, 'null']
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
     SignalDefinition:
       type: "object"
       additionalProperties: false

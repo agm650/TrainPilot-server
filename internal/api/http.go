@@ -98,6 +98,18 @@ func writeOperationProblem(w http.ResponseWriter, err error, code string) {
 		code = "turnout_transition_failed"
 	case errors.Is(err, service.ErrUnsafeTurnoutTransition):
 		code = "unsafe_turnout_transition"
+	case errors.Is(err, service.ErrSignalUnavailable):
+		code = "signal_unavailable"
+		category = "station_unavailable"
+	case errors.Is(err, service.ErrSignalUnsafe):
+		code = "signal_unsafe"
+		category = "safety"
+	case errors.Is(err, service.ErrSignalBusy):
+		code = "signal_busy"
+	case errors.Is(err, service.ErrSignalMode):
+		code = "signal_manual_mode_required"
+	case errors.Is(err, service.ErrSignalAutomaticUnavailable):
+		code = "signal_automatic_unavailable"
 	case errors.Is(err, model.ErrInvalidSignalLayout):
 		code = "signal_layout_invalid"
 	case errors.Is(err, transfer.ErrInvalidArchive):
@@ -215,6 +227,12 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 }
 func statusFor(err error) int {
 	switch {
+	case errors.Is(err, service.ErrSignalUnavailable):
+		return http.StatusServiceUnavailable
+	case errors.Is(err, service.ErrSignalUnsafe), errors.Is(err, service.ErrSignalBusy), errors.Is(err, service.ErrSignalMode), errors.Is(err, service.ErrSignalAutomaticUnavailable):
+		return http.StatusConflict
+	case errors.Is(err, station.ErrInvalidExtendedAccessoryAddress), errors.Is(err, station.ErrInvalidExtendedAccessoryAspect):
+		return http.StatusBadRequest
 	case errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, service.ErrRouteOccupied), errors.Is(err, service.ErrRouteOccupancyUnknown), errors.Is(err, service.ErrRouteConflict):

@@ -11,7 +11,7 @@ import (
 
 const (
 	serverVersion                = "0.2.0"
-	apiVersion                   = "1.18.0"
+	apiVersion                   = "1.19.0"
 	minimumClientAPIVersion      = "1.0.0"
 	eventAPIVersion              = "1.15.0"
 	minimumClientEventAPIVersion = "1.3.0"
@@ -28,6 +28,7 @@ func (s *Server) systemInfo(w http.ResponseWriter, r *http.Request) {
 		"eventApiVersion":              eventAPIVersion,
 		"minimumClientEventApiVersion": minimumClientEventAPIVersion,
 		"station":                      s.station.Capabilities(),
+		"signalling":                   map[string]bool{"manualControl": s.signals.Load() != nil, "automaticControl": false},
 	})
 }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {

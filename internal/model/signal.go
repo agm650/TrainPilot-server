@@ -164,6 +164,11 @@ type SignalError struct {
 	Message string `json:"message"`
 }
 
+type Signal struct {
+	Definition SignalDefinition `json:"definition"`
+	State      SignalState      `json:"state"`
+}
+
 func NewSignalState(s SignalDefinition, profile SignalProfile) (SignalState, error) {
 	normalized, err := NormalizeSignalDefinition(s, profile)
 	if err != nil {
