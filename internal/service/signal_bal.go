@@ -86,12 +86,16 @@ func CalculateBAL(inputs map[string]BALSignalInput) map[string]BALDecision {
 
 func usableBALDownstream(input BALSignalInput) bool {
 	state := input.State
-	if state.Pending || !state.Synchronized || state.Error != nil || state.CommandedAspect == nil || *state.CommandedAspect != state.DesiredAspect {
+	if !state.Synchronized || state.Error != nil || state.CommandedAspect == nil {
 		return false
 	}
-	if state.ReportedAspect != nil && *state.ReportedAspect != state.DesiredAspect {
+	desired, valid := input.Profile.Aspect(state.DesiredAspect)
+	if !valid || (desired.Role != model.SignalRoleCaution && desired.Role != model.SignalRoleProceed) {
 		return false
 	}
-	aspect, found := input.Profile.Aspect(state.DesiredAspect)
+	if state.ReportedAspect != nil && *state.ReportedAspect != *state.CommandedAspect {
+		return false
+	}
+	aspect, found := input.Profile.Aspect(*state.CommandedAspect)
 	return found && (aspect.Role == model.SignalRoleCaution || aspect.Role == model.SignalRoleProceed)
 }

@@ -57,6 +57,15 @@ Le report de SIG-020 ne retire pas le support logiciel DCC-EX livré par SIG-013
 
 ## État de l'implémentation
 
+SIG-015 active l'automatique pour les profils `bal-3`. Le calcul utilise une
+vue atomique de toutes les occupations. Une transition simultanée entre cantons
+ne produit pas de vue intermédiaire libre. Les événements répétés sont
+dédupliqués ; les boucles convergent sans réémission continue. Chaque résultat
+expose `calculationRevision` et `occupancyRevision`. Le serveur vérifie à nouveau
+la génération et l'occupation avant l'envoi. HTTP passe à **1.20.0**, les
+événements à **1.17.0**. Les protections de reprise et de priorité sont
+complétées par SIG-016 et SIG-017 avant les recettes matérielles.
+
 SIG-014 fournit `CalculateBAL`, une fonction pure sans horloge, transport ni
 persistance. Elle utilise les rôles des profils et n'impose pas les identifiants
 SNCF. Un canton occupé ou inconnu reste au repli. Un terminal explicite restrictif
@@ -66,8 +75,7 @@ nouvelle condition de repli. L'absence de retour physique n'est pas transformée
 en confirmation. Un aval manuel fiable est utilisable par le calcul amont.
 Deux passes bornées traitent également les boucles, sans récursion ni dépendance
 à l'ordre des signaux. Les entrées du calcul restent inchangées.
-L'activation de l'automatique attend son intégration événementielle et les
-protections SIG-015 à SIG-017.
+L'intégration événementielle est livrée par SIG-015.
 
 SIG-013 implémente `<A adresse code>` pour DCC-EX. Le pilote interroge l'identité
 et la puissance avec `<s>` au démarrage et après reconnexion réseau. Il annonce

@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: DCC Control Server API
-  version: 1.19.0
+  version: 1.20.0
   description: >-
     Contract for native DCC clients. User administration is deliberately absent
     from this public API and is available only over the local administration socket.
@@ -545,7 +545,7 @@ paths:
       description: >-
         Dispatcher or administrator. Persists mode configuration and resets the
         runtime target on transition. Automatic activation currently returns
-        409 signal_automatic_unavailable until the SIG-014 engine is delivered.
+        409 signal_automatic_unavailable for profiles without the bal-3 ruleset.
       requestBody:
         required: true
         content:
@@ -976,7 +976,7 @@ components:
           required: [manualControl, automaticControl]
           properties:
             manualControl: { type: boolean, description: Server has a signal controller; check station.extendedAccessoryControl separately. }
-            automaticControl: { type: boolean, const: false }
+            automaticControl: { type: boolean, description: Server supports automatic bal-3 rules; check profile ruleset and station capability separately. }
         serverVersion: { type: string }
         apiVersion: { type: string }
         minimumClientApiVersion: { type: string }
@@ -1531,6 +1531,8 @@ components:
         pending: { type: boolean }
         synchronized: { type: boolean }
         inhibitedReason: { type: string }
+        calculationRevision: { type: integer, minimum: 0, description: Revision of the logical calculation result. }
+        occupancyRevision: { type: integer, minimum: 0, description: Atomic occupancy snapshot used for this result. }
         error:
           type: [object, 'null']
           required: [code, message]

@@ -46,6 +46,7 @@ type OccupancyService struct {
 	feedbackStates      map[string]station.FeedbackState
 	trackPowerAvailable bool
 	startedAt           time.Time
+	revision            uint64
 	diagnostics         map[string]occupancyDiagnostics
 }
 
@@ -225,6 +226,23 @@ func (s *OccupancyService) BlockState(blockID string) model.BlockOccupancy {
 	return model.NewUnknownBlockOccupancy(blockID, s.startedAt)
 }
 
+type OccupancySnapshot struct {
+	Revision uint64
+	Blocks   map[string]model.BlockOccupancy
+}
+
+// Snapshot holds one read lock across every block. ObserveBatch commits all
+// its states under the corresponding write lock before publishing any event.
+func (s *OccupancyService) Snapshot() OccupancySnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := OccupancySnapshot{Revision: s.revision, Blocks: make(map[string]model.BlockOccupancy, len(s.states))}
+	for id, value := range s.states {
+		result.Blocks[id] = cloneBlockOccupancy(value)
+	}
+	return result
+}
+
 func (s *OccupancyService) ProviderStates(ctx context.Context, blockID string) ([]model.SensorOccupancyState, error) {
 	configs, err := s.resolvedMappings(ctx)
 	if err != nil {
@@ -290,6 +308,7 @@ func (s *OccupancyService) Recompute(ctx context.Context) error {
 	for blockID := range s.states {
 		if _, exists := blocks[blockID]; !exists {
 			delete(s.states, blockID)
+			s.revision++
 			delete(s.diagnostics, blockID)
 		}
 	}
@@ -322,6 +341,9 @@ func (s *OccupancyService) SetProviderAvailable(ctx context.Context, providerID 
 	}
 	now := s.clock.Now().UTC()
 	s.mu.Lock()
+	if previous, known := s.availability[providerID]; !known || previous != available {
+		s.revision++
+	}
 	s.availability[providerID] = available
 	if !available {
 		for key := range s.observations {
@@ -358,6 +380,9 @@ func (s *OccupancyService) recomputeBlockLocked(blockID string, configs []model.
 		next.UpdatedAt = previous.UpdatedAt
 	}
 	s.states[blockID] = next
+	if !reflect.DeepEqual(previous, next) {
+		s.revision++
+	}
 	if !stateChanged {
 		return nil
 	}

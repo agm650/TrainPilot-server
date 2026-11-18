@@ -69,7 +69,7 @@ func TestSignalManualPermissionsSafetyRecoveryAndAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := awaitSignal(t, s, func(v model.SignalState) bool { return v.CommandedAspect != nil && *v.CommandedAspect == "VL" })
-	if state.DesiredAspect != "VL" || state.ComputedAspect != "S" {
+	if state.DesiredAspect != "VL" || state.ComputedAspect != "A" {
 		t.Fatal(state)
 	}
 	signalObserveBlock(t, occupancy, model.OccupancyOccupied, 2)
@@ -104,7 +104,7 @@ func TestSignalManualPermissionsSafetyRecoveryAndAudit(t *testing.T) {
 	}
 }
 
-func TestSignalModePersistenceAndUnavailableAutomaticEngine(t *testing.T) {
+func TestSignalModePersistenceAndUnavailableAutomaticRuleset(t *testing.T) {
 	db, sim, bus := signalServiceFixture(t)
 	_ = sim.SetTrackPower(context.Background(), true)
 	d, _ := db.Signal(context.Background(), "s1")
@@ -127,6 +127,14 @@ func TestSignalModePersistenceAndUnavailableAutomaticEngine(t *testing.T) {
 	d, _ = db.Signal(context.Background(), "s1")
 	if d.Mode != model.SignalModeManual {
 		t.Fatal(d)
+	}
+	profile := model.SNCFBAL3Profile()
+	profile.RuleSetID = ""
+	if err := db.SetSignalProfile(context.Background(), profile); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Reload(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 	if err := s.SetMode(context.Background(), signalDispatcher, "s1", model.SignalModeAutomatic); !errors.Is(err, ErrSignalAutomaticUnavailable) {
 		t.Fatal(err)

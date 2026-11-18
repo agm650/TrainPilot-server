@@ -8,6 +8,10 @@ Planned server release: 2.0.0.
 
 ### Added
 
+- SIG-015 automatic BAL control from atomic occupancy snapshots, with bounded
+  cycle propagation, coalesced recalculation and validation before dispatch.
+  REST and WebSocket expose calculation/occupancy revisions; HTTP advances to
+  1.20.0 and events to 1.17.0. Unsupported rulesets remain unavailable.
 - SIG-014 pure BAL three-aspect calculation using configurable profile roles,
   explicit terminal limits and current-generation downstream command validity.
   Unknown/occupied protection remains restrictive; cycles are deterministic

@@ -146,16 +146,18 @@ func validateSignalDefinition(s SignalDefinition, profile SignalProfile) error {
 // SignalState is never embedded in SignalDefinition or persisted as valid
 // configuration. Null reports convey an absence of observation/confirmation.
 type SignalState struct {
-	ID              string                          `json:"id"`
-	ComputedAspect  SignalAspectID                  `json:"computedAspect"`
-	DesiredAspect   SignalAspectID                  `json:"desiredAspect"`
-	CommandedAspect *SignalAspectID                 `json:"commandedAspect"`
-	ReportedAspect  *SignalAspectID                 `json:"reportedAspect"`
-	ReportQuality   *station.AccessoryReportQuality `json:"reportQuality"`
-	Pending         bool                            `json:"pending"`
-	Synchronized    bool                            `json:"synchronized"`
-	InhibitedReason string                          `json:"inhibitedReason,omitempty"`
-	Error           *SignalError                    `json:"error"`
+	CalculationRevision uint64                          `json:"calculationRevision,omitempty"`
+	OccupancyRevision   uint64                          `json:"occupancyRevision,omitempty"`
+	ID                  string                          `json:"id"`
+	ComputedAspect      SignalAspectID                  `json:"computedAspect"`
+	DesiredAspect       SignalAspectID                  `json:"desiredAspect"`
+	CommandedAspect     *SignalAspectID                 `json:"commandedAspect"`
+	ReportedAspect      *SignalAspectID                 `json:"reportedAspect"`
+	ReportQuality       *station.AccessoryReportQuality `json:"reportQuality"`
+	Pending             bool                            `json:"pending"`
+	Synchronized        bool                            `json:"synchronized"`
+	InhibitedReason     string                          `json:"inhibitedReason,omitempty"`
+	Error               *SignalError                    `json:"error"`
 }
 
 // SignalError is an operational diagnostic, never a physical confirmation.

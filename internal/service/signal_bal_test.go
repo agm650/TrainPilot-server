@@ -63,7 +63,7 @@ func TestBALRejectsInvalidConfigurationAndUnusableDownstream(t *testing.T) {
 		}
 	}
 	for _, change := range []func(*BALSignalInput){
-		func(i *BALSignalInput) { i.State.Pending = true }, func(i *BALSignalInput) { i.State.Synchronized = false },
+		func(i *BALSignalInput) { i.State.Pending = true; i.State.DesiredAspect = "S" }, func(i *BALSignalInput) { i.State.Synchronized = false },
 		func(i *BALSignalInput) { i.State.CommandedAspect = nil }, func(i *BALSignalInput) { i.State.Error = &model.SignalError{Code: "failed"} },
 		func(i *BALSignalInput) { v := model.SignalAspectID("S"); i.State.ReportedAspect = &v },
 		func(i *BALSignalInput) { i.Available = false }, func(i *BALSignalInput) { i.Occupancy = model.OccupancyUnknown },

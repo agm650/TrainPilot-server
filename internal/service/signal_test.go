@@ -198,7 +198,7 @@ func TestSignalServiceEmptyAndAutomaticDefinitions(t *testing.T) {
 	}
 	defer s.Close()
 	state := awaitSignal(t, s, func(v model.SignalState) bool { return v.CommandedAspect != nil })
-	if state.InhibitedReason != "automatic_engine_unavailable" || *state.CommandedAspect != "S" {
+	if state.InhibitedReason != "protected_block_unknown" || *state.CommandedAspect != "S" {
 		t.Fatal(state)
 	}
 	if err := db.ReplaceSignalDefinitions(context.Background(), nil, nil, true); err != nil {

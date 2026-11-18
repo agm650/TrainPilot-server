@@ -27,29 +27,32 @@ type signalRuntime struct {
 	cancel        context.CancelFunc
 	needsFallback bool
 	published     *model.SignalState
+	stopRequired  bool
 }
 
 // SignalService owns runtime state. No aspect or observation is persisted.
 // Status is fed by ControlService; it never competes for its status channel.
 type SignalService struct {
-	store              *store.Store
-	station            station.CommandStation
-	events             *events.Bus
-	occupancy          *OccupancyService
-	mu                 sync.RWMutex
-	entries            map[string]*signalRuntime
-	status             station.Status
-	ctx                context.Context
-	cancel             context.CancelFunc
-	wake               chan struct{}
-	wg                 sync.WaitGroup
-	gate               *priorityCommandGate
-	lifecycle          sync.Mutex
-	reloadMu           sync.Mutex
-	configurationValid bool
-	lastLayoutSequence uint64
-	feedbackEpoch      station.FeedbackState
-	feedbackEpochKnown bool
+	store                 *store.Store
+	station               station.CommandStation
+	events                *events.Bus
+	occupancy             *OccupancyService
+	mu                    sync.RWMutex
+	entries               map[string]*signalRuntime
+	status                station.Status
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	wake                  chan struct{}
+	wg                    sync.WaitGroup
+	gate                  *priorityCommandGate
+	lifecycle             sync.Mutex
+	reloadMu              sync.Mutex
+	configurationValid    bool
+	lastLayoutSequence    uint64
+	feedbackEpoch         station.FeedbackState
+	feedbackEpochKnown    bool
+	calculationRevision   uint64
+	lastCalculationInputs map[string]BALSignalInput
 }
 
 func NewSignalService(db *store.Store, st station.CommandStation, bus *events.Bus, occupancy *OccupancyService) *SignalService {
@@ -181,7 +184,7 @@ func (s *SignalService) reloadLocked(ctx context.Context) error {
 			return err
 		}
 		d, _ = model.NormalizeSignalDefinition(d, p)
-		next[d.ID] = &signalRuntime{definition: d, profile: p, state: state, fence: time.Now(), needsFallback: true}
+		next[d.ID] = &signalRuntime{definition: d, profile: p, state: state, fence: time.Now(), needsFallback: true, stopRequired: true}
 	}
 	s.mu.Lock()
 	for _, r := range s.entries {
@@ -190,6 +193,7 @@ func (s *SignalService) reloadLocked(ctx context.Context) error {
 		}
 	}
 	s.entries = next
+	s.lastCalculationInputs = nil
 	s.configurationValid = true
 	s.lastLayoutSequence = s.events.CurrentSequence()
 	for _, r := range next {
@@ -330,6 +334,7 @@ func (s *SignalService) invalidateLocked(r *signalRuntime, reason string) {
 	r.fence = time.Now()
 	r.state = model.SignalState{ID: r.definition.ID, ComputedAspect: r.definition.FallbackAspect, DesiredAspect: r.definition.FallbackAspect, InhibitedReason: reason}
 	r.needsFallback = true
+	r.stopRequired = true
 }
 
 func (s *SignalService) setReasonLocked(r *signalRuntime) {
@@ -340,14 +345,19 @@ func (s *SignalService) setReasonLocked(r *signalRuntime) {
 		r.state.InhibitedReason = "unsupported_endpoint"
 	case !s.usableLocked():
 		r.state.InhibitedReason = "station_or_power_unavailable"
-	case r.definition.Mode == model.SignalModeAutomatic:
-		r.state.InhibitedReason = "automatic_engine_unavailable"
 	default:
 		r.state.InhibitedReason = ""
 	}
 }
 
 func (s *SignalService) reconcile() {
+	if s.occupancy != nil {
+		if err := s.refreshSignalOccupancy(s.ctx); err != nil {
+			s.Invalidate("occupancy_unavailable")
+			return
+		}
+	}
+	snapshot := s.occupancySnapshot()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	defer s.publishAllLocked()
@@ -355,6 +365,7 @@ func (s *SignalService) reconcile() {
 		return
 	}
 	s.syncFeedbackEpochLocked()
+	s.calculateLocked(snapshot)
 	for id, r := range s.entries {
 		if !s.usableLocked() {
 			if r.state.CommandedAspect != nil || r.state.Pending {
@@ -371,13 +382,25 @@ func (s *SignalService) reconcile() {
 			s.setReasonLocked(r)
 			continue
 		}
-		s.setReasonLocked(r)
-		desired, _ := r.profile.Aspect(r.state.DesiredAspect)
-		if !s.blockFreeLocked(r) && desired.Role != model.SignalRoleStop {
-			s.invalidateLocked(r, "protected_block_not_free")
+		if r.definition.Mode == model.SignalModeManual {
+			s.setReasonLocked(r)
+			desired, _ := r.profile.Aspect(r.state.DesiredAspect)
+			if snapshot.Blocks[r.definition.ProtectedBlockID].State != model.OccupancyFree && desired.Role != model.SignalRoleStop {
+				s.invalidateLocked(r, "protected_block_not_free")
+			}
+			r.state.Synchronized = r.state.Error == nil && !r.stopRequired && knownSignalOccupancy(snapshot, r.definition.ProtectedBlockID)
 		}
-		r.state.Synchronized = r.state.Error == nil && r.definition.Mode == model.SignalModeManual && s.occupancy != nil && s.occupancy.BlockState(r.definition.ProtectedBlockID).State != model.OccupancyUnknown
-		if !r.needsFallback || r.state.Pending || !s.station.Capabilities().ExtendedAccessoryControl {
+		target := r.state.DesiredAspect
+		if r.stopRequired {
+			target = r.definition.FallbackAspect
+		}
+		if !r.needsFallback && r.state.CommandedAspect != nil && *r.state.CommandedAspect == target {
+			continue
+		}
+		if r.state.Pending || !s.station.Capabilities().ExtendedAccessoryControl {
+			continue
+		}
+		if r.state.Error != nil && !r.needsFallback {
 			continue
 		}
 		r.needsFallback = false
@@ -388,11 +411,13 @@ func (s *SignalService) reconcile() {
 		ctx, cancel := context.WithTimeout(s.ctx, signalCommandTimeout)
 		r.cancel = cancel
 		s.wg.Add(1)
-		target := r.definition.FallbackAspect
+		r.state.DesiredAspect = target
+		aspect, _ := r.profile.Aspect(target)
+		restrictive := aspect.Role == model.SignalRoleStop
 		go func(id string, r *signalRuntime, generation uint64) {
 			defer s.wg.Done()
 			defer cancel()
-			_ = s.dispatch(ctx, id, r, generation, target, true)
+			_ = s.dispatch(ctx, id, r, generation, target, restrictive)
 		}(id, r, generation)
 	}
 }
@@ -406,12 +431,20 @@ func (s *SignalService) dispatch(ctx context.Context, id string, r *signalRuntim
 	if err == nil {
 		defer release()
 		if !restrictive && s.occupancy != nil {
-			err = s.refreshSignalOccupancy(ctx)
+			// A target may be superseded during this read. Its cancellation must
+			// not interrupt the shared occupancy query (or discard a SQLite
+			// in-memory connection). The generation is checked below; only
+			// transport I/O belongs to the per-command cancellation scope.
+			err = s.refreshSignalOccupancy(s.ctx)
 		}
-		s.mu.RLock()
+		snapshot := s.occupancySnapshot()
+		s.mu.Lock()
+		if r.definition.Mode == model.SignalModeAutomatic {
+			s.calculateLocked(snapshot)
+		}
 		valid := s.entries[id] == r && r.generation == generation && s.usableLocked() && (restrictive || s.blockFreeLocked(r))
 		command := station.ExtendedAccessoryCommand{Address: r.definition.Endpoint.LinearAddress, Aspect: r.definition.Endpoint.AspectCodes[target]}
-		s.mu.RUnlock()
+		s.mu.Unlock()
 		if !valid {
 			err = ErrSignalUnavailable
 		} else if err == nil {
@@ -450,7 +483,11 @@ func (s *SignalService) dispatch(ctx context.Context, id string, r *signalRuntim
 	}
 	value := target
 	r.state.CommandedAspect = &value
+	if target == r.definition.FallbackAspect {
+		r.stopRequired = false
+	}
 	s.events.Publish("signal.commanded", model.SignalCommanded{SignalID: id, Aspect: target})
+	s.notify()
 	return nil
 }
 

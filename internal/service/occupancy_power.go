@@ -33,6 +33,7 @@ func (s *OccupancyService) SetTrackPowerAvailable(ctx context.Context, available
 		return nil
 	}
 	s.trackPowerAvailable = available
+	s.revision++
 	blocks := make(map[string]bool)
 	for _, config := range configs {
 		if config.TrackPowerDependent {

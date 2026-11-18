@@ -78,7 +78,7 @@ func TestSignalRESTAndGoClient(t *testing.T) {
 		t.Fatal(profiles, err)
 	}
 	info, err := f.viewer.SystemInfo(ctx)
-	if err != nil || info.APIVersion != "1.19.0" || !info.Signalling.ManualControl || info.Signalling.AutomaticControl {
+	if err != nil || info.APIVersion != "1.20.0" || !info.Signalling.ManualControl || !info.Signalling.AutomaticControl {
 		t.Fatal(info, err)
 	}
 	_, err = f.viewer.Signal(ctx, "missing")
@@ -99,7 +99,12 @@ func TestSignalRESTAndGoClient(t *testing.T) {
 	if err != nil || item.State.CommandedAspect == nil || *item.State.CommandedAspect != "VL" {
 		t.Fatal(item, err)
 	}
-	requireClientProblem(t, f.dispatcher.SetSignalMode(ctx, "s1", model.SignalModeAutomatic), 409, "signal_automatic_unavailable")
+	if err := f.dispatcher.SetSignalMode(ctx, "s1", model.SignalModeAutomatic); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.administrator.SetSignalMode(ctx, "s1", model.SignalModeManual); err != nil {
+		t.Fatal(err)
+	}
 	if err := f.administrator.SetSignalAspect(ctx, "s1", "S"); err != nil {
 		t.Fatal(err)
 	}

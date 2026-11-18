@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: DCC Control Server Events
-  version: 1.16.0
+  version: 1.17.0
   description: >-
     WebSocket event contract for native clients, including complete sequenced
     snapshots and explicit resynchronization requests. After a snapshot, clients
@@ -376,7 +376,7 @@ components:
             properties:
               signals:
                 type: array
-                description: Optional in earlier servers; always an array in 1.16.0, including when empty.
+                description: Optional in earlier servers; always an array in 1.17.0, including when empty.
                 items: { $ref: './openapi.yaml#/components/schemas/Signal' }
               signalProfiles:
                 type: array

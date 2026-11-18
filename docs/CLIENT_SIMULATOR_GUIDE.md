@@ -5,8 +5,8 @@ Dernière validation : 18 septembre 2026.
 Versions du contrat actuellement documentées :
 
 - serveur : `0.2.0` ;
-- API HTTP : `1.19.0` ;
-- API événementielle : `1.16.0` ;
+- API HTTP : `1.20.0` ;
+- API événementielle : `1.17.0` ;
 - format des scénarios du simulateur : `1`.
 
 Ce guide explique comment utiliser TrainPilot-server comme banc virtuel pour
@@ -256,9 +256,9 @@ Exemple :
 ```json
 {
   "serverVersion": "0.2.0",
-  "apiVersion": "1.19.0",
+  "apiVersion": "1.20.0",
   "minimumClientApiVersion": "1.0.0",
-  "eventApiVersion": "1.16.0",
+  "eventApiVersion": "1.17.0",
   "minimumClientEventApiVersion": "1.3.0",
   "station": {
     "driver": "simulator",
@@ -1518,4 +1518,5 @@ exposent les définitions et les états opérationnels. Les listes vides contien
 `PUT /api/v1/signals/{id}/aspect` avec `{"aspect":"S"}`, ou `/mode` avec
 `{"mode":"manual"}`. Tout aspect autre que `stop` exige un canton connu libre.
 L’envoi réussi ne confirme pas l’état physique des feux. Le mode automatique
-reste indisponible jusqu’au lot D. Voir [SIGNALLING.md](SIGNALLING.md).
+est disponible pour les profils `bal-3` avec `{"mode":"automatic"}`.
+Les autres rulesets restent refusés. Voir [SIGNALLING.md](SIGNALLING.md).

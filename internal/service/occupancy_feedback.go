@@ -44,6 +44,7 @@ func (s *OccupancyService) applyFeedbackStateLocked(configs []model.ResolvedOccu
 		return nil
 	}
 	s.feedbackStates[state.Source] = state
+	s.revision++
 	reset := !state.Available || !known || previous.Generation != state.Generation
 	blocks := make(map[string]bool)
 	for _, config := range configs {

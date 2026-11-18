@@ -142,3 +142,9 @@ la séquence globale. Un trou de séquence exige `client.snapshot_request`.
 Le nouveau client retrouve l'état courant après reconnexion ou débordement ;
 aucun rejeu des événements intermédiaires n'est fourni. Les schémas des signaux
 dans AsyncAPI référencent le fichier OpenAPI livré à côté de ce contrat.
+
+SIG-015 porte HTTP à **1.20.0** et les événements à **1.17.0**. Les minima
+clients restent inchangés. `automaticControl` annonce le moteur `bal-3` ;
+un profil sans ce ruleset reste refusé en 409. `SignalState` ajoute les champs
+optionnels `calculationRevision` et `occupancyRevision`. Les clients antérieurs
+peuvent les ignorer. L'envoi d'une commande ne confirme toujours pas les feux.

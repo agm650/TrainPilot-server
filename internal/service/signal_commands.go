@@ -14,7 +14,7 @@ var (
 	ErrSignalUnsafe               = errors.New("protected block must be known free")
 	ErrSignalBusy                 = errors.New("signal command is already pending")
 	ErrSignalMode                 = errors.New("signal must be in manual mode")
-	ErrSignalAutomaticUnavailable = errors.New("automatic signalling engine is unavailable")
+	ErrSignalAutomaticUnavailable = errors.New("automatic signalling ruleset is unavailable for this profile")
 )
 
 func (s *SignalService) blockFreeLocked(r *signalRuntime) bool {
@@ -44,6 +44,7 @@ func (s *SignalService) CommandAspect(ctx context.Context, user model.User, id s
 	}
 	s.mu.Lock()
 	s.syncFeedbackEpochLocked()
+	s.calculateLocked(s.occupancySnapshot())
 	r := s.entries[id]
 	if r == nil {
 		s.mu.Unlock()
@@ -78,6 +79,10 @@ func (s *SignalService) CommandAspect(ctx context.Context, user model.User, id s
 	if !restrictive && !s.blockFreeLocked(r) {
 		s.mu.Unlock()
 		return ErrSignalUnsafe
+	}
+	if !restrictive && r.stopRequired {
+		s.mu.Unlock()
+		return ErrSignalUnavailable
 	}
 	if r.state.Pending && !restrictive {
 		s.mu.Unlock()
@@ -157,7 +162,7 @@ func (s *SignalService) SetMode(ctx context.Context, user model.User, id string,
 	if r == nil {
 		return store.ErrNotFound
 	}
-	if mode == model.SignalModeAutomatic {
+	if mode == model.SignalModeAutomatic && r.profile.RuleSetID != model.SignalRuleSetBAL3 {
 		return ErrSignalAutomaticUnavailable
 	}
 	if r.definition.Mode == mode {
