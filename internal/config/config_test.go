@@ -81,6 +81,22 @@ func TestSignallingRefreshConfiguration(t *testing.T) {
 	}
 }
 
+func TestSignallingSafetyBudget(t *testing.T) {
+	if Default().Signalling.SafetyDispatchBudget != 100*time.Millisecond {
+		t.Fatal("default budget")
+	}
+	cfg, err := Load(writeConfig(t, `{"signalling":{"safetyDispatchBudget":"250ms"}}`))
+	if err != nil || cfg.Signalling.SafetyDispatchBudget != 250*time.Millisecond {
+		t.Fatal(cfg.Signalling, err)
+	}
+	for _, value := range []string{"bad", "0s", "-1ms"} {
+		_, err := Load(writeConfig(t, `{"signalling":{"safetyDispatchBudget":"`+value+`"}}`))
+		if err == nil || !strings.Contains(err.Error(), "signalling.safetyDispatchBudget") {
+			t.Fatal(value, err)
+		}
+	}
+}
+
 func TestLoadDatabaseJournalMode(t *testing.T) {
 	cfg, err := Load(writeConfig(t, `{"database":{"journalMode":"memory"}}`))
 	if err != nil {

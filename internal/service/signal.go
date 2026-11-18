@@ -57,6 +57,8 @@ type SignalService struct {
 	calculationRevision   uint64
 	lastCalculationInputs map[string]BALSignalInput
 	refreshInterval       time.Duration
+	queue                 *signalCommandQueue
+	emergencyStop         bool
 }
 
 func NewSignalService(db *store.Store, st station.CommandStation, bus *events.Bus, occupancy *OccupancyService) *SignalService {
@@ -72,6 +74,7 @@ func (s *SignalService) Start(ctx context.Context) error {
 		return errors.New("signal service already started")
 	}
 	s.ctx, s.cancel = context.WithCancel(ctx)
+	s.queue = newSignalCommandQueue()
 	s.mu.Unlock()
 	if err := s.Reload(ctx); err != nil {
 		s.mu.Lock()
@@ -81,6 +84,8 @@ func (s *SignalService) Start(ctx context.Context) error {
 		return err
 	}
 	ch, overflow, unsubscribe := s.events.SubscribeTypesWithOverflow(64, "layout.imported", "block.occupancy.changed")
+	s.wg.Add(1)
+	go s.runCommands(s.ctx, s.queue)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -307,6 +312,12 @@ func (s *SignalService) ObserveStatus(v station.Status) {
 	s.mu.Lock()
 	was := signalPowerUsable(s.status)
 	s.status = v
+	if v.EmergencyStop && !s.emergencyStop {
+		s.emergencyStop = true
+		for _, r := range s.entries {
+			s.invalidateLocked(r, "emergency_stop")
+		}
+	}
 	if !signalPowerUsable(v) || !was {
 		for _, r := range s.entries {
 			s.invalidateLocked(r, "station_or_power_unavailable")
@@ -423,15 +434,15 @@ func (s *SignalService) reconcile() {
 		r.fence = time.Now()
 		ctx, cancel := context.WithTimeout(s.ctx, signalCommandTimeout)
 		r.cancel = cancel
-		s.wg.Add(1)
 		r.state.DesiredAspect = target
 		aspect, _ := r.profile.Aspect(target)
 		restrictive := aspect.Role == model.SignalRoleStop
-		go func(id string, r *signalRuntime, generation uint64) {
-			defer s.wg.Done()
-			defer cancel()
-			_ = s.dispatch(ctx, id, r, generation, target, restrictive)
-		}(id, r, generation)
+		if _, err := s.enqueueSignalLocked(ctx, cancel, id, r, generation, target, restrictive); err != nil {
+			cancel()
+			r.cancel = nil
+			r.state.Pending = false
+			r.needsFallback = true
+		}
 	}
 }
 
@@ -440,22 +451,33 @@ func (s *SignalService) signalCommandErrorLocked(r *signalRuntime, target model.
 }
 
 func (s *SignalService) dispatch(ctx context.Context, id string, r *signalRuntime, generation uint64, target model.SignalAspectID, restrictive bool) error {
-	release, err := s.gate.acquire(ctx, restrictive)
+	priority := commandOrdinary
+	if restrictive {
+		priority = commandSignalStop
+	}
+	s.mu.RLock()
+	var activeCancel context.CancelFunc
+	if s.entries[id] == r && r.generation == generation {
+		activeCancel = r.cancel
+	}
+	s.mu.RUnlock()
+	err := ctx.Err()
+	if err == nil && !restrictive && s.occupancy != nil {
+		// Queries run outside the write gate. A superseded target must not
+		// cancel shared SQLite reads; generation is checked after acquisition.
+		err = s.refreshSignalOccupancy(s.ctx)
+	}
+	var release func()
 	if err == nil {
-		defer release()
-		if !restrictive && s.occupancy != nil {
-			// A target may be superseded during this read. Its cancellation must
-			// not interrupt the shared occupancy query (or discard a SQLite
-			// in-memory connection). The generation is checked below; only
-			// transport I/O belongs to the per-command cancellation scope.
-			err = s.refreshSignalOccupancy(s.ctx)
-		}
+		release, err = s.gate.acquirePriority(ctx, priority, activeCancel)
+	}
+	if err == nil {
 		snapshot := s.occupancySnapshot()
 		s.mu.Lock()
 		if r.definition.Mode == model.SignalModeAutomatic {
 			s.calculateLocked(snapshot)
 		}
-		valid := s.entries[id] == r && r.generation == generation && s.usableLocked() && (restrictive || s.blockFreeLocked(r))
+		valid := s.entries[id] == r && r.generation == generation && s.usableLocked() && (restrictive || (!s.emergencyStop && s.blockFreeLocked(r)))
 		command := station.ExtendedAccessoryCommand{Address: r.definition.Endpoint.LinearAddress, Aspect: r.definition.Endpoint.AspectCodes[target]}
 		s.mu.Unlock()
 		if !valid {
@@ -463,6 +485,7 @@ func (s *SignalService) dispatch(ctx context.Context, id string, r *signalRuntim
 		} else if err == nil {
 			err = station.SendExtendedAccessory(ctx, s.station, command)
 		}
+		release()
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

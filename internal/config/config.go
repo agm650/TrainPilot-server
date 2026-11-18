@@ -59,8 +59,10 @@ type Config struct {
 		ConfirmationTimeoutText string        `json:"confirmationTimeout"`
 	} `json:"turnout"`
 	Signalling struct {
-		RefreshInterval     time.Duration `json:"-"`
-		RefreshIntervalText string        `json:"refreshInterval"`
+		RefreshInterval          time.Duration `json:"-"`
+		RefreshIntervalText      string        `json:"refreshInterval"`
+		SafetyDispatchBudget     time.Duration `json:"-"`
+		SafetyDispatchBudgetText string        `json:"safetyDispatchBudget"`
 	} `json:"signalling"`
 	TestAPI  bool `json:"testAPI"`
 	SeedDemo bool `json:"seedDemo"`
@@ -84,6 +86,7 @@ func Default() Config {
 	c.Control.StopGrace = 2 * time.Second
 	c.Control.MonitorPeriod = 250 * time.Millisecond
 	c.Turnout.ConfirmationTimeout = 2 * time.Second
+	c.Signalling.SafetyDispatchBudget = 100 * time.Millisecond
 	return c
 }
 
@@ -136,6 +139,12 @@ func Load(path string) (Config, error) {
 	}
 	if c.Signalling.RefreshInterval < 0 {
 		return c, errors.New("signalling.refreshInterval must be non-negative (0s disables refresh)")
+	}
+	if err := parse(c.Signalling.SafetyDispatchBudgetText, &c.Signalling.SafetyDispatchBudget); err != nil {
+		return c, fmt.Errorf("signalling.safetyDispatchBudget: %w", err)
+	}
+	if c.Signalling.SafetyDispatchBudget <= 0 {
+		return c, errors.New("signalling.safetyDispatchBudget must be greater than zero")
 	}
 	if err := parse(c.Station.OfflineAfterText, &c.Station.OfflineAfter); err != nil {
 		return c, fmt.Errorf("station.offlineAfter: %w", err)

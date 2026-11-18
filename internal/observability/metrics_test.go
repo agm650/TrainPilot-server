@@ -139,3 +139,19 @@ func scrape(t *testing.T, metrics *Metrics) string {
 	}
 	return recorder.Body.String()
 }
+
+func TestSafetyDispatchMeasuresServerBudgetWithBoundedLabels(t *testing.T) {
+	m := New(":memory:")
+	m.ObserveSafetyDispatch("emergency_stop", 50*time.Millisecond, 100*time.Millisecond)
+	m.ObserveSafetyDispatch("emergency_stop", 150*time.Millisecond, 100*time.Millisecond)
+	m.ObserveSafetyDispatch("secret-signal", time.Second, 100*time.Millisecond)
+	body := scrape(t, m)
+	for _, want := range []string{`trainpilot_safety_dispatch_seconds_count{operation="emergency_stop"} 2`, `trainpilot_safety_dispatch_over_budget_total{operation="emergency_stop"} 1`, `trainpilot_safety_dispatch_over_budget_total{operation="other"} 1`} {
+		if !strings.Contains(body, want) {
+			t.Fatal("missing", want)
+		}
+	}
+	if strings.Contains(body, "secret-signal") {
+		t.Fatal("unbounded metric label")
+	}
+}

@@ -23,7 +23,7 @@ func knownSignalOccupancy(snapshot OccupancySnapshot, blockID string) bool {
 func (s *SignalService) calculateLocked(snapshot OccupancySnapshot) {
 	inputs := make(map[string]BALSignalInput, len(s.entries))
 	for id, r := range s.entries {
-		available := s.usableLocked() && s.signalCommandErrorLocked(r, r.definition.FallbackAspect) == nil && !r.stopRequired
+		available := s.usableLocked() && !s.emergencyStop && s.signalCommandErrorLocked(r, r.definition.FallbackAspect) == nil && !r.stopRequired
 		r.state.Synchronized = available && r.state.Error == nil && knownSignalOccupancy(snapshot, r.definition.ProtectedBlockID)
 		state := cloneSignalState(r.state)
 		state.ComputedAspect = ""

@@ -57,6 +57,29 @@ Le report de SIG-020 ne retire pas le support logiciel DCC-EX livré par SIG-013
 
 ## État de l'implémentation
 
+SIG-017 borne la file à **64 commandes en attente**, avec un seul worker.
+Une cible plus récente remplace celle du même signal. Un repli passe avant
+les ouvertures et peut évincer une ouverture en attente si la file est pleine.
+La cible évincée revient au repli. Les signaux restants sont repris par la boucle
+de calcul ; la saturation ne crée pas de goroutines par signal.
+Le gate existant conserve la sérialisation des écritures : sécurité générale,
+puis replis des signaux, puis commandes ordinaires. Une commande de sécurité
+annule l'I/O d'un signal en cours. Les pilotes doivent respecter cette annulation.
+Les lectures SQLite et la réception des retours ne tiennent pas le gate pendant
+l'I/O. Un paquet déjà parti ne peut pas être retiré ; une correction restrictive
+est envoyée dès libération du transport. L'arrêt d'urgence interdit toute
+ouverture jusqu'à son réarmement explicite par remise sous tension.
+
+`signalling.safetyDispatchBudget` est une durée **strictement positive**, avec
+**`"100ms"` par défaut**. C'est l'objectif mesuré entre la prise en charge serveur
+et l'appel au pilote pour l'arrêt d'urgence ou OFF. Le serveur n'abandonne jamais
+une commande de sécurité si ce budget est dépassé. Les métriques privées
+`trainpilot_safety_dispatch_seconds` et
+`trainpilot_safety_dispatch_over_budget_total` permettent de le contrôler.
+Ce budget ne couvre ni la transmission DCC ni la réaction physique des feux.
+Le système d'exploitation et un pilote ne respectant pas l'annulation peuvent
+le dépasser ; les essais logiciels ne constituent pas une garantie temps réel.
+
 SIG-016 impose le repli après erreur et avant une nouvelle ouverture.
 Les tentatives de repli sont espacées de 250 ms, puis doublées jusqu'à 2 s.
 Le succès efface l'erreur ; l'automatique recalcule ensuite avec les données

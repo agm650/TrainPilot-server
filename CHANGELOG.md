@@ -8,6 +8,12 @@ Planned server release: 2.0.0.
 
 ### Added
 
+- SIG-017 bounded signal queue (64 pending, one worker), per-signal coalescence,
+  stop priority and generation checks immediately before transport. Emergency
+  stop/power-off preempt signal I/O through the shared gate; feedback reception
+  stays independent. Emergency stop latches opening inhibition. The configurable
+  `signalling.safetyDispatchBudget` defaults to 100 ms; private metrics measure
+  server dispatch and overruns without dropping overdue safety commands.
 - SIG-016 restrictive recovery with bounded stop retries (250 ms to 2 s), fresh
   occupancy after layout import and stop-first resynchronization on detectable
   decoder reset. Optional `signalling.refreshInterval` defaults to `0s` (off);

@@ -8,6 +8,7 @@
   "control": { "leaseTTL": "10m", "stopGrace": "2s", "monitorPeriod": "250ms" },
   "turnout": { "confirmationTimeout": "2s" },
   "signalling": {
+    "safetyDispatchBudget": "100ms",
     "refreshInterval": "0s"
   },
   "testAPI": false,

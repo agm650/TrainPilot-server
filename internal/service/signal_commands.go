@@ -80,7 +80,7 @@ func (s *SignalService) CommandAspect(ctx context.Context, user model.User, id s
 		s.mu.Unlock()
 		return ErrSignalUnsafe
 	}
-	if !restrictive && r.stopRequired {
+	if !restrictive && (r.stopRequired || s.emergencyStop) {
 		s.mu.Unlock()
 		return ErrSignalUnavailable
 	}
@@ -114,7 +114,26 @@ func (s *SignalService) CommandAspect(ctx context.Context, user model.User, id s
 		_ = s.dispatch(commandCtx, id, r, generation, target, restrictive)
 		return err
 	}
-	return s.dispatch(commandCtx, id, r, generation, target, restrictive)
+	s.mu.Lock()
+	if s.entries[id] != r || r.generation != generation {
+		s.mu.Unlock()
+		return ErrSafetyPreempted
+	}
+	job, err := s.enqueueSignalLocked(commandCtx, cancel, id, r, generation, target, restrictive)
+	if err != nil {
+		s.invalidateLocked(r, "queue_saturated")
+		s.notify()
+	}
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	select {
+	case err := <-job.done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // A feedback stream can be renewed while public connectivity remains online.

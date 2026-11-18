@@ -49,6 +49,7 @@ type ControlService struct {
 	clientConnections            map[string]int
 	clientGenerations            map[string]uint64
 	signals                      *SignalService
+	safetyDispatchBudget         time.Duration
 }
 
 // SetSignalService is configured before Start. Control remains the sole
@@ -64,6 +65,22 @@ func NewControlService(s *store.Store, st station.CommandStation, b *events.Bus,
 	return &ControlService{store: s, station: st, events: b, clock: c, leaseTTL: leaseTTL, stopGrace: stopGrace, monitor: monitor, stop: make(chan struct{}), commands: newPriorityCommandGate(), lastDirection: make(map[string]station.Direction), momentary: make(map[momentaryKey]heldMomentaryFunction), clientConnections: make(map[string]int), clientGenerations: make(map[string]uint64)}
 }
 func (c *ControlService) SetMetrics(metrics *observability.Metrics) { c.metrics = metrics }
+
+// SetSafetyDispatchBudget configures the measured server-side target before
+// Start. It never drops a safety command when the target is exceeded.
+func (c *ControlService) SetSafetyDispatchBudget(budget time.Duration) {
+	if budget > 0 {
+		c.safetyDispatchBudget = budget
+	}
+}
+
+func (c *ControlService) observeSafetyDispatch(operation string, started time.Time) {
+	budget := c.safetyDispatchBudget
+	if budget == 0 {
+		budget = 100 * time.Millisecond
+	}
+	c.metrics.ObserveSafetyDispatch(operation, time.Since(started), budget)
+}
 
 func (c *ControlService) SetOccupancyProvider(occupancy *OccupancyService, providerID string) {
 	c.occupancy = occupancy
@@ -307,6 +324,9 @@ func (c *ControlService) rememberTrackPower(enabled bool) {
 }
 
 func (c *ControlService) rememberEmergencyStop(active bool) {
+	if c.signals != nil {
+		c.signals.SetEmergencyStop(active)
+	}
 	c.setEmergencyStopState(active)
 
 	c.statusMu.Lock()
@@ -322,11 +342,15 @@ func (c *ControlService) rememberEmergencyStop(active bool) {
 }
 
 func (c *ControlService) SetTrackPower(ctx context.Context, user model.User, enabled bool) error {
+	started := time.Now()
 	if !Allowed(user.Role, PermissionDrive) {
 		return ErrPermissionDenied
 	}
 	if !c.station.Capabilities().TrackPower {
 		return station.ErrUnsupported
+	}
+	if !enabled && c.signals != nil {
+		c.signals.ObserveStatus(station.Status{TrackPower: "unknown"})
 	}
 	epoch := c.currentSafetyEpoch()
 	release, err := c.commands.acquire(ctx, !enabled)
@@ -342,7 +366,12 @@ func (c *ControlService) SetTrackPower(ctx context.Context, user model.User, ena
 	if err := station.CheckCommandAllowed(c.station); err != nil {
 		return err
 	}
-	if err := c.observeStationCommand("track_power", func() error { return c.station.SetTrackPower(ctx, enabled) }); err != nil {
+	if err := c.observeStationCommand("track_power", func() error {
+		if !enabled {
+			c.observeSafetyDispatch("track_power_off", started)
+		}
+		return c.station.SetTrackPower(ctx, enabled)
+	}); err != nil {
 		if !enabled {
 			c.updateOccupancyTrackPower(ctx, station.Status{TrackPower: "unknown"})
 			if c.signals != nil {
@@ -436,8 +465,12 @@ func (c *ControlService) StationStatus(ctx context.Context) (station.Status, err
 }
 
 func (c *ControlService) EmergencyStop(ctx context.Context, user model.User) error {
+	started := time.Now()
 	if !Allowed(user.Role, PermissionDrive) {
 		return ErrPermissionDenied
+	}
+	if c.signals != nil {
+		c.signals.SetEmergencyStop(true)
 	}
 	release, err := c.commands.acquire(ctx, true)
 	if err != nil {
@@ -448,7 +481,10 @@ func (c *ControlService) EmergencyStop(ctx context.Context, user model.User) err
 	if err := station.CheckCommandAllowed(c.station); err != nil {
 		return err
 	}
-	if err := c.observeStationCommand("emergency_stop", func() error { return c.station.EmergencyStop(ctx) }); err != nil {
+	if err := c.observeStationCommand("emergency_stop", func() error {
+		c.observeSafetyDispatch("emergency_stop", started)
+		return c.station.EmergencyStop(ctx)
+	}); err != nil {
 		return err
 	}
 

@@ -39,6 +39,7 @@
     "confirmationTimeout": "2s"
   },
   "signalling": {
+    "safetyDispatchBudget": "100ms",
     "refreshInterval": "0s"
   },
   "testAPI": true,

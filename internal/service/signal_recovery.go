@@ -48,6 +48,21 @@ func (s *SignalService) scheduleRetryLocked(r *signalRuntime) {
 	r.retryAt = time.Now().Add(r.retryDelay)
 }
 
+// Safety requests latch opening inhibition before waiting for the transport
+// gate. Stop corrections remain possible while DCC power is available.
+func (s *SignalService) SetEmergencyStop(active bool) {
+	s.mu.Lock()
+	if active != s.emergencyStop {
+		s.emergencyStop = active
+		for _, r := range s.entries {
+			s.invalidateLocked(r, "emergency_stop")
+		}
+		s.publishAllLocked()
+	}
+	s.mu.Unlock()
+	s.notify()
+}
+
 // A current unknown or contradictory observation may indicate a decoder reset.
 // It is not a physical stop confirmation. Retry the configured stop first.
 func (s *SignalService) resetReportedSignalLocked(r *signalRuntime) {

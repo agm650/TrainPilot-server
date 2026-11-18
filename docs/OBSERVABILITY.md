@@ -3,6 +3,13 @@
 TrainPilot peut exposer des métriques Prometheus et les profils Go `pprof`.
 Ces fonctions sont optionnelles et désactivées par défaut.
 
+La signalisation ajoute `trainpilot_safety_dispatch_seconds` (histogramme) et
+`trainpilot_safety_dispatch_over_budget_total` (compteur). Le label `operation`
+est borné à `emergency_stop`, `track_power_off` ou `other`. Le délai mesure la
+prise en charge serveur jusqu'à l'appel au pilote, sans la transmission ni
+l'action physique. `signalling.safetyDispatchBudget` règle le seuil du compteur
+(**`100ms` par défaut**). Un dépassement n'abandonne pas la commande de sécurité.
+
 ## Configuration
 
 ```json

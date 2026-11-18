@@ -111,6 +111,7 @@ func serve(args []string) error {
 		railway.SetFeedbackLogger(slog.New(slog.NewTextHandler(os.Stdout, nil)))
 	}
 	control := service.NewControlService(db, st, bus, clk, cfg.Control.LeaseTTL, cfg.Control.StopGrace, cfg.Control.MonitorPeriod)
+	control.SetSafetyDispatchBudget(cfg.Signalling.SafetyDispatchBudget)
 	control.SetOccupancyProvider(railway.OccupancyService(), feedbackProviderID(st.Capabilities().Driver))
 	signals := service.NewSignalService(db, st, bus, railway.OccupancyService())
 	if err := signals.SetRefreshInterval(cfg.Signalling.RefreshInterval); err != nil {

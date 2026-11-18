@@ -64,14 +64,16 @@ type Metrics struct {
 	turnoutPhaseTime     *prometheus.HistogramVec
 	turnoutConfirmDetail *prometheus.HistogramVec
 
-	stationState       *prometheus.GaugeVec
-	stationTransitions *prometheus.CounterVec
-	stationReconnects  prometheus.Counter
-	stationCommands    *prometheus.CounterVec
-	stationDuration    *prometheus.HistogramVec
-	stationMu          sync.Mutex
-	stationCurrent     string
-	sqliteStatsOnce    sync.Once
+	stationState             *prometheus.GaugeVec
+	stationTransitions       *prometheus.CounterVec
+	stationReconnects        prometheus.Counter
+	stationCommands          *prometheus.CounterVec
+	safetyDispatch           *prometheus.HistogramVec
+	safetyDispatchOverBudget *prometheus.CounterVec
+	stationDuration          *prometheus.HistogramVec
+	stationMu                sync.Mutex
+	stationCurrent           string
+	sqliteStatsOnce          sync.Once
 
 	storeOperations   *prometheus.CounterVec
 	storeDuration     *prometheus.HistogramVec
@@ -246,6 +248,12 @@ func New(databasePath string) *Metrics {
 			Name: "trainpilot_station_commands_total",
 			Help: "Commands sent to the command station grouped by result.",
 		}, []string{"operation", "result"}),
+		safetyDispatch: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name: "trainpilot_safety_dispatch_seconds", Help: "Server safety request handling to driver call; excludes physical transmission.", Buckets: []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2},
+		}, []string{"operation"}),
+		safetyDispatchOverBudget: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "trainpilot_safety_dispatch_over_budget_total", Help: "Safety driver calls exceeding the configured server dispatch target.",
+		}, []string{"operation"}),
 		stationDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "trainpilot_station_command_duration_seconds",
 			Help:    "Observed command-station command duration.",
@@ -277,6 +285,7 @@ func New(databasePath string) *Metrics {
 		m.activeLeases, m.leaseOperations, m.controlCommands, m.leaseStopDuration, m.safetyStops,
 		m.routeOperations, m.turnoutCommands, m.turnoutConfirms, m.turnoutDuration, m.turnoutPhaseTime, m.turnoutConfirmDetail,
 		m.stationState, m.stationTransitions, m.stationReconnects, m.stationCommands, m.stationDuration,
+		m.safetyDispatch, m.safetyDispatchOverBudget,
 		m.storeOperations, m.storeDuration, m.storeTransactions,
 	)
 	m.registerDatabaseSize(databasePath)
@@ -499,6 +508,17 @@ func (m *Metrics) ObserveLeaseStop(stage string, duration time.Duration) {
 func (m *Metrics) SafetyStop(reason string) {
 	if m != nil {
 		m.safetyStops.WithLabelValues(bounded(reason, "heartbeat_timeout", "client_release", "takeover", "emergency_stop", "track_power_off")).Inc()
+	}
+}
+
+func (m *Metrics) ObserveSafetyDispatch(operation string, elapsed, budget time.Duration) {
+	if m == nil {
+		return
+	}
+	operation = bounded(operation, "emergency_stop", "track_power_off")
+	m.safetyDispatch.WithLabelValues(operation).Observe(elapsed.Seconds())
+	if elapsed > budget {
+		m.safetyDispatchOverBudget.WithLabelValues(operation).Inc()
 	}
 }
 
