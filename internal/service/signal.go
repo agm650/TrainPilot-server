@@ -43,6 +43,7 @@ type SignalService struct {
 	wg                 sync.WaitGroup
 	gate               *priorityCommandGate
 	lifecycle          sync.Mutex
+	reloadMu           sync.Mutex
 	configurationValid bool
 }
 
@@ -141,6 +142,8 @@ func (s *SignalService) notify() {
 }
 
 func (s *SignalService) Reload(ctx context.Context) error {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
 	profiles, definitions, err := s.store.SignalConfiguration(ctx)
 	if err != nil {
 		s.Invalidate("configuration_unavailable")
@@ -300,6 +303,11 @@ func (s *SignalService) reconcile() {
 			continue
 		}
 		s.setReasonLocked(r)
+		desired, _ := r.profile.Aspect(r.state.DesiredAspect)
+		if !s.blockFreeLocked(r) && desired.Role != model.SignalRoleStop {
+			s.invalidateLocked(r, "protected_block_not_free")
+		}
+		r.state.Synchronized = r.definition.Mode == model.SignalModeManual && s.occupancy != nil && s.occupancy.BlockState(r.definition.ProtectedBlockID).State != model.OccupancyUnknown
 		if !r.needsFallback || r.state.Pending || !s.station.Capabilities().ExtendedAccessoryControl {
 			continue
 		}
@@ -311,10 +319,11 @@ func (s *SignalService) reconcile() {
 		ctx, cancel := context.WithTimeout(s.ctx, signalCommandTimeout)
 		r.cancel = cancel
 		s.wg.Add(1)
+		target := r.definition.FallbackAspect
 		go func(id string, r *signalRuntime, generation uint64) {
 			defer s.wg.Done()
 			defer cancel()
-			_ = s.dispatch(ctx, id, r, generation, r.definition.FallbackAspect, true)
+			_ = s.dispatch(ctx, id, r, generation, target, true)
 		}(id, r, generation)
 	}
 }
@@ -323,18 +332,27 @@ func (s *SignalService) dispatch(ctx context.Context, id string, r *signalRuntim
 	release, err := s.gate.acquire(ctx, restrictive)
 	if err == nil {
 		defer release()
+		if !restrictive && s.occupancy != nil {
+			err = s.occupancy.Recompute(ctx)
+		}
 		s.mu.RLock()
-		valid := s.entries[id] == r && r.generation == generation && s.usableLocked()
+		valid := s.entries[id] == r && r.generation == generation && s.usableLocked() && (restrictive || s.blockFreeLocked(r))
+		command := station.ExtendedAccessoryCommand{Address: r.definition.Endpoint.LinearAddress, Aspect: r.definition.Endpoint.AspectCodes[target]}
 		s.mu.RUnlock()
 		if !valid {
 			err = ErrSignalUnavailable
-		} else {
-			err = station.SendExtendedAccessory(ctx, s.station, station.ExtendedAccessoryCommand{Address: r.definition.Endpoint.LinearAddress, Aspect: r.definition.Endpoint.AspectCodes[target]})
+		} else if err == nil {
+			err = station.SendExtendedAccessory(ctx, s.station, command)
 		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.entries[id] != r || r.generation != generation {
+		return ErrSafetyPreempted
+	}
+	if err == nil && (!s.usableLocked() || (!restrictive && !s.blockFreeLocked(r))) {
+		s.invalidateLocked(r, "safety_changed")
+		s.notify()
 		return ErrSafetyPreempted
 	}
 	r.cancel = nil
@@ -347,11 +365,14 @@ func (s *SignalService) dispatch(ctx context.Context, id string, r *signalRuntim
 		r.state.ComputedAspect = r.definition.FallbackAspect
 		r.state.DesiredAspect = r.definition.FallbackAspect
 		r.state.Synchronized = false
+		if !restrictive {
+			r.needsFallback = true
+			s.notify()
+		}
 		return err
 	}
 	value := target
 	r.state.CommandedAspect = &value
-	r.state.Error = nil
 	return nil
 }
 
@@ -365,7 +386,7 @@ func (s *SignalService) observeReport(e station.ExtendedAccessoryStateEvent) {
 		if r.definition.Endpoint.LinearAddress != e.Address || e.ObservedAt.IsZero() || e.ObservedAt.Before(r.fence) {
 			continue
 		}
-		if r.state.Error != nil || (r.state.CommandedAspect == nil && !r.state.Pending) {
+		if r.state.CommandedAspect == nil && !r.state.Pending {
 			continue
 		}
 		r.state.ReportedAspect = nil

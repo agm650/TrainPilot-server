@@ -8,6 +8,11 @@ Planned server release: 2.0.0.
 
 ### Added
 
+- SIG-009 manual signal aspect/mode commands for dispatchers and administrators,
+  with actor/result auditing, protected-block checks and priority cancellation
+  of pending openings by stop commands. Manual openings are not replayed after
+  occupancy or availability changes. Automatic activation is explicitly rejected
+  until SIG-014; returning to manual persists the mode and resets the target.
 - SIG-008 client-independent signal runtime service with coherent snapshots,
   cancellation, configuration reload and restrictive commands at startup and
   after recovery. Driver observations retain their reported quality; transport

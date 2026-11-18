@@ -27,6 +27,20 @@ Ces déclarations ne constituent pas une validation matérielle des pilotes éte
 
 ## État de l'implémentation
 
+SIG-009 fournit les commandes manuelles d'aspect et de mode aux rôles
+`dispatcher` et `administrator`. Tout aspect autre que le rôle `stop` exige
+un canton protégé connu libre, y compris un aspect personnalisé de rôle `other`.
+Ces conditions sont revérifiées après l'attente du transport. Une commande
+restrictive annule une ouverture en cours ; une commande ordinaire ne remplace
+pas une commande déjà en attente. Une occupation ou une perte de validité
+ramène la cible au repli sans mémoriser d'ouverture à rejouer.
+Les tentatives acceptées et les résultats, refus inclus, sont audités avec
+l'acteur et un code de résultat. Aucun détail de transport sensible n'est stocké.
+Le mode est une configuration persistante ; sa modification ne restaure aucun
+aspect opérationnel. L'activation automatique renvoie une erreur explicite
+jusqu'à SIG-014. La dernière erreur reste visible après un repli réussi,
+jusqu'à une nouvelle demande manuelle ou une réinitialisation.
+
 SIG-008 fournit `SignalService`, démarré et arrêté avec le serveur. Il charge
 les profils et définitions dans un même snapshot SQLite. Son registre expose
 des copies cohérentes, sans persister d'aspect opérationnel. Le service envoie
