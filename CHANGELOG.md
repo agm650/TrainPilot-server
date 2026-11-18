@@ -8,6 +8,11 @@ Planned server release: 2.0.0.
 
 ### Added
 
+- SIG-011 sequenced signal state, command/result and mode events, plus signal
+  definitions/runtime and profiles in WebSocket snapshots. Identical runtime
+  states are deduplicated; real repeated writes retain their command events.
+  Events advance to 1.16.0 with live snapshot recovery after queue overflow.
+  Internal filtered subscriptions prevent signal traffic from triggering reloads.
 - SIG-010 authenticated REST signal/profile reads, aspect/mode commands, typed
   Go client methods and conformance inventory/checks. HTTP advances to 1.19.0
   with optional server signalling capabilities. Layout imports cancel pending

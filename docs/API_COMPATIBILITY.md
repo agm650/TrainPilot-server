@@ -133,3 +133,12 @@ permission `view`. Les commandes `PUT /signals/{id}/aspect` et `/mode` exigent
 vérifier `station.extendedAccessoryControl` pour commander un matériel.
 `automaticControl` reste faux jusqu'au lot D. Les anciens clients peuvent
 ignorer ces nouveaux champs et routes. Les événements restent en 1.15.0.
+
+SIG-011 porte les événements à **1.16.0**, sans modifier le minimum client.
+Les snapshots ajoutent `signals` et `signalProfiles`, y compris deux tableaux
+vides sur un réseau sans signaux. Les clients antérieurs peuvent ignorer ces
+champs. Ils doivent ignorer les types d'événements inconnus tout en suivant
+la séquence globale. Un trou de séquence exige `client.snapshot_request`.
+Le nouveau client retrouve l'état courant après reconnexion ou débordement ;
+aucun rejeu des événements intermédiaires n'est fourni. Les schémas des signaux
+dans AsyncAPI référencent le fichier OpenAPI livré à côté de ce contrat.

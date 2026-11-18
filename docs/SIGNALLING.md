@@ -27,6 +27,16 @@ Ces déclarations ne constituent pas une validation matérielle des pilotes éte
 
 ## État de l'implémentation
 
+SIG-011 ajoute `signals` et `signalProfiles` au snapshot WebSocket, toujours
+sous forme de tableaux. Les événements sont `signal.aspect.changed` (état
+opérationnel complet), `signal.commanded`, `signal.command.failed` et
+`signal.mode.changed`. Les états identiques sont dédupliqués. Deux demandes
+qui produisent réellement deux écritures conservent deux événements de commande.
+Les erreurs et annulations n'annoncent aucune confirmation physique. Les
+séquences et la récupération par `client.snapshot_request` utilisent le bus
+existant. Son abonnement interne filtré évite les rechargements dus au trafic
+des signaux eux-mêmes. Le contrat événements est **1.16.0**.
+
 SIG-010 expose les signaux sous `/api/v1/signals` et les profils sous
 `/api/v1/signal-profiles`. Un signal lu contient `definition` et `state`.
 Les lectures exigent la permission `view`. Les commandes `PUT /signals/{id}/aspect`

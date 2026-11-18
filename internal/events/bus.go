@@ -27,6 +27,7 @@ type subscription struct {
 	mu       sync.Mutex
 	events   chan Event
 	overflow chan struct{}
+	types    map[string]bool
 }
 
 func New() *Bus { return &Bus{subs: make(map[*subscription]struct{})} }
@@ -47,6 +48,9 @@ func (b *Bus) Publish(eventType string, payload any) Event {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	for sub := range b.subs {
+		if len(sub.types) > 0 && !sub.types[e.Type] {
+			continue
+		}
 		sub.mu.Lock()
 		dropped := false
 		select {
@@ -88,7 +92,17 @@ func (b *Bus) Subscribe(buffer int) (<-chan Event, func()) {
 // Consumers that require a complete ordered stream must resynchronize or
 // disconnect after this signal.
 func (b *Bus) SubscribeWithOverflow(buffer int) (<-chan Event, <-chan struct{}, func()) {
-	sub := &subscription{events: make(chan Event, buffer), overflow: make(chan struct{}, 1)}
+	return b.SubscribeTypesWithOverflow(buffer)
+}
+
+// SubscribeTypesWithOverflow filters delivery without altering the global
+// sequence. An empty filter preserves the full public event stream.
+func (b *Bus) SubscribeTypesWithOverflow(buffer int, eventTypes ...string) (<-chan Event, <-chan struct{}, func()) {
+	types := map[string]bool{}
+	for _, name := range eventTypes {
+		types[name] = true
+	}
+	sub := &subscription{events: make(chan Event, buffer), overflow: make(chan struct{}, 1), types: types}
 	b.mu.Lock()
 	b.subs[sub] = struct{}{}
 	b.mu.Unlock()

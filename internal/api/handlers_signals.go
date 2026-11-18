@@ -13,12 +13,25 @@ func (s *Server) readSignals(ctx context.Context) ([]model.Signal, error) {
 	if runtime := s.signals.Load(); runtime != nil {
 		return runtime.Signals(), nil
 	}
-	// Embedded API users without a running controller can still read definitions.
-	runtime := service.NewSignalService(s.store, s.station, s.events, nil)
-	if err := runtime.Reload(ctx); err != nil {
+	// Reads in embedded servers never create a controller or publish events.
+	profiles, definitions, err := s.store.SignalConfiguration(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return runtime.Signals(), nil
+	byProfile := map[string]model.SignalProfile{}
+	for _, p := range profiles {
+		byProfile[p.ID] = p
+	}
+	result := make([]model.Signal, 0, len(definitions))
+	for _, d := range definitions {
+		state, err := model.NewSignalState(d, byProfile[d.ProfileID])
+		if err != nil {
+			return nil, err
+		}
+		state.InhibitedReason = "service_unavailable"
+		result = append(result, model.Signal{Definition: d, State: state})
+	}
+	return result, nil
 }
 
 func (s *Server) signalReadAllowed(w http.ResponseWriter, r *http.Request) bool {

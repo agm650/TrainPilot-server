@@ -91,6 +91,7 @@ func (s *SignalService) CommandAspect(ctx context.Context, user model.User, id s
 	r.cancel = cancel
 	s.wg.Add(1)
 	registered = true
+	s.publishStateLocked(r)
 	s.mu.Unlock()
 	defer cancel()
 	defer stop()
@@ -141,6 +142,8 @@ func (s *SignalService) SetMode(ctx context.Context, user model.User, id string,
 	r.definition = d
 	s.invalidateLocked(r, "")
 	s.setReasonLocked(r)
+	s.events.Publish("signal.mode.changed", model.SignalModeChanged{SignalID: id, Mode: mode})
+	s.publishStateLocked(r)
 	s.notify()
 	return nil
 }

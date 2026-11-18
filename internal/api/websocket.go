@@ -12,6 +12,8 @@ import (
 )
 
 type systemSnapshotPayload struct {
+	Signals                    []model.Signal                 `json:"signals"`
+	SignalProfiles             []model.SignalProfile          `json:"signalProfiles"`
 	SignallingRevision         string                         `json:"signallingRevision,omitempty"`
 	Station                    station.Capabilities           `json:"station"`
 	StationStatus              station.Status                 `json:"stationStatus"`
@@ -82,11 +84,17 @@ func (s *Server) buildSystemSnapshot(ctx context.Context, session model.Session)
 	if err != nil {
 		return systemSnapshot{}, err
 	}
+	signals, err := s.readSignals(ctx)
+	if err != nil {
+		return systemSnapshot{}, err
+	}
 	return systemSnapshot{
 		Type:       "system.snapshot",
 		Sequence:   sequence,
 		CapturedAt: time.Now().UTC(),
 		Payload: systemSnapshotPayload{
+			Signals:                    snapshotItems(signals),
+			SignalProfiles:             snapshotItems(topologyDefinition.SignalProfiles),
 			SignallingRevision:         topologyDefinition.SignallingRevision,
 			Station:                    s.station.Capabilities(),
 			StationStatus:              status,

@@ -101,7 +101,7 @@ func TestCompoundTurnoutContractsAreDocumented(t *testing.T) {
 		}
 	}
 	for _, fragment := range []string{
-		"version: 1.15.0",
+		"version: 1.16.0",
 		"topologyRevision:",
 		"layoutPresentationRevision:",
 		"name: turnout.commanded",

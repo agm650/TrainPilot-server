@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: DCC Control Server Events
-  version: 1.15.0
+  version: 1.16.0
   description: >-
     WebSocket event contract for native clients, including complete sequenced
     snapshots and explicit resynchronization requests. After a snapshot, clients
@@ -42,6 +42,10 @@ channels:
       turnoutStateChanged: { $ref: '#/components/messages/TurnoutStateChanged' }
       turnoutCommanded: { $ref: '#/components/messages/TurnoutCommanded' }
       turnoutCommandFailed: { $ref: '#/components/messages/TurnoutCommandFailed' }
+      signalAspectChanged: { $ref: '#/components/messages/SignalAspectChanged' }
+      signalCommanded: { $ref: '#/components/messages/SignalCommanded' }
+      signalCommandFailed: { $ref: '#/components/messages/SignalCommandFailed' }
+      signalModeChanged: { $ref: '#/components/messages/SignalModeChanged' }
       routeReserved: { $ref: '#/components/messages/RouteReserved' }
       routeActivated: { $ref: '#/components/messages/RouteActivated' }
       routeReleased: { $ref: '#/components/messages/RouteReleased' }
@@ -71,6 +75,10 @@ operations:
       - $ref: '#/channels/events/messages/turnoutStateChanged'
       - $ref: '#/channels/events/messages/turnoutCommanded'
       - $ref: '#/channels/events/messages/turnoutCommandFailed'
+      - $ref: '#/channels/events/messages/signalAspectChanged'
+      - $ref: '#/channels/events/messages/signalCommanded'
+      - $ref: '#/channels/events/messages/signalCommandFailed'
+      - $ref: '#/channels/events/messages/signalModeChanged'
       - $ref: '#/channels/events/messages/routeReserved'
       - $ref: '#/channels/events/messages/routeActivated'
       - $ref: '#/channels/events/messages/routeReleased'
@@ -282,6 +290,65 @@ components:
         state: { type: string, enum: [idle, reserved, active] }
         reservedBySession: { type: string }
   messages:
+    SignalAspectChanged:
+      name: signal.aspect.changed
+      description: >-
+        Complete runtime state after an aspect, pending, error, observation or
+        validity change. Identical consecutive states are suppressed. A reported
+        aspect retains its quality; successful dispatch is not physical confirmation.
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: signal.aspect.changed }
+              payload: { $ref: './openapi.yaml#/components/schemas/SignalState' }
+    SignalCommanded:
+      name: signal.commanded
+      description: One actual successful transport write, including explicit repeated requests.
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: signal.commanded }
+              payload:
+                type: object
+                required: [signalId, aspect]
+                properties:
+                  signalId: { type: string }
+                  aspect: { type: string }
+    SignalCommandFailed:
+      name: signal.command.failed
+      description: Failed or preempted transport operation, with no sensitive transport details.
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: signal.command.failed }
+              payload:
+                type: object
+                required: [signalId, aspect, reason]
+                properties:
+                  signalId: { type: string }
+                  aspect: { type: string }
+                  reason: { type: string, enum: [command_failed, preempted, safety_changed] }
+    SignalModeChanged:
+      name: signal.mode.changed
+      description: Persisted mode transition. Refresh signalling configuration or request a snapshot.
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            properties:
+              type: { const: signal.mode.changed }
+              payload:
+                type: object
+                required: [signalId, mode]
+                properties:
+                  signalId: { type: string }
+                  mode: { type: string, enum: [manual, automatic] }
     SystemSnapshot:
       name: system.snapshot
       description: >-
@@ -305,8 +372,15 @@ components:
           capturedAt: { type: string, format: date-time }
           payload:
             type: object
-            required: [station, stationStatus, locomotives, controlLeases, locomotiveControlStates, blocks, turnouts, routes, topologyRevision, layoutPresentationRevision]
+            required: [station, stationStatus, locomotives, controlLeases, locomotiveControlStates, blocks, turnouts, routes, topologyRevision, layoutPresentationRevision, signals, signalProfiles]
             properties:
+              signals:
+                type: array
+                description: Optional in earlier servers; always an array in 1.16.0, including when empty.
+                items: { $ref: './openapi.yaml#/components/schemas/Signal' }
+              signalProfiles:
+                type: array
+                items: { $ref: './openapi.yaml#/components/schemas/SignalProfile' }
               signallingRevision:
                 type: string
                 pattern: '^[0-9a-f]{64}$'

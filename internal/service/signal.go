@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -25,6 +26,7 @@ type signalRuntime struct {
 	fence         time.Time
 	cancel        context.CancelFunc
 	needsFallback bool
+	published     *model.SignalState
 }
 
 // SignalService owns runtime state. No aspect or observation is persisted.
@@ -69,7 +71,7 @@ func (s *SignalService) Start(ctx context.Context) error {
 		s.mu.Unlock()
 		return err
 	}
-	ch, overflow, unsubscribe := s.events.SubscribeWithOverflow(64)
+	ch, overflow, unsubscribe := s.events.SubscribeTypesWithOverflow(64, "layout.imported", "block.occupancy.changed")
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -128,6 +130,7 @@ func (s *SignalService) Close() {
 	for _, r := range s.entries {
 		s.invalidateLocked(r, "stopped")
 	}
+	s.publishAllLocked()
 	s.mu.Unlock()
 	s.wg.Wait()
 	s.mu.Lock()
@@ -190,6 +193,7 @@ func (s *SignalService) reloadLocked(ctx context.Context) error {
 	for _, r := range next {
 		s.setReasonLocked(r)
 	}
+	s.publishAllLocked()
 	s.mu.Unlock()
 	s.notify()
 	return nil
@@ -297,6 +301,7 @@ func (s *SignalService) ObserveStatus(v station.Status) {
 			s.setReasonLocked(r)
 		}
 	}
+	s.publishAllLocked()
 	s.mu.Unlock()
 	s.notify()
 }
@@ -309,6 +314,7 @@ func (s *SignalService) Invalidate(reason string) {
 	for _, r := range s.entries {
 		s.invalidateLocked(r, reason)
 	}
+	s.publishAllLocked()
 	s.mu.Unlock()
 	s.notify()
 }
@@ -340,6 +346,7 @@ func (s *SignalService) setReasonLocked(r *signalRuntime) {
 func (s *SignalService) reconcile() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer s.publishAllLocked()
 	if s.ctx.Err() != nil {
 		return
 	}
@@ -396,12 +403,15 @@ func (s *SignalService) dispatch(ctx context.Context, id string, r *signalRuntim
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer s.publishAllLocked()
 	if s.entries[id] != r || r.generation != generation {
+		s.events.Publish("signal.command.failed", model.SignalCommandFailed{SignalID: id, Aspect: target, Reason: "preempted"})
 		return ErrSafetyPreempted
 	}
 	if err == nil && (!s.usableLocked() || (!restrictive && !s.blockFreeLocked(r))) {
 		s.invalidateLocked(r, "safety_changed")
 		s.notify()
+		s.events.Publish("signal.command.failed", model.SignalCommandFailed{SignalID: id, Aspect: target, Reason: "safety_changed"})
 		return ErrSafetyPreempted
 	}
 	r.cancel = nil
@@ -418,16 +428,19 @@ func (s *SignalService) dispatch(ctx context.Context, id string, r *signalRuntim
 			r.needsFallback = true
 			s.notify()
 		}
+		s.events.Publish("signal.command.failed", model.SignalCommandFailed{SignalID: id, Aspect: target, Reason: "command_failed"})
 		return err
 	}
 	value := target
 	r.state.CommandedAspect = &value
+	s.events.Publish("signal.commanded", model.SignalCommanded{SignalID: id, Aspect: target})
 	return nil
 }
 
 func (s *SignalService) observeReport(e station.ExtendedAccessoryStateEvent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer s.publishAllLocked()
 	if !s.usableLocked() {
 		return
 	}
@@ -452,4 +465,20 @@ func (s *SignalService) observeReport(e station.ExtendedAccessoryStateEvent) {
 			}
 		}
 	}
+}
+
+func (s *SignalService) publishAllLocked() {
+	for _, r := range s.entries {
+		s.publishStateLocked(r)
+	}
+}
+
+func (s *SignalService) publishStateLocked(r *signalRuntime) {
+	if r.published != nil && reflect.DeepEqual(*r.published, r.state) {
+		return
+	}
+	state := cloneSignalState(r.state)
+	saved := cloneSignalState(state)
+	r.published = &saved
+	s.events.Publish("signal.aspect.changed", state)
 }

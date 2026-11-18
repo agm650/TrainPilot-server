@@ -169,6 +169,20 @@ type Signal struct {
 	State      SignalState      `json:"state"`
 }
 
+type SignalCommanded struct {
+	SignalID string         `json:"signalId"`
+	Aspect   SignalAspectID `json:"aspect"`
+}
+type SignalCommandFailed struct {
+	SignalID string         `json:"signalId"`
+	Aspect   SignalAspectID `json:"aspect"`
+	Reason   string         `json:"reason"`
+}
+type SignalModeChanged struct {
+	SignalID string     `json:"signalId"`
+	Mode     SignalMode `json:"mode"`
+}
+
 func NewSignalState(s SignalDefinition, profile SignalProfile) (SignalState, error) {
 	normalized, err := NormalizeSignalDefinition(s, profile)
 	if err != nil {
