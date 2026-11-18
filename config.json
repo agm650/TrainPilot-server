@@ -38,6 +38,9 @@
   "turnout": {
     "confirmationTimeout": "2s"
   },
+  "signalling": {
+    "refreshInterval": "0s"
+  },
   "testAPI": true,
   "seedDemo": true
 }

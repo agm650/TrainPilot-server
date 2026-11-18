@@ -59,6 +59,28 @@ func TestLoadEmptyPathReturnsDefaults(t *testing.T) {
 	}
 }
 
+func TestSignallingRefreshConfiguration(t *testing.T) {
+	if Default().Signalling.RefreshInterval != 0 {
+		t.Fatal("refresh must be opt-in")
+	}
+	for _, value := range []string{"0s", "500ms"} {
+		cfg, err := Load(writeConfig(t, `{"signalling":{"refreshInterval":"`+value+`"}}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, _ := time.ParseDuration(value)
+		if cfg.Signalling.RefreshInterval != want {
+			t.Fatal(cfg.Signalling)
+		}
+	}
+	for _, value := range []string{"bad", "-1ms"} {
+		_, err := Load(writeConfig(t, `{"signalling":{"refreshInterval":"`+value+`"}}`))
+		if err == nil || !strings.Contains(err.Error(), "signalling.refreshInterval") {
+			t.Fatal(value, err)
+		}
+	}
+}
+
 func TestLoadDatabaseJournalMode(t *testing.T) {
 	cfg, err := Load(writeConfig(t, `{"database":{"journalMode":"memory"}}`))
 	if err != nil {

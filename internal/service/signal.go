@@ -28,6 +28,9 @@ type signalRuntime struct {
 	needsFallback bool
 	published     *model.SignalState
 	stopRequired  bool
+	retryAt       time.Time
+	retryDelay    time.Duration
+	lastSent      time.Time
 }
 
 // SignalService owns runtime state. No aspect or observation is persisted.
@@ -53,6 +56,7 @@ type SignalService struct {
 	feedbackEpochKnown    bool
 	calculationRevision   uint64
 	lastCalculationInputs map[string]BALSignalInput
+	refreshInterval       time.Duration
 }
 
 func NewSignalService(db *store.Store, st station.CommandStation, bus *events.Bus, occupancy *OccupancyService) *SignalService {
@@ -162,7 +166,8 @@ func (s *SignalService) reloadForEvent(ctx context.Context, sequence uint64) err
 	if sequence <= s.lastLayoutSequence {
 		return nil
 	}
-	return s.reloadLocked(ctx)
+	s.Invalidate("configuration_unavailable")
+	return errors.Join(s.resetLayoutOccupancy(ctx), s.reloadLocked(ctx))
 }
 
 func (s *SignalService) reloadLocked(ctx context.Context) error {
@@ -218,6 +223,7 @@ func (s *SignalService) ApplyLayout(ctx context.Context, apply func() error) err
 	}
 	reloadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), signalCommandTimeout)
 	defer cancel()
+	err = errors.Join(err, s.resetLayoutOccupancy(reloadCtx))
 	return errors.Join(err, s.reloadLocked(reloadCtx))
 }
 
@@ -335,6 +341,8 @@ func (s *SignalService) invalidateLocked(r *signalRuntime, reason string) {
 	r.state = model.SignalState{ID: r.definition.ID, ComputedAspect: r.definition.FallbackAspect, DesiredAspect: r.definition.FallbackAspect, InhibitedReason: reason}
 	r.needsFallback = true
 	r.stopRequired = true
+	r.retryAt = time.Time{}
+	r.retryDelay = 0
 }
 
 func (s *SignalService) setReasonLocked(r *signalRuntime) {
@@ -395,6 +403,11 @@ func (s *SignalService) reconcile() {
 			target = r.definition.FallbackAspect
 		}
 		if !r.needsFallback && r.state.CommandedAspect != nil && *r.state.CommandedAspect == target {
+			if s.refreshInterval == 0 || time.Since(r.lastSent) < s.refreshInterval {
+				continue
+			}
+		}
+		if time.Now().Before(r.retryAt) {
 			continue
 		}
 		if r.state.Pending || !s.station.Capabilities().ExtendedAccessoryControl {
@@ -474,15 +487,18 @@ func (s *SignalService) dispatch(ctx context.Context, id string, r *signalRuntim
 		r.state.ComputedAspect = r.definition.FallbackAspect
 		r.state.DesiredAspect = r.definition.FallbackAspect
 		r.state.Synchronized = false
-		if !restrictive {
-			r.needsFallback = true
-			s.notify()
-		}
+		r.stopRequired = true
+		r.needsFallback = true
+		s.scheduleRetryLocked(r)
 		s.events.Publish("signal.command.failed", model.SignalCommandFailed{SignalID: id, Aspect: target, Reason: "command_failed"})
 		return err
 	}
 	value := target
 	r.state.CommandedAspect = &value
+	r.state.Error = nil
+	r.retryAt = time.Time{}
+	r.retryDelay = 0
+	r.lastSent = time.Now()
 	if target == r.definition.FallbackAspect {
 		r.stopRequired = false
 	}
@@ -508,6 +524,9 @@ func (s *SignalService) observeReport(e station.ExtendedAccessoryStateEvent) {
 		r.state.ReportedAspect = nil
 		r.state.ReportQuality = nil
 		if !e.HasKnownAspect() || !e.Quality.Valid() {
+			if !r.state.Pending {
+				s.resetReportedSignalLocked(r)
+			}
 			continue
 		}
 		for id, code := range r.definition.Endpoint.AspectCodes {
@@ -518,7 +537,11 @@ func (s *SignalService) observeReport(e station.ExtendedAccessoryStateEvent) {
 				break
 			}
 		}
+		if !r.state.Pending && (r.state.ReportedAspect == nil || *r.state.ReportedAspect != *r.state.CommandedAspect) {
+			s.resetReportedSignalLocked(r)
+		}
 	}
+	s.notify()
 }
 
 func (s *SignalService) publishAllLocked() {

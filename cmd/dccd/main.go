@@ -113,6 +113,9 @@ func serve(args []string) error {
 	control := service.NewControlService(db, st, bus, clk, cfg.Control.LeaseTTL, cfg.Control.StopGrace, cfg.Control.MonitorPeriod)
 	control.SetOccupancyProvider(railway.OccupancyService(), feedbackProviderID(st.Capabilities().Driver))
 	signals := service.NewSignalService(db, st, bus, railway.OccupancyService())
+	if err := signals.SetRefreshInterval(cfg.Signalling.RefreshInterval); err != nil {
+		return err
+	}
 	control.SetSignalService(signals)
 	routes := service.NewRouteService(db, railway, bus)
 	railway.SetMetrics(metrics)

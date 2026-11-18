@@ -7,6 +7,9 @@
   "security": { "accessTokenTTL": "15m", "refreshTokenTTL": "720h" },
   "control": { "leaseTTL": "10m", "stopGrace": "2s", "monitorPeriod": "250ms" },
   "turnout": { "confirmationTimeout": "2s" },
+  "signalling": {
+    "refreshInterval": "0s"
+  },
   "testAPI": false,
   "seedDemo": false
 }

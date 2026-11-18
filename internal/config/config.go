@@ -58,6 +58,10 @@ type Config struct {
 		ConfirmationTimeout     time.Duration `json:"-"`
 		ConfirmationTimeoutText string        `json:"confirmationTimeout"`
 	} `json:"turnout"`
+	Signalling struct {
+		RefreshInterval     time.Duration `json:"-"`
+		RefreshIntervalText string        `json:"refreshInterval"`
+	} `json:"signalling"`
 	TestAPI  bool `json:"testAPI"`
 	SeedDemo bool `json:"seedDemo"`
 }
@@ -126,6 +130,12 @@ func Load(path string) (Config, error) {
 	}
 	if c.Turnout.ConfirmationTimeout <= 0 {
 		return c, errors.New("turnout.confirmationTimeout must be greater than zero")
+	}
+	if err := parse(c.Signalling.RefreshIntervalText, &c.Signalling.RefreshInterval); err != nil {
+		return c, fmt.Errorf("signalling.refreshInterval: %w", err)
+	}
+	if c.Signalling.RefreshInterval < 0 {
+		return c, errors.New("signalling.refreshInterval must be non-negative (0s disables refresh)")
 	}
 	if err := parse(c.Station.OfflineAfterText, &c.Station.OfflineAfter); err != nil {
 		return c, fmt.Errorf("station.offlineAfter: %w", err)

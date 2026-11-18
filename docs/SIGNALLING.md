@@ -57,6 +57,23 @@ Le report de SIG-020 ne retire pas le support logiciel DCC-EX livré par SIG-013
 
 ## État de l'implémentation
 
+SIG-016 impose le repli après erreur et avant une nouvelle ouverture.
+Les tentatives de repli sont espacées de 250 ms, puis doublées jusqu'à 2 s.
+Le succès efface l'erreur ; l'automatique recalcule ensuite avec les données
+courantes. L'import efface les observations et redemande les détecteurs aux
+pilotes compatibles. Les reprises partielles restent restrictives par canton.
+Un retour courant inconnu ou contradictoire hors commande en cours déclenche
+une resynchronisation du signal. Un décodeur silencieux ne permet pas de détecter
+son redémarrage. Sans retour, aucune confirmation physique n'est annoncée.
+
+`signalling.refreshInterval` est une durée du fichier JSON : **`"0s"` par
+défaut**, option désactivée. Exemple : `"1s"`. Les valeurs négatives sont refusées.
+Le contrôle périodique a une résolution de 100 ms. Chaque réémission vérifie la
+puissance, la génération et l'occupation ; elle ne réactive pas une ancienne
+ouverture manuelle. Un watchdog local, capable d'afficher le repli en l'absence
+de paquets, doit être implémenté et testé dans le décodeur. Cette option ne
+garantit ni la réception des paquets ni la couleur physique des feux.
+
 SIG-015 active l'automatique pour les profils `bal-3`. Le calcul utilise une
 vue atomique de toutes les occupations. Une transition simultanée entre cantons
 ne produit pas de vue intermédiaire libre. Les événements répétés sont

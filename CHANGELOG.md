@@ -8,6 +8,11 @@ Planned server release: 2.0.0.
 
 ### Added
 
+- SIG-016 restrictive recovery with bounded stop retries (250 ms to 2 s), fresh
+  occupancy after layout import and stop-first resynchronization on detectable
+  decoder reset. Optional `signalling.refreshInterval` defaults to `0s` (off);
+  repeated aspects still cross current safety checks. Failed commands leave
+  physical state unknown. A decoder-local watchdog remains a hardware requirement.
 - SIG-015 automatic BAL control from atomic occupancy snapshots, with bounded
   cycle propagation, coalesced recalculation and validation before dispatch.
   REST and WebSocket expose calculation/occupancy revisions; HTTP advances to
