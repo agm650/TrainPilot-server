@@ -1,7 +1,8 @@
 # Signalisation — spécification SIG-001
 
 Version cible du serveur : **2.0.0**, avec les autres lots de signalisation.
-Ce document fixe le contrat validé le 18 novembre 2026 pour les lots B et C.
+Ce document fixe le contrat des lots B et C, validé le 18 novembre 2026,
+et les décisions préparatoires du lot D.
 La validation comprend les précisions de généricité apportées par l'utilisateur.
 Les exemples
 décrivent des données futures, pas des fonctionnalités déjà disponibles.
@@ -24,6 +25,35 @@ Le firmware z21 du banc est déclaré à jour par l'utilisateur. Son numéro exa
 devra figurer dans la recette matérielle. La version DCC-EX du banc est confirmée
 à **5.6.6**. Le firmware de l'ATtiny et sa table de codes restent à consigner.
 Ces déclarations ne constituent pas une validation matérielle des pilotes étendus.
+
+## Décisions confirmées pour le lot D
+
+Ces décisions préparent SIG-014 à SIG-020. Le code du lot D n'est pas encore
+implémenté.
+
+- **SIG-017 — Délai d'arrêt d'urgence :** objectif de **100 ms** côté serveur
+  avant l'appel au pilote. Ce budget devra être réglable dans le fichier de
+  configuration, sous forme d'une durée, avec **`100ms` par défaut**.
+  La transmission et la réaction physique du matériel sont mesurées séparément.
+- **SIG-016/017 — Rafraîchissement des aspects :** option configurable,
+  **désactivée par défaut**. Son activation permettra de rafraîchir un aspect
+  inchangé pour un décodeur disposant d'un watchdog adapté. Chaque émission
+  devra respecter l'état courant et les générations de synchronisation.
+  Cette option ne fournit pas de watchdog au décodeur et ne confirme pas les feux.
+- **R-BUS — Recette après correction :** les essais Ethernet et OFF/ON DCC
+  n'ont pas encore été refaits. L'utilisateur prévoit de les réaliser ; leurs
+  résultats restent attendus. Le [compte rendu du lot A](hardware-tests/rbus/lot-A.md)
+  reste la référence pour cette recette.
+- **SIG-019 — Banc z21 :** aucun prototype ATtiny n'est disponible actuellement.
+  Un montage sur breadboard est envisagé. La recette attend ce prototype,
+  son adresse, sa table de codes et la revalidation matérielle R-BUS.
+- **SIG-020 — Banc DCC-EX :** **reporté à la demande de l'utilisateur**.
+  La détection d'occupation DCC-EX n'est pas encore disponible sur son banc.
+  Ce ticket ne doit pas être entrepris dans la prochaine phase du lot D.
+
+Les tickets logiciels **SIG-014 à SIG-018 peuvent avancer**. Les recettes
+matérielles ne seront pas déclarées réussies à partir des seuls tests simulés.
+Le report de SIG-020 ne retire pas le support logiciel DCC-EX livré par SIG-013.
 
 ## État de l'implémentation
 
@@ -50,7 +80,8 @@ Les générations réseau/puissance invalident les anciennes cibles et les
 observations utilisées avant une nouvelle ouverture. Une reprise de puissance
 est traitée avant d'autoriser l'envoi du repli sur le flux renouvelé.
 Les tests TCP et le test de démarrage du serveur sans client ne constituent pas
-une recette matérielle. L'essai physique SIG-020 reste à réaliser.
+une recette matérielle. L'essai physique SIG-020 est reporté selon les décisions
+du lot D ci-dessus.
 
 SIG-012 implémente les accessoires étendus dans le pilote z21. La découverte
 `LAN_X_GET_FIRMWARE_VERSION` intervient après les requêtes R-BUS initiales.
@@ -604,4 +635,5 @@ actualiser `system/info` après reprise avant de se fier à leur valeur en cache
 Le serveur vérifie toujours les capacités courantes avant chaque commande.
 L'activation automatique reste refusée jusqu'au lot D. Les contrôles de ce lot
 utilisent des simulateurs TCP/UDP et ne valident pas les feux réels.
-Les recettes physiques SIG-019 et SIG-020 restent à réaliser.
+La recette SIG-019 attend le prototype et les essais R-BUS. SIG-020 est reporté
+tant que la détection DCC-EX du banc n'est pas disponible.

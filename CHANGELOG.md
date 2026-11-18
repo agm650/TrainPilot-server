@@ -72,12 +72,17 @@ Planned server release: 2.0.0.
 
 ### Changed
 
+- Record the approved lot D plan: a configurable server-side emergency-stop
+  latency target, defaulting to 100 ms, and optional aspect refresh disabled by
+  default. SIG-019 awaits the decoder prototype and post-fix R-BUS bench tests;
+  SIG-020 is deferred until DCC-EX occupancy detection is available. These are
+  planned requirements; no runtime configuration is introduced by this update.
 - Document the approved lot C signalling behavior for 2.0.0: send the configured
   stop fallback without a connected client at startup, after layout import and
   after communication or track-power recovery, once transmission is available.
   Automatic activation remains unavailable until the lot D rules engine ships.
   Extended z21 accessories require firmware 1.40 or newer; the declared DCC-EX
-  bench firmware is 5.6.6. These are requirements, not delivered lot C features.
+  bench firmware is 5.6.6. Implementation is covered by SIG-008 through SIG-013 above.
 
 ## v1.1.1 - 2026-11-18
 
