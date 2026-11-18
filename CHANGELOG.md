@@ -8,6 +8,12 @@ Planned server release: 2.0.0.
 
 ### Added
 
+- SIG-018 end-to-end automatic BAL scenarios through REST/WebSocket, simulator
+  feedback and a UDP z21 fixture using the real driver. They verify stop-first
+  startup/recovery, partial R-BUS snapshots, recovery without train movement,
+  import invalidation and connected/reconnected clients. Live API versions are
+  checked against OpenAPI/AsyncAPI; conformance and legacy regression coverage
+  are documented. Physical acceptance remains pending in SIG-019 and SIG-020.
 - SIG-017 bounded signal queue (64 pending, one worker), per-signal coalescence,
   stop priority and generation checks immediately before transport. Emergency
   stop/power-off preempt signal I/O through the shared gate; feedback reception
@@ -26,8 +32,8 @@ Planned server release: 2.0.0.
 - SIG-014 pure BAL three-aspect calculation using configurable profile roles,
   explicit terminal limits and current-generation downstream command validity.
   Unknown/occupied protection remains restrictive; cycles are deterministic
-  without recursion. The calculator performs no I/O; automatic dispatch awaits
-  the event/recovery/concurrency integration in SIG-015 through SIG-017.
+  without recursion. The calculator performs no I/O; automatic dispatch is
+  integrated by SIG-015 through SIG-017.
 - SIG-013 DCC-EX extended signal commands for the observed, verified 5.6.6
   firmware. Advertised limits are addresses 1..2040 and aspects 0..31; wider
   codes are rejected without truncation. Startup/reconnection queries identity

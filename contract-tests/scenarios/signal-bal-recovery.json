@@ -1,0 +1,21 @@
+{
+  "id": "signal-bal-recovery",
+  "description": "Automatic BAL uses current occupancy and resynchronizes restrictively without train movement.",
+  "given": [
+    "Three explicitly chained signals use a configurable bal-3 profile and extended-accessory mapping.",
+    "The final signal declares a stop terminal; detector sources are initially unknown.",
+    "HTTP and WebSocket report commanded aspects separately from qualified observations."
+  ],
+  "when": [
+    "Fresh detector snapshots report all three blocks free.",
+    "Network or track power is interrupted, then restored with the train moved while disconnected.",
+    "Only the first R-BUS group replies, then the remaining group replies without a new physical change.",
+    "An existing WebSocket requests a snapshot and a second client reconnects."
+  ],
+  "then": [
+    "Each synchronization generation sends its configured stop before any opening.",
+    "Unknown protection remains at stop; a free block with unknown downstream permits caution only.",
+    "REST and both WebSocket clients recover the current aspects and occupied block.",
+    "Station echoes never become physical confirmation; prior openings are not replayed."
+  ]
+}

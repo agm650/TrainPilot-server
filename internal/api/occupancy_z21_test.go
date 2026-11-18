@@ -187,12 +187,14 @@ type z21OccupancyRequest struct {
 }
 
 type z21OccupancyServer struct {
-	conn          *net.UDPConn
-	requests      chan z21OccupancyRequest
-	done          chan struct{}
-	drop          atomic.Bool
-	powerOff      atomic.Bool
-	ignorePowerOn atomic.Bool
+	conn           *net.UDPConn
+	requests       chan z21OccupancyRequest
+	done           chan struct{}
+	drop           atomic.Bool
+	powerOff       atomic.Bool
+	ignorePowerOn  atomic.Bool
+	signalSupport  atomic.Bool
+	signalCommands chan station.ExtendedAccessoryCommand
 }
 
 func newZ21OccupancyServer(t *testing.T) *z21OccupancyServer {
@@ -201,11 +203,12 @@ func newZ21OccupancyServer(t *testing.T) *z21OccupancyServer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &z21OccupancyServer{conn: conn, requests: make(chan z21OccupancyRequest, 16), done: make(chan struct{})}
+	s := &z21OccupancyServer{conn: conn, requests: make(chan z21OccupancyRequest, 16), done: make(chan struct{}), signalCommands: make(chan station.ExtendedAccessoryCommand, 128)}
 	t.Cleanup(func() { _ = conn.Close(); <-s.done })
 	go func() {
 		defer close(s.done)
 		buffer := make([]byte, 2048)
+		aspects := map[int]int{}
 		for {
 			n, from, err := conn.ReadFromUDP(buffer)
 			if err != nil {
@@ -230,6 +233,33 @@ func newZ21OccupancyServer(t *testing.T) *z21OccupancyServer {
 				}
 				_, _ = conn.WriteToUDP(apiZ21LAN(0x0084, payload), from)
 			case 0x0040:
+				if s.signalSupport.Load() && len(packet) >= 7 {
+					switch packet[4] {
+					case 0xf1:
+						if packet[5] == 0x0a {
+							_, _ = conn.WriteToUDP(apiZ21XBus(0xf3, 0x0a, 1, 0x40), from)
+						}
+					case 0x54:
+						if len(packet) == 10 {
+							address := int(packet[5])<<8 | int(packet[6])
+							aspects[address] = int(packet[7])
+							select {
+							case s.signalCommands <- station.ExtendedAccessoryCommand{Address: address - 3, Aspect: int(packet[7])}:
+							default:
+							}
+						}
+					case 0x44:
+						if len(packet) == 9 {
+							address := int(packet[5])<<8 | int(packet[6])
+							code, known := aspects[address]
+							status := byte(0)
+							if !known {
+								status = 0xff
+							}
+							_, _ = conn.WriteToUDP(apiZ21XBus(0x44, packet[5], packet[6], byte(code), status), from)
+						}
+					}
+				}
 				if len(packet) == 7 && packet[4] == 0x21 && packet[5] == 0x24 {
 					status := byte(0)
 					if s.powerOff.Load() {

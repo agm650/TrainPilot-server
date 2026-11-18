@@ -92,6 +92,70 @@
 
 ## Commandes
 
+### Jalon BAL logiciel — SIG-014 à SIG-018
+
+La cible serveur reste **2.0.0**, sous `Unreleased`. Les contrats courants sont
+HTTP **1.20.0**, événements **1.17.0**, circuit **9**, matériel roulant **7**.
+Les minima clients restent HTTP 1.0.0 et événements 1.3.0. Le test
+`TestSignallingContractVersionsMatchLiveServer` compare les versions des fichiers
+OpenAPI/AsyncAPI à celles annoncées par un serveur actif. L'inventaire reste
+vérifié par `TestPublicEndpointInventoryMatchesServerAndOpenAPI`.
+
+Les tests `TestAutomaticBALSimulatorRESTWebSocketAndImport` et
+`TestAutomaticBALZ21RecoveryWithoutTrainMovement` utilisent une chaîne de trois
+signaux. Ils vérifient les aspects `VL/VL/A` après des observations fraîches,
+le repli au démarrage/import, puis les reprises Ethernet et OFF/ON DCC.
+Les réponses partielles ne libèrent pas les cantons restés inconnus. Les
+retours passent par le vrai pilote UDP z21 ou l'API de test du simulateur.
+L'ordre des paquets étendus impose le repli avant ouverture dans chaque
+génération. REST, un WebSocket déjà connecté et un nouveau client retrouvent
+l'état courant. Les échos de centrale ne confirment jamais physiquement les feux.
+
+Le calcul pur, les profils personnalisés, les boucles, les transferts atomiques,
+les erreurs/retries, le reset détectable, la file saturée, les rafales et le paquet
+déjà en vol ont leurs tests de service. Les tests de priorité mesurent le délai
+serveur avant appel au pilote pour EStop et OFF face à une ouverture lente ;
+leur cible est 100 ms. La configuration et les métriques de dépassement sont
+testées séparément. Ce contrôle n'est pas une garantie temps réel ou matérielle.
+
+La suite existante couvre aussi les archives anciennes, les tableaux vides,
+les droits, les commandes locomotives/aiguillages, les leases, les fonctions
+momentary et les métriques. Ces tests sont conservés dans les suites complètes.
+
+Commandes de validation reproductibles, sans centrale physique :
+
+```bash
+env GOCACHE=/tmp/trainpilot-rbus-go-cache rtk go test ./...
+env GOCACHE=/tmp/trainpilot-rbus-go-cache rtk go test -race ./...
+env CGO_ENABLED=0 GOCACHE=/tmp/trainpilot-rbus-go-cache rtk go test ./...
+env GOCACHE=/tmp/trainpilot-rbus-go-cache rtk go vet ./...
+rtk git diff --check
+env GOCACHE=/tmp/trainpilot-rbus-go-cache rtk go test ./cmd/dcc-api-conformance -run 'TestPublicEndpointInventory|TestSignallingContractVersions|TestConformanceRunnerAgainstSimulator' -count=1
+env GOCACHE=/tmp/trainpilot-rbus-go-cache rtk go run ./cmd/dcc-api-conformance --list-endpoints
+```
+
+Le runner de conformité utilise des serveurs simulés isolés en modes passif et
+actif. Il ne commande aucun matériel. Le script `scripts/test-turnouts.sh` est
+destiné à une recette matérielle interactive ; ses tests de garde-fous font
+partie de `go test ./...`. Il n'est pas lancé contre le banc par cette recette.
+La CI existante exécute les suites standard/race sur Linux et macOS, ainsi que
+CGO désactivé sous Linux.
+
+Résultat local du **18 novembre 2026**, Go **1.27.4**, **darwin/arm64** :
+**1 267 tests dans 32 packages** réussis pour chacune des suites standard,
+`-race` et `CGO_ENABLED=0`. `go vet ./...` et `git diff --check` passent.
+La commande ciblée de conformité passe ses cinq tests, sous-tests inclus ;
+l'inventaire CLI est affiché et sa correspondance avec les routes/OpenAPI est
+vérifiée. Ces résultats locaux ne constituent pas une exécution de la CI distante.
+
+Les essais physiques restent **non réalisés pour la signalisation**. SIG-019
+attend le prototype ATtiny et la recette R-BUS après correction. SIG-020 est
+reporté à la demande de l'utilisateur. Aucune validation de feux réels,
+de watchdog local, d'ABC ni de délai de réaction du matériel n'est déduite de
+ces tests.
+
+### Suite générale
+
 ```bash
 go test ./...
 CGO_ENABLED=0 go test ./...

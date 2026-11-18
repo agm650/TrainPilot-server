@@ -14,6 +14,7 @@ import (
 
 	httpapi "github.com/agm650/TrainPilot-server/internal/api"
 	"github.com/agm650/TrainPilot-server/internal/auth"
+	"github.com/agm650/TrainPilot-server/internal/client"
 	"github.com/agm650/TrainPilot-server/internal/clock"
 	"github.com/agm650/TrainPilot-server/internal/events"
 	"github.com/agm650/TrainPilot-server/internal/model"
@@ -112,6 +113,31 @@ func TestCompoundTurnoutContractsAreDocumented(t *testing.T) {
 		if !bytes.Contains(asyncAPI, []byte(fragment)) {
 			t.Errorf("AsyncAPI is missing %q", fragment)
 		}
+	}
+}
+
+func TestSignallingContractVersionsMatchLiveServer(t *testing.T) {
+	server := newConformanceServer(t)
+	info, err := client.New(server.URL).SystemInfo(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := regexp.MustCompile(`(?m)^  version: (\S+)$`)
+	for _, tc := range []struct{ file, want string }{{"../../api/openapi.yaml", info.APIVersion}, {"../../api/asyncapi.yaml", info.EventAPIVersion}} {
+		data, err := os.ReadFile(tc.file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		match := version.FindSubmatch(data)
+		if len(match) != 2 {
+			t.Fatal("contract version missing", tc.file)
+		}
+		if string(match[1]) != tc.want {
+			t.Fatal("contract differs from advertised version", tc.file, tc.want, string(match[1]))
+		}
+	}
+	if info.MinimumClientAPIVersion != "1.0.0" || info.MinimumClientEventAPIVersion != "1.3.0" {
+		t.Fatal("legacy minima changed", info)
 	}
 }
 

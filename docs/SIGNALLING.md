@@ -1,11 +1,10 @@
 # Signalisation — spécification SIG-001
 
 Version cible du serveur : **2.0.0**, avec les autres lots de signalisation.
-Ce document fixe le contrat des lots B et C, validé le 18 novembre 2026,
-et les décisions préparatoires du lot D.
+Ce document fixe les contrats des lots B à D, validés le 18 novembre 2026.
 La validation comprend les précisions de généricité apportées par l'utilisateur.
-Les exemples
-décrivent des données futures, pas des fonctionnalités déjà disponibles.
+L'état d'implémentation ci-dessous distingue les livraisons logicielles des
+recettes matérielles restant à réaliser.
 
 ## Décisions confirmées le 18 novembre 2026
 
@@ -56,6 +55,15 @@ matérielles ne seront pas déclarées réussies à partir des seuls tests simul
 Le report de SIG-020 ne retire pas le support logiciel DCC-EX livré par SIG-013.
 
 ## État de l'implémentation
+
+SIG-018 assemble la validation logicielle BAL via REST, WebSocket, simulateur
+et pilote z21 face à une centrale UDP simulée. Les clients récupèrent l'état
+courant après coupure Ethernet ou OFF/ON DCC sans mouvement supplémentaire,
+y compris après des réponses R-BUS partielles. Le repli précède toute ouverture
+dans chaque génération. Le [rapport de tests](TESTING.md#jalon-bal-logiciel--sig-014-à-sig-018)
+décrit les commandes reproductibles, la conformité et les limites.
+SIG-014 à SIG-018 constituent le jalon logiciel ; aucune recette matérielle
+n'est annoncée. SIG-019 attend le prototype et SIG-020 reste reporté.
 
 SIG-017 borne la file à **64 commandes en attente**, avec un seul worker.
 Une cible plus récente remplace celle du même signal. Un repli passe avant
@@ -171,7 +179,8 @@ SIG-010 expose les signaux sous `/api/v1/signals` et les profils sous
 Les lectures exigent la permission `view`. Les commandes `PUT /signals/{id}/aspect`
 avec `{"aspect":"S"}` et `PUT /signals/{id}/mode` avec `{"mode":"manual"}`
 exigent la permission `dispatch`. Elles renvoient 204 après acceptation.
-L'activation automatique reste refusée en 409 `signal_automatic_unavailable`.
+L'activation automatique est disponible depuis SIG-015 pour `bal-3` ; un
+profil sans ruleset supporté reste refusé en 409 `signal_automatic_unavailable`.
 Un canton non libre donne 409 `signal_unsafe`, une indisponibilité donne
 503 `signal_unavailable`. `system/info.signalling` distingue la disponibilité
 du service des capacités du pilote. Le contrat HTTP est **1.19.0**.
@@ -188,9 +197,9 @@ ramène la cible au repli sans mémoriser d'ouverture à rejouer.
 Les tentatives acceptées et les résultats, refus inclus, sont audités avec
 l'acteur et un code de résultat. Aucun détail de transport sensible n'est stocké.
 Le mode est une configuration persistante ; sa modification ne restaure aucun
-aspect opérationnel. L'activation automatique renvoie une erreur explicite
-jusqu'à SIG-014. La dernière erreur reste visible après un repli réussi,
-jusqu'à une nouvelle demande manuelle ou une réinitialisation.
+aspect opérationnel. SIG-015 active l'automatique pour `bal-3`. Depuis SIG-016,
+un repli réussi efface l'erreur de transport et déclenche un nouveau calcul ;
+une ouverture manuelle précédente n'est pas réémise.
 
 SIG-008 fournit `SignalService`, démarré et arrêté avec le serveur. Il charge
 les profils et définitions dans un même snapshot SQLite. Son registre expose
@@ -199,7 +208,7 @@ le repli sans client connecté au démarrage, après import et après reprise
 réseau/DCC. Les commandes ont un délai maximal de deux secondes. Une invalidation
 annule les commandes en cours et écarte leurs résultats et retours obsolètes.
 Les erreurs restent visibles dans `error`, avec un code et un message génériques.
-`inhibitedReason` explique une indisponibilité ou l'absence du moteur automatique.
+`inhibitedReason` explique une indisponibilité ou une restriction du calcul.
 Les contrats REST et WebSocket de ces états sont livrés par SIG-010/011.
 
 SIG-001 est validé avec les précisions de généricité ci-dessus. SIG-002 fournit
@@ -459,10 +468,9 @@ Un jeu absent ou non supporté interdit le mode automatique. Un changement
 de mode ne restaure pas une ancienne
 commande permissive. Les restrictions communes restent prioritaires.
 
-Pour le lot C, l'activation du mode automatique sera refusée tant que le moteur
-SIG-014 du lot D n'est pas disponible. Les définitions déjà configurées en
-automatique seront conservées. Leur état restera au repli, avec un motif
-explicite indiquant l'indisponibilité du moteur.
+Le moteur `bal-3` est disponible depuis SIG-015. Les profils sans ruleset
+supporté conservent leurs définitions ; leur activation automatique est refusée
+et leur état reste restrictif avec un motif explicite.
 
 La matrice ci-dessous concerne le profil SNCF BAL. Les premières lignes ont
 priorité. Le moteur traduit ses résultats par les rôles des aspects configurés.
@@ -595,7 +603,8 @@ manuelles et changements de mode seront réservés à `dispatcher` et
 | SIG-019 | z21 + ATtiny, table réelle des codes, pertes réseau/DCC et état réel des feux |
 
 Les tests logiciels des fondations sont exécutés à chaque commit dédié.
-Les recettes des lots C/D et les essais matériels restent à réaliser. La recette
+Les validations logicielles des lots C/D sont décrites dans les rapports dédiés.
+Les essais matériels restent à réaliser. La recette
 matérielle devra relever les firmwares, le câblage et la version du circuit.
 Elle couvrira notamment un redémarrage avec canton occupé, les réponses
 partielles, les défauts d'envoi et la reprise sans mouvement supplémentaire.
@@ -693,7 +702,8 @@ layout **9** et matériel roulant **7**.
 Les capacités matérielles sont découvertes après connexion. Un client doit
 actualiser `system/info` après reprise avant de se fier à leur valeur en cache.
 Le serveur vérifie toujours les capacités courantes avant chaque commande.
-L'activation automatique reste refusée jusqu'au lot D. Les contrôles de ce lot
-utilisent des simulateurs TCP/UDP et ne valident pas les feux réels.
+À la clôture du lot C, l'automatique attendait le lot D. SIG-015 à SIG-018
+livrent désormais ce jalon logiciel. Les contrôles des deux lots utilisent des
+simulateurs TCP/UDP et ne valident pas les feux réels.
 La recette SIG-019 attend le prototype et les essais R-BUS. SIG-020 est reporté
 tant que la détection DCC-EX du banc n'est pas disponible.
