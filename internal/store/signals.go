@@ -95,6 +95,20 @@ func (s *Store) ListSignalProfiles(ctx context.Context) ([]model.SignalProfile, 
 func (s *Store) ListSignals(ctx context.Context) ([]model.SignalDefinition, error) {
 	return readSignals(ctx, s.DB)
 }
+
+// SignalConfiguration reads both collections in the same database snapshot.
+func (s *Store) SignalConfiguration(ctx context.Context) (profiles []model.SignalProfile, signals []model.SignalDefinition, err error) {
+	err = s.DB.WithTransaction(ctx, func(tx *sqlite.Tx) error {
+		var readErr error
+		profiles, readErr = readSignalProfiles(ctx, tx)
+		if readErr != nil {
+			return readErr
+		}
+		signals, readErr = readSignals(ctx, tx)
+		return readErr
+	})
+	return
+}
 func (s *Store) SignalProfile(ctx context.Context, id string) (model.SignalProfile, error) {
 	values, err := s.ListSignalProfiles(ctx)
 	if err != nil {

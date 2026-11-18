@@ -112,6 +112,8 @@ func serve(args []string) error {
 	}
 	control := service.NewControlService(db, st, bus, clk, cfg.Control.LeaseTTL, cfg.Control.StopGrace, cfg.Control.MonitorPeriod)
 	control.SetOccupancyProvider(railway.OccupancyService(), feedbackProviderID(st.Capabilities().Driver))
+	signals := service.NewSignalService(db, st, bus, railway.OccupancyService())
+	control.SetSignalService(signals)
 	routes := service.NewRouteService(db, railway, bus)
 	railway.SetMetrics(metrics)
 	control.SetMetrics(metrics)
@@ -122,6 +124,10 @@ func serve(args []string) error {
 	railway.StartFeedback(runCtx)
 	control.Start()
 	defer control.Close()
+	if err := signals.Start(runCtx); err != nil {
+		return err
+	}
+	defer signals.Close()
 	api := httpapi.New(authSvc, control, railway, routes, transferSvc, db, bus, st, sim, cfg.TestAPI, metrics)
 	httpServer := &http.Server{Addr: cfg.HTTP.Listen, Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second}
 	var diagnosticsServer *http.Server

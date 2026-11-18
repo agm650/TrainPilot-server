@@ -154,6 +154,14 @@ type SignalState struct {
 	ReportQuality   *station.AccessoryReportQuality `json:"reportQuality"`
 	Pending         bool                            `json:"pending"`
 	Synchronized    bool                            `json:"synchronized"`
+	InhibitedReason string                          `json:"inhibitedReason,omitempty"`
+	Error           *SignalError                    `json:"error"`
+}
+
+// SignalError is an operational diagnostic, never a physical confirmation.
+type SignalError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 func NewSignalState(s SignalDefinition, profile SignalProfile) (SignalState, error) {

@@ -8,6 +8,11 @@ Planned server release: 2.0.0.
 
 ### Added
 
+- SIG-008 client-independent signal runtime service with coherent snapshots,
+  cancellation, configuration reload and restrictive commands at startup and
+  after recovery. Driver observations retain their reported quality; transport
+  errors never confirm an aspect. Unsupported drivers remain readable and
+  automatic definitions stay inhibited until the lot D rules engine is available.
 - SIG-007 layout archives version 9 with configurable signal profiles,
   definitions and independent graphical symbols. Older layouts remain importable,
   invalid references roll back atomically and runtime aspects are excluded.

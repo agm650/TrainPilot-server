@@ -48,6 +48,16 @@ type ControlService struct {
 	momentary                    map[momentaryKey]heldMomentaryFunction
 	clientConnections            map[string]int
 	clientGenerations            map[string]uint64
+	signals                      *SignalService
+}
+
+// SetSignalService is configured before Start. Control remains the sole
+// consumer of the station's status event channel.
+func (c *ControlService) SetSignalService(signals *SignalService) {
+	c.signals = signals
+	if signals != nil {
+		signals.gate = c.commands
+	}
 }
 
 func NewControlService(s *store.Store, st station.CommandStation, b *events.Bus, c clock.Clock, leaseTTL, stopGrace, monitor time.Duration) *ControlService {
@@ -220,6 +230,9 @@ func (c *ControlService) validateCommandLease(ctx context.Context, leaseID, loco
 }
 
 func (c *ControlService) publishStationStatusChanges(status station.Status) {
+	if c.signals != nil {
+		c.signals.ObserveStatus(status)
+	}
 	c.observeSafetyStatus(status)
 	c.updateOccupancyTrackPower(context.Background(), status)
 	c.updateOccupancyProviderAvailability(status.Connectivity)
@@ -329,6 +342,9 @@ func (c *ControlService) SetTrackPower(ctx context.Context, user model.User, ena
 	if err := c.observeStationCommand("track_power", func() error { return c.station.SetTrackPower(ctx, enabled) }); err != nil {
 		if !enabled {
 			c.updateOccupancyTrackPower(ctx, station.Status{TrackPower: "unknown"})
+			if c.signals != nil {
+				c.signals.ObserveStatus(station.Status{TrackPower: "unknown"})
+			}
 		}
 		return err
 	}
@@ -355,6 +371,11 @@ func (c *ControlService) SetTrackPower(ctx context.Context, user model.User, ena
 		}
 	}
 	c.updateOccupancyTrackPower(ctx, powerStatus)
+	if c.signals != nil {
+		if !enabled || powerStatus.Connectivity == station.Online {
+			c.signals.ObserveStatus(powerStatus)
+		}
+	}
 	if !enabled {
 		c.metrics.SafetyStop("track_power_off")
 	}
@@ -374,6 +395,9 @@ func (c *ControlService) StationStatus(ctx context.Context) (station.Status, err
 	if provider, ok := c.station.(station.StatusProvider); ok {
 		status, err := provider.Status(ctx)
 		if err == nil {
+			if c.signals != nil {
+				c.signals.ObserveStatus(status)
+			}
 			c.metrics.ObserveStationTransition("unknown", string(status.Connectivity))
 			c.observeSafetyStatus(status)
 			c.updateOccupancyProviderAvailability(status.Connectivity)
@@ -397,6 +421,9 @@ func (c *ControlService) StationStatus(ctx context.Context) (station.Status, err
 		lastSeen = health.LastSeen
 	}
 	status := station.Status{Connectivity: connectivity, LastSeen: lastSeen, TrackPower: trackPower, EmergencyStop: emergencyStop}
+	if c.signals != nil {
+		c.signals.ObserveStatus(status)
+	}
 	c.updateOccupancyProviderAvailability(connectivity)
 	c.updateOccupancyTrackPower(ctx, status)
 	return status, nil

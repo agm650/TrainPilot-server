@@ -27,6 +27,16 @@ Ces déclarations ne constituent pas une validation matérielle des pilotes éte
 
 ## État de l'implémentation
 
+SIG-008 fournit `SignalService`, démarré et arrêté avec le serveur. Il charge
+les profils et définitions dans un même snapshot SQLite. Son registre expose
+des copies cohérentes, sans persister d'aspect opérationnel. Le service envoie
+le repli sans client connecté au démarrage, après import et après reprise
+réseau/DCC. Les commandes ont un délai maximal de deux secondes. Une invalidation
+annule les commandes en cours et écarte leurs résultats et retours obsolètes.
+Les erreurs restent visibles dans `error`, avec un code et un message génériques.
+`inhibitedReason` explique une indisponibilité ou l'absence du moteur automatique.
+Les contrats REST et WebSocket de ces états restent prévus par SIG-010/011.
+
 SIG-001 est validé avec les précisions de généricité ci-dessus. SIG-002 fournit
 les types et validations dans [signal.go](../internal/model/signal.go) et
 [signal_profile.go](../internal/model/signal_profile.go). Le profil SNCF est
