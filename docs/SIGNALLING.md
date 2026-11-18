@@ -27,6 +27,19 @@ Ces déclarations ne constituent pas une validation matérielle des pilotes éte
 
 ## État de l'implémentation
 
+SIG-012 implémente les accessoires étendus dans le pilote z21. La découverte
+`LAN_X_GET_FIRMWARE_VERSION` intervient après les requêtes R-BUS initiales.
+Sans réponse BCD valide indiquant un firmware au moins égal à 1.40, le pilote
+n'annonce pas `extendedAccessoryControl`. La découverte est renouvelée après
+changement de connexion ou de génération de puissance, sans désactiver R-BUS.
+Le pilote envoie `LAN_X_SET_EXT_ACCESSORY`, puis demande un retour de la dernière
+commande par `LAN_X_GET_EXT_ACCESSORY_INFO`. Il n'attend pas d'acquittement
+physique. Sans réponse, `reportedAspect` reste inconnu. Les retours connus,
+inconnus ou invalides conservent la qualité `station`. Leur canal de 64 entrées
+est best-effort et conserve les retours les plus récents en cas de saturation.
+Les retours des anciennes connexions sont écartés. Les tests UDP ne remplacent
+pas la recette physique SIG-019, qui reste à réaliser.
+
 SIG-011 ajoute `signals` et `signalProfiles` au snapshot WebSocket, toujours
 sous forme de tableaux. Les événements sont `signal.aspect.changed` (état
 opérationnel complet), `signal.commanded`, `signal.command.failed` et
@@ -94,7 +107,8 @@ la commande validée et `SendExtendedAccessory`. Les limites portables sont
 `extendedAccessoryLimits`. Sans cette propriété, les limites portables
 s'appliquent. Sans `extendedAccessoryControl: true`, la commande est refusée.
 L'interface et la capacité doivent toutes deux être présentes. Les pilotes
-z21 et DCC-EX annoncent encore le support étendu à `false`.
+z21 n'annonce le support étendu qu'après découverte d'un firmware compatible.
+DCC-EX annonce encore le support étendu à `false` avant SIG-013.
 SIG-003 introduit le contrat HTTP 1.16.0 et le contrat événements 1.14.0.
 L'ajout de capacités optionnelles n'impose pas de migration des anciens clients.
 

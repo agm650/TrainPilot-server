@@ -8,6 +8,11 @@ Planned server release: 2.0.0.
 
 ### Added
 
+- SIG-012 z21 extended-accessory packets with independent RCN-213 addressing,
+  firmware discovery (1.40 minimum), explicit capabilities and last-command
+  observations marked as station reports. Network/power recovery discards old
+  reports and firmware knowledge without replaying openings. UDP reference
+  vectors, limits and cancellation are covered; physical acceptance is SIG-019.
 - SIG-011 sequenced signal state, command/result and mode events, plus signal
   definitions/runtime and profiles in WebSocket snapshots. Identical runtime
   states are deduplicated; real repeated writes retain their command events.

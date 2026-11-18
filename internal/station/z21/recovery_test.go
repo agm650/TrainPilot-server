@@ -39,7 +39,7 @@ func TestRBusRecoveryRenewsEndpointAndRejectsOldGeneration(t *testing.T) {
 		if driver.conn.LocalAddr().String() == oldAddress {
 			t.Fatal("recovery reused old UDP endpoint")
 		}
-		for _, want := range [][]byte{broadcastFlagsPacket(), lan(lanRMBusGetData, 0), lan(lanRMBusGetData, 1)} {
+		for _, want := range [][]byte{broadcastFlagsPacket(), lan(lanRMBusGetData, 0), lan(lanRMBusGetData, 1), xbus(0xf1, 0x0a)} {
 			if got := server.next(t).data; !bytes.Equal(got, want) {
 				t.Fatalf("recovery packet=% x want=% x", got, want)
 			}

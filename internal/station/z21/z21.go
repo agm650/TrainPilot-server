@@ -46,6 +46,8 @@ type Driver struct {
 	feedbackPowerGeneration uint64
 	feedback                chan station.FeedbackEvent
 	accessoryEvents         chan station.AccessoryStateEvent
+	extendedEvents          chan station.ExtendedAccessoryStateEvent
+	firmware                uint16 // BCD; zero means not yet observed in this connection epoch.
 	accessoryPulse          time.Duration
 	accessoryMu             sync.Mutex
 	accessoryWaiters        map[uint16][]chan station.AccessoryStateEvent
@@ -80,6 +82,7 @@ func New(address string, offlineAfter, accessoryPulse time.Duration) *Driver {
 		// initial R-BUS snapshot, including the last inputs of both groups.
 		feedback:         make(chan station.FeedbackEvent, 64),
 		accessoryEvents:  make(chan station.AccessoryStateEvent, 64),
+		extendedEvents:   make(chan station.ExtendedAccessoryStateEvent, 64),
 		accessoryPulse:   accessoryPulse,
 		accessoryWaiters: make(map[uint16][]chan station.AccessoryStateEvent),
 		statusEvents:     make(chan station.Status, 16),
@@ -161,6 +164,7 @@ func (d *Driver) loseConnection(c *net.UDPConn) {
 	d.conn = nil
 	d.retiredConnection = c
 	d.feedbackGeneration++
+	d.invalidateExtendedLocked()
 	d.statusMu.Lock()
 	d.lastStatus = nil
 	d.statusMu.Unlock()
@@ -197,6 +201,7 @@ func (d *Driver) BeginFeedbackPowerSync() {
 		d.retiredConnection = c
 	}
 	d.feedbackPowerGeneration++
+	d.invalidateExtendedLocked()
 	d.rbusReceived = [rbusGroupCount]bool{}
 	event := station.FeedbackEvent{Source: "z21-rbus", Kind: "synchronization", Generation: d.feedbackGeneration, PowerGeneration: d.feedbackPowerGeneration}
 	d.mu.Unlock()
@@ -226,6 +231,7 @@ func (d *Driver) Close() error {
 	d.closeOnce.Do(func() { close(d.done) })
 	d.mu.Lock()
 	d.closed = true
+	d.invalidateExtendedLocked()
 	c := d.conn
 	retired := d.retiredConnection
 	d.conn = nil
@@ -241,7 +247,15 @@ func (d *Driver) Close() error {
 }
 func (d *Driver) Health() station.Health { return d.health.Health() }
 func (d *Driver) Capabilities() station.Capabilities {
-	return station.Capabilities{Driver: "z21", TrackPower: true, LocomotiveControl: true, Functions: 29, MaxFunctionNumber: 28, AccessoryControl: true, Feedback: true}
+	d.mu.Lock()
+	supported := d.firmware >= 0x0140
+	d.mu.Unlock()
+	caps := station.Capabilities{Driver: "z21", TrackPower: true, LocomotiveControl: true, Functions: 29, MaxFunctionNumber: 28, AccessoryControl: true, Feedback: true, ExtendedAccessoryControl: supported}
+	if supported {
+		limits := station.PortableExtendedAccessoryLimits()
+		caps.ExtendedAccessoryLimits = &limits
+	}
+	return caps
 }
 func xor(data []byte) byte {
 	var out byte
@@ -317,7 +331,16 @@ func (d *Driver) initializeFeedback(ctx context.Context) error {
 	if err := d.send(ctx, broadcastFlagsPacket()); err != nil {
 		return fmt.Errorf("configure z21 broadcast flags: %w", err)
 	}
-	return d.requestMissingRBusData(ctx)
+	if err := d.requestMissingRBusData(ctx); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	unknown := d.firmware == 0
+	d.mu.Unlock()
+	if unknown {
+		return d.send(ctx, xbus(0xF1, 0x0A))
+	}
+	return nil
 }
 
 func (d *Driver) requestMissingRBusData(ctx context.Context) error {
@@ -515,6 +538,10 @@ func (d *Driver) parseConnection(c *net.UDPConn, generation, powerGeneration uin
 		d.health.ValidResponse()
 		d.mu.Unlock()
 		switch {
+		case header == lanXHeader && len(payload) == 5 && payload[0] == 0xF3 && payload[1] == 0x0A:
+			d.observeFirmware(payload, c, generation, powerGeneration)
+		case header == lanXHeader && len(payload) == 6 && payload[0] == lanXGetExtendedAccessoryInfo:
+			d.parseExtendedAccessoryInfo(payload, c, generation, powerGeneration)
 		case header == 0x0040 && len(payload) == 4 && payload[0] == 0x62 && payload[1] == 0x22 && xor(payload[:3]) == payload[3]:
 			d.publishXStatus(payload[2])
 		case header == lanXHeader && len(payload) == 5 && payload[0] == lanXGetTurnoutInfo:
