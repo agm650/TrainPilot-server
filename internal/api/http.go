@@ -98,6 +98,8 @@ func writeOperationProblem(w http.ResponseWriter, err error, code string) {
 		code = "turnout_transition_failed"
 	case errors.Is(err, service.ErrUnsafeTurnoutTransition):
 		code = "unsafe_turnout_transition"
+	case errors.Is(err, model.ErrInvalidSignalLayout):
+		code = "signal_layout_invalid"
 	case errors.Is(err, transfer.ErrInvalidArchive):
 		code = "invalid_archive"
 	}
@@ -221,6 +223,8 @@ func statusFor(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, service.ErrPermissionDenied):
 		return http.StatusForbidden
+	case errors.Is(err, model.ErrInvalidSignalLayout), errors.Is(err, model.ErrInvalidSignal), errors.Is(err, model.ErrInvalidSignalProfile):
+		return http.StatusBadRequest
 	case errors.Is(err, service.ErrValidation), errors.Is(err, service.ErrInvalidTurnoutPosition), errors.Is(err, transfer.ErrInvalidArchive):
 		return http.StatusBadRequest
 	case errors.Is(err, station.ErrOffline):

@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: DCC Control Server API
-  version: 1.16.0
+  version: 1.17.0
   description: >-
     Contract for native DCC clients. User administration is deliberately absent
     from this public API and is available only over the local administration socket.
@@ -1022,10 +1022,16 @@ components:
       additionalProperties: false
       required: [revision, nodes, trackSections, turnoutTopologies, blocks]
       properties:
+        signalProfiles:
+          type: array
+          items: { $ref: '#/components/schemas/SignalProfile' }
+        signals:
+          type: array
+          items: { $ref: '#/components/schemas/SignalDefinition' }
         revision:
           type: string
           pattern: '^[0-9a-f]{64}$'
-          description: SHA-256 of the canonical physical topology and block membership.
+          description: SHA-256 of the canonical topology, block membership and signal definitions.
         nodes:
           type: array
           items: { $ref: '#/components/schemas/TopologyNode' }
@@ -1306,3 +1312,158 @@ components:
         name: { type: string }
         state: { type: string, enum: [idle, reserved, active] }
         reservedBySession: { type: string }
+
+    SignalAspect:
+      type: "object"
+      additionalProperties: false
+      required: ["id", "name", "role", "indications"]
+      properties:
+        id:
+          type: "string"
+          minLength: 1
+        name:
+          type: "string"
+          minLength: 1
+        role:
+          type: "string"
+          enum: ["stop", "caution", "proceed", "other"]
+        indications:
+          type: "array"
+          items:
+            type: "object"
+            additionalProperties: false
+            required: ["lightId", "state"]
+            properties:
+              lightId:
+                type: "string"
+                minLength: 1
+              state:
+                type: "string"
+                enum: ["off", "on", "flashing"]
+
+    SignalProfile:
+      type: "object"
+      additionalProperties: false
+      required: ["id", "name", "fallbackAspect", "targets", "lights", "aspects"]
+      properties:
+        id:
+          type: "string"
+          minLength: 1
+        name:
+          type: "string"
+          minLength: 1
+        ruleSetId:
+          type: "string"
+          enum: ["bal-3"]
+        fallbackAspect:
+          type: "string"
+          minLength: 1
+        targets:
+          type: "array"
+          items:
+            type: "object"
+            additionalProperties: false
+            required: ["id"]
+            properties:
+              id:
+                type: "string"
+                minLength: 1
+              name:
+                type: "string"
+        lights:
+          type: "array"
+          items:
+            type: "object"
+            additionalProperties: false
+            required: ["id", "targetId", "color"]
+            properties:
+              id:
+                type: "string"
+                minLength: 1
+              targetId:
+                type: "string"
+                minLength: 1
+              color:
+                type: "string"
+                pattern: "^#[0-9a-fA-F]{6}$"
+          minItems: 1
+          maxItems: 9
+        aspects:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/SignalAspect"
+          minItems: 1
+
+    SignalDefinition:
+      type: "object"
+      additionalProperties: false
+      required: ["id", "name", "profileId", "mode", "placement", "protectedBlockId", "downstream", "fallbackAspect", "endpoint"]
+      properties:
+        id:
+          type: "string"
+          minLength: 1
+        name:
+          type: "string"
+          minLength: 1
+        profileId:
+          type: "string"
+          minLength: 1
+        mode:
+          type: "string"
+          enum: ["manual", "automatic"]
+        placement:
+          type: "object"
+          additionalProperties: false
+          required: ["trackSectionId", "entryNodeId"]
+          properties:
+            trackSectionId:
+              type: "string"
+              minLength: 1
+            entryNodeId:
+              type: "string"
+              minLength: 1
+        protectedBlockId:
+          type: "string"
+          minLength: 1
+        downstream:
+          oneOf:
+            -
+              type: "object"
+              additionalProperties: false
+              required: ["kind", "signalId"]
+              properties:
+                kind:
+                  const: "signal"
+                signalId:
+                  type: "string"
+                  minLength: 1
+            -
+              type: "object"
+              additionalProperties: false
+              required: ["kind", "aspect"]
+              properties:
+                kind:
+                  const: "terminal"
+                aspect:
+                  type: "string"
+                  minLength: 1
+        fallbackAspect:
+          type: "string"
+          minLength: 1
+        endpoint:
+          type: "object"
+          additionalProperties: false
+          required: ["kind", "linearAddress", "aspectCodes"]
+          properties:
+            kind:
+              const: "dcc-extended"
+            linearAddress:
+              type: "integer"
+              minimum: 1
+              maximum: 2040
+            aspectCodes:
+              type: "object"
+              additionalProperties:
+                type: "integer"
+                minimum: 0
+                maximum: 255

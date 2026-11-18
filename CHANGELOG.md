@@ -8,6 +8,10 @@ Planned server release: 2.0.0.
 
 ### Added
 
+- SIG-006 signal definitions in the revisioned topology, with oriented block
+  membership, explicit downstream continuity, cycle-safe validation, endpoint
+  ownership and atomic layout replacement. Legacy layouts remain compatible;
+  HTTP advances to 1.17.0 with optional signal/profile definitions.
 - SIG-005 transactional SQLite persistence for signal profiles, definitions,
   oriented references and unique extended endpoints. Existing databases migrate
   without restoring runtime observations; conflicting edits roll back atomically.

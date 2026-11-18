@@ -226,6 +226,18 @@ et ne présente pas le calcul ou l'écho de la centrale comme un retour physique
 
 ## Implantation et aval explicite
 
+SIG-006 valide ces références dans la transaction d'import et lors des mises
+à jour de signaux ou de profils. Les définitions et profils sont exposés par
+la topologie en HTTP 1.17.0 et participent à sa révision. Une configuration
+vide conserve le comportement et la révision historiques. Les collections
+de configuration sont ordonnées par identifiant pour le calcul de révision.
+`UnsignalledBlockIDs` identifie les cantons sans signal déclaré, sans en
+déduire une occupation ou une autorité de mouvement.
+
+Le premier jalon vérifie la continuité sur les sections du canton protégé.
+Un chemin aval nécessitant une commutation d'aiguillage n'est pas accepté
+comme une continuité BAL établie ; les règles d'itinéraire restent hors périmètre.
+
 `entryNodeId` désigne l'extrémité de la section depuis laquelle on entre dans
 le canton protégé. Cette référence définit l'orientation indépendamment du
 dessin. Le nœud doit appartenir à la section déclarée. La section doit faire

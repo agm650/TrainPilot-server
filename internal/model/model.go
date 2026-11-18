@@ -508,6 +508,8 @@ type RouteDefinition struct {
 }
 
 type LayoutDefinition struct {
+	SignalProfiles          []SignalProfile          `json:"signalProfiles,omitempty"`
+	Signals                 []SignalDefinition       `json:"signals,omitempty"`
 	Presentation            *LayoutPresentation      `json:"presentation,omitempty"`
 	Blocks                  []BlockDefinition        `json:"blocks"`
 	Turnouts                []Turnout                `json:"turnouts"`

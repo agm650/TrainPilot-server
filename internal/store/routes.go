@@ -231,6 +231,7 @@ func (s *Store) ExportLayout(ctx context.Context) (model.LayoutDefinition, error
 		defs = append(defs, def)
 	}
 	return model.LayoutDefinition{
+		SignalProfiles: topology.SignalProfiles, Signals: topology.Signals,
 		Presentation:            &presentation,
 		Blocks:                  blocks,
 		Turnouts:                turnouts,
@@ -314,6 +315,9 @@ func (s *Store) importLayout(ctx context.Context, layout model.LayoutDefinition,
 			}
 		}
 		if replace {
+			if err := replaceSignalDefinitions(ctx, tx, nil, nil, true); err != nil {
+				return err
+			}
 			if err := clearTopologyDefinition(ctx, tx); err != nil {
 				return err
 			}
@@ -353,6 +357,9 @@ func (s *Store) importLayout(ctx context.Context, layout model.LayoutDefinition,
 			return err
 		}
 		if err := replaceBlockMemberships(ctx, tx, layout.Blocks); err != nil {
+			return err
+		}
+		if err := replaceSignalDefinitions(ctx, tx, layout.SignalProfiles, layout.Signals, false); err != nil {
 			return err
 		}
 		if layout.Presentation != nil || replace {

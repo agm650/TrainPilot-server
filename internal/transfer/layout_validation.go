@@ -71,6 +71,9 @@ func (s *Service) ValidateLayout(ctx context.Context, user model.User, data []by
 }
 
 func isLayoutValidationError(err error) bool {
+	if errors.Is(err, model.ErrInvalidSignalLayout) || errors.Is(err, model.ErrInvalidSignal) || errors.Is(err, model.ErrInvalidSignalProfile) {
+		return true
+	}
 	if errors.Is(err, store.ErrConflict) || errors.Is(err, model.ErrInvalidLayoutPresentation) ||
 		errors.Is(err, model.ErrInvalidTurnout) || errors.Is(err, model.ErrInvalidTopology) ||
 		errors.Is(err, model.ErrInvalidBlockDefinition) || errors.Is(err, topology.ErrInvalidGraph) ||
@@ -82,6 +85,10 @@ func isLayoutValidationError(err error) bool {
 }
 
 func layoutDiagnostics(err error) []LayoutDiagnostic {
+	var signalErr *model.SignalLayoutValidationError
+	if errors.As(err, &signalErr) {
+		return []LayoutDiagnostic{{Code: "signal_layout_invalid", ResourceType: "signal", ResourceID: signalErr.SignalID, Message: signalErr.Message}}
+	}
 	var turnoutErr *model.TurnoutValidationError
 	if errors.As(err, &turnoutErr) {
 		return []LayoutDiagnostic{{Code: turnoutErr.Code, ResourceType: "turnout", ResourceID: turnoutErr.TurnoutID, Message: turnoutErr.Message}}

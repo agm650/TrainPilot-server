@@ -143,6 +143,20 @@ func (s *Store) ListTurnoutTopologies(ctx context.Context) ([]model.TurnoutTopol
 }
 
 func (s *Store) GetTopologyDefinition(ctx context.Context) (model.LayoutDefinition, error) {
+	profiles, err := s.ListSignalProfiles(ctx)
+	if err != nil {
+		return model.LayoutDefinition{}, err
+	}
+	signals, err := s.ListSignals(ctx)
+	if err != nil {
+		return model.LayoutDefinition{}, err
+	}
+	if len(profiles) == 0 {
+		profiles = nil
+	}
+	if len(signals) == 0 {
+		signals = nil
+	}
 	nodes, err := s.ListTopologyNodes(ctx)
 	if err != nil {
 		return model.LayoutDefinition{}, err
@@ -156,6 +170,7 @@ func (s *Store) GetTopologyDefinition(ctx context.Context) (model.LayoutDefiniti
 		return model.LayoutDefinition{}, err
 	}
 	return model.LayoutDefinition{
+		SignalProfiles: profiles, Signals: signals,
 		TopologyNodes:     nodes,
 		TrackSections:     sections,
 		TurnoutTopologies: turnoutTopologies,
@@ -184,7 +199,10 @@ func (s *Store) ReplaceTopologyDefinition(ctx context.Context, definition model.
 		if err := upsertTopologyDefinition(ctx, tx, definition); err != nil {
 			return err
 		}
-		return replaceBlockMemberships(ctx, tx, blocks)
+		if err := replaceBlockMemberships(ctx, tx, blocks); err != nil {
+			return err
+		}
+		return validateStoredSignalProfiles(ctx, tx)
 	})
 }
 

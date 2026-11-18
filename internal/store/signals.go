@@ -180,7 +180,7 @@ func validateStoredSignalProfiles(ctx context.Context, tx *sqlite.Tx) error {
 			return fmt.Errorf("%w: missing signal profile", ErrConflict)
 		}
 	}
-	return nil
+	return validateStoredSignalLayout(ctx, tx, profiles, signals)
 }
 
 func (s *Store) SetSignalProfile(ctx context.Context, p model.SignalProfile) error {
@@ -197,7 +197,10 @@ func (s *Store) SetSignal(ctx context.Context, value model.SignalDefinition) err
 		if err != nil {
 			return err
 		}
-		return upsertSignal(ctx, tx, value, profiles)
+		if err := upsertSignal(ctx, tx, value, profiles); err != nil {
+			return err
+		}
+		return validateStoredSignalProfiles(ctx, tx)
 	}))
 }
 
