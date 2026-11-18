@@ -8,6 +8,10 @@ Planned server release: 2.0.0.
 
 ### Added
 
+- SIG-003 optional DCC extended-accessory controller and observation contracts,
+  portable validation, explicit capabilities/limits and dispatch without implied
+  physical confirmation. Existing station drivers retain binary control.
+  HTTP and event contracts advance to 1.16.0 and 1.14.0 respectively.
 - SIG-002 manufacturer-independent signal definitions and configurable
   profiles, with semantic aspect roles, multiple targets, up to nine lights,
   dark/combined indications and a representation for future flashing aspects.

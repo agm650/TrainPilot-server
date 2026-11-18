@@ -11,10 +11,10 @@ import (
 // These are initial portable signalling limits, independent from basic
 // accessory addressing. SIG-003 also validates each driver's actual limits.
 const (
-	MinSignalLinearAddress = 1
-	MaxSignalLinearAddress = 2040
-	MinSignalAspectCode    = 0
-	MaxSignalAspectCode    = 255
+	MinSignalLinearAddress = station.MinExtendedAccessoryAddress
+	MaxSignalLinearAddress = station.MaxExtendedAccessoryAddress
+	MinSignalAspectCode    = station.MinExtendedAccessoryAspect
+	MaxSignalAspectCode    = station.MaxExtendedAccessoryAspect
 )
 
 type SignalMode string

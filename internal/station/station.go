@@ -139,13 +139,15 @@ func (e AccessoryStateEvent) HasKnownPosition() bool {
 }
 
 type Capabilities struct {
-	Driver            string `json:"driver"`
-	TrackPower        bool   `json:"trackPower"`
-	LocomotiveControl bool   `json:"locomotiveControl"`
-	Functions         int    `json:"functions"`
-	MaxFunctionNumber int    `json:"maxFunctionNumber"`
-	AccessoryControl  bool   `json:"accessoryControl"`
-	Feedback          bool   `json:"feedback"`
+	ExtendedAccessoryControl bool                     `json:"extendedAccessoryControl"`
+	ExtendedAccessoryLimits  *ExtendedAccessoryLimits `json:"extendedAccessoryLimits,omitempty"`
+	Driver                   string                   `json:"driver"`
+	TrackPower               bool                     `json:"trackPower"`
+	LocomotiveControl        bool                     `json:"locomotiveControl"`
+	Functions                int                      `json:"functions"`
+	MaxFunctionNumber        int                      `json:"maxFunctionNumber"`
+	AccessoryControl         bool                     `json:"accessoryControl"`
+	Feedback                 bool                     `json:"feedback"`
 }
 
 type FeedbackEvent struct {

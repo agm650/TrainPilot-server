@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: DCC Control Server API
-  version: 1.15.0
+  version: 1.16.0
   description: >-
     Contract for native DCC clients. User administration is deliberately absent
     from this public API and is available only over the local administration socket.
@@ -828,6 +828,18 @@ components:
           minimum: 0
           description: Inclusive maximum function number accepted by the current driver.
         accessoryControl: { type: boolean }
+        extendedAccessoryControl:
+          type: boolean
+          default: false
+          description: Optional DCC extended accessory support; absent means unsupported.
+        extendedAccessoryLimits:
+          type: object
+          required: [minAddress, maxAddress, minAspect, maxAspect]
+          properties:
+            minAddress: { type: integer, minimum: 1, maximum: 2040 }
+            maxAddress: { type: integer, minimum: 1, maximum: 2040 }
+            minAspect: { type: integer, minimum: 0, maximum: 255 }
+            maxAspect: { type: integer, minimum: 0, maximum: 255 }
         feedback: { type: boolean }
     StationStatus:
       type: object

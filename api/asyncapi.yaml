@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: DCC Control Server Events
-  version: 1.13.0
+  version: 1.14.0
   description: >-
     WebSocket event contract for native clients, including complete sequenced
     snapshots and explicit resynchronization requests. After a snapshot, clients
@@ -106,6 +106,18 @@ components:
         functions: { type: integer, minimum: 0 }
         maxFunctionNumber: { type: integer, minimum: 0 }
         accessoryControl: { type: boolean }
+        extendedAccessoryControl:
+          type: boolean
+          default: false
+          description: Optional DCC extended accessory support; absent means unsupported.
+        extendedAccessoryLimits:
+          type: object
+          required: [minAddress, maxAddress, minAspect, maxAspect]
+          properties:
+            minAddress: { type: integer, minimum: 1, maximum: 2040 }
+            maxAddress: { type: integer, minimum: 1, maximum: 2040 }
+            minAspect: { type: integer, minimum: 0, maximum: 255 }
+            maxAspect: { type: integer, minimum: 0, maximum: 255 }
         feedback: { type: boolean }
     StationStatus:
       type: object

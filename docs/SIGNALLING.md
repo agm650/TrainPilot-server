@@ -41,6 +41,21 @@ Le modèle valide la forme des références ; leur existence et leur continuité
 orientée dans le circuit seront vérifiées par SIG-006. Le jeu `bal-3` est
 identifié et validé dans les profils, mais son calcul reste prévu par SIG-014.
 
+SIG-003 fournit l'interface optionnelle `station.ExtendedAccessoryController`,
+la commande validée et `SendExtendedAccessory`. Les limites portables sont
+`1..2040` et `0..255`. Un pilote peut annoncer des limites plus étroites dans
+`extendedAccessoryLimits`. Sans cette propriété, les limites portables
+s'appliquent. Sans `extendedAccessoryControl: true`, la commande est refusée.
+L'interface et la capacité doivent toutes deux être présentes. Les pilotes
+z21 et DCC-EX annoncent encore le support étendu à `false`.
+Le contrat HTTP est 1.16.0 ; le contrat événements est 1.14.0.
+L'ajout de capacités optionnelles n'impose pas de migration des anciens clients.
+
+Le retour optionnel `ExtendedAccessoryStateEvent` distingue un aspect connu
+d'un retour inconnu. Il porte une qualité explicite et ne transforme jamais
+un succès d'envoi en confirmation physique. La saturation du flux sera
+documentée par chaque pilote qui implémente ce retour.
+
 ## Périmètre du premier jalon
 
 Le premier jalon couvre le BAL de pleine voie à trois aspects : sémaphore
