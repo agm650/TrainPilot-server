@@ -8,6 +8,12 @@ Planned server release: 2.0.0.
 
 ### Added
 
+- SIG-013 DCC-EX extended signal commands for the observed, verified 5.6.6
+  firmware. Advertised limits are addresses 1..2040 and aspects 0..31; wider
+  codes are rejected without truncation. Startup/reconnection queries identity
+  and power without replaying commands. Writes are bounded and cancelable;
+  successful transport never manufactures a signal report. Power-stream epochs
+  reset signal targets and protected-block observations before new openings.
 - SIG-012 z21 extended-accessory packets with independent RCN-213 addressing,
   firmware discovery (1.40 minimum), explicit capabilities and last-command
   observations marked as station reports. Network/power recovery discards old

@@ -30,6 +30,8 @@ type Driver struct {
 	connectionID            uint64
 	feedbackGeneration      uint64
 	feedbackPowerGeneration uint64
+	firmware                string
+	trackPower              string
 	reconnecting            bool
 	closed                  bool
 	dial                    dialFunc
@@ -103,6 +105,7 @@ func (d *Driver) Connect(ctx context.Context) error {
 	d.mu.Unlock()
 	d.publishHealthStatus()
 	go d.readLoop(c, connectionID)
+	d.startDiscovery(c, connectionID)
 	return nil
 }
 func (d *Driver) Close() error {
@@ -110,6 +113,8 @@ func (d *Driver) Close() error {
 	d.closeOnce.Do(func() {
 		d.mu.Lock()
 		d.closed = true
+		d.firmware = ""
+		d.trackPower = "unknown"
 		c := d.conn
 		d.conn = nil
 		d.mu.Unlock()
@@ -123,29 +128,83 @@ func (d *Driver) Close() error {
 }
 func (d *Driver) Health() station.Health { return d.health.Health() }
 func (d *Driver) Capabilities() station.Capabilities {
-	return station.Capabilities{Driver: "dccex", TrackPower: true, LocomotiveControl: true, Functions: 69, MaxFunctionNumber: 68, AccessoryControl: true, Feedback: true}
+	d.mu.Lock()
+	supported := d.firmware == verifiedExtendedFirmware
+	d.mu.Unlock()
+	caps := station.Capabilities{Driver: "dccex", TrackPower: true, LocomotiveControl: true, Functions: 69, MaxFunctionNumber: 68, AccessoryControl: true, Feedback: true, ExtendedAccessoryControl: supported}
+	if supported {
+		limits := station.PortableExtendedAccessoryLimits()
+		limits.MaxAspect = 31
+		caps.ExtendedAccessoryLimits = &limits
+	}
+	return caps
 }
 func (d *Driver) send(ctx context.Context, command string) error {
-	d.writeMu.Lock()
+	return d.sendOnConnection(ctx, command, nil, 0)
+}
+
+func (d *Driver) sendOnConnection(ctx context.Context, command string, expected net.Conn, expectedID uint64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// A queued command must honor cancellation while another write is blocked.
+	if !d.writeMu.TryLock() {
+		ticker := time.NewTicker(time.Millisecond)
+		defer ticker.Stop()
+		for !d.writeMu.TryLock() {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-d.runCtx.Done():
+				return station.ErrOffline
+			case <-ticker.C:
+			}
+		}
+	}
 	defer d.writeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	d.mu.Lock()
 	c := d.conn
 	connectionID := d.connectionID
+	firmware := d.firmware
 	d.mu.Unlock()
-	if c == nil {
+	if c == nil || (expected != nil && (c != expected || connectionID != expectedID)) {
 		return station.ErrOffline
+	}
+	if strings.HasPrefix(command, "<A ") && firmware != verifiedExtendedFirmware {
+		return station.ErrUnsupported
 	}
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = c.SetWriteDeadline(deadline)
 	} else {
 		_ = c.SetWriteDeadline(time.Time{})
 	}
-	if _, err := io.WriteString(c, command); err != nil {
+	interrupted := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() { _ = c.SetWriteDeadline(time.Now()); close(interrupted) })
+	defer func() {
+		if !stop() {
+			<-interrupted
+		}
+	}()
+	written, err := io.WriteString(c, command)
+	if err == nil && written != len(command) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
 		d.connectionLost(c, connectionID)
+		if ctx.Err() != nil {
+			return errors.Join(ctx.Err(), station.ErrOffline)
+		}
+		var timeout net.Error
+		if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) && errors.As(err, &timeout) && timeout.Timeout() {
+			return errors.Join(context.DeadlineExceeded, station.ErrOffline)
+		}
 		return fmt.Errorf("%w: DCC-EX write failed: %v", station.ErrOffline, err)
 	}
-	return nil
+	return ctx.Err()
 }
 func (d *Driver) SetTrackPower(ctx context.Context, on bool) error {
 	if on {
@@ -218,6 +277,9 @@ func (d *Driver) readLoop(c net.Conn, connectionID uint64) {
 		if !d.recordValidResponse(connectionID) {
 			return
 		}
+		if d.handleControlFrame(frame, connectionID) {
+			continue
+		}
 		d.handleFeedbackFrame(frame, generation, powerGeneration)
 	}
 	d.connectionLost(c, connectionID)
@@ -264,6 +326,8 @@ func (d *Driver) connectionLost(c net.Conn, connectionID uint64) {
 		return
 	}
 	d.conn = nil
+	d.firmware = ""
+	d.trackPower = "unknown"
 	d.health.CommunicationError()
 	d.feedbackGeneration++
 	startReconnect := !d.closed && !d.reconnecting
@@ -309,6 +373,7 @@ func (d *Driver) reconnectLoop() {
 			d.mu.Unlock()
 			d.publishHealthStatus()
 			go d.readLoop(c, connectionID)
+			d.startDiscovery(c, connectionID)
 			return
 		}
 		if d.runCtx.Err() != nil {
@@ -335,11 +400,18 @@ func (d *Driver) reconnectLoop() {
 }
 
 func (d *Driver) publishHealthStatus() {
-	health := d.health.Health()
-	status := station.Status{Connectivity: health.Connectivity, LastSeen: health.LastSeen, TrackPower: "unknown"}
+	status := d.currentStatus()
 	select {
 	case d.statusEvents <- status:
 	default:
+		select {
+		case <-d.statusEvents:
+		default:
+		}
+		select {
+		case d.statusEvents <- status:
+		default:
+		}
 	}
 }
 func (d *Driver) publish(e station.FeedbackEvent) {

@@ -17,7 +17,11 @@ func ExtendedAccessoryContract(t *testing.T, factory func(*testing.T) ExtendedAc
 	t.Helper()
 	t.Run("limits", func(t *testing.T) {
 		h := factory(t)
-		for _, command := range []station.ExtendedAccessoryCommand{{Address: 1, Aspect: 0}, {Address: 2040, Aspect: 255}} {
+		limits := station.PortableExtendedAccessoryLimits()
+		if actual := h.Station.Capabilities().ExtendedAccessoryLimits; actual != nil {
+			limits = *actual
+		}
+		for _, command := range []station.ExtendedAccessoryCommand{{Address: limits.MinAddress, Aspect: limits.MinAspect}, {Address: limits.MaxAddress, Aspect: limits.MaxAspect}} {
 			if err := station.SendExtendedAccessory(context.Background(), h.Station, command); err != nil {
 				t.Fatal(err)
 			}
@@ -28,6 +32,11 @@ func ExtendedAccessoryContract(t *testing.T, factory func(*testing.T) ExtendedAc
 	})
 	t.Run("invalid_and_cancelled_do_not_dispatch", func(t *testing.T) {
 		h := factory(t)
+		if limits := h.Station.Capabilities().ExtendedAccessoryLimits; limits != nil && limits.MaxAspect < station.MaxExtendedAccessoryAspect {
+			if err := station.SendExtendedAccessory(context.Background(), h.Station, station.ExtendedAccessoryCommand{Address: limits.MinAddress, Aspect: limits.MaxAspect + 1}); !errors.Is(err, station.ErrInvalidExtendedAccessoryAspect) {
+				t.Fatal(err)
+			}
+		}
 		for _, tc := range []struct {
 			command station.ExtendedAccessoryCommand
 			want    error

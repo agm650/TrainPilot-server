@@ -27,6 +27,31 @@ Ces déclarations ne constituent pas une validation matérielle des pilotes éte
 
 ## État de l'implémentation
 
+SIG-013 implémente `<A adresse code>` pour DCC-EX. Le pilote interroge l'identité
+et la puissance avec `<s>` au démarrage et après reconnexion réseau. Il annonce
+le support étendu seulement après une identité **5.6.6**, version vérifiée dans
+le code officiel. Les autres versions gardent les fonctions existantes mais
+n'annoncent pas ce nouveau support sans vérification supplémentaire.
+La plage annoncée est `1..2040` pour l'adresse et **0..31** pour le code d'aspect.
+Le firmware applique lui-même le décalage RCN-213 ; le serveur ne l'ajoute pas.
+Les codes 32..255 restent valides dans une configuration générique mais sont
+refusés par ce pilote. Il ne les tronque ni ne les remappe implicitement.
+Un signal dont le repli dépasse les capacités du pilote reste inhibé sous
+`unsupported_endpoint` ; une ouverture ne peut pas contourner cette restriction.
+Un aspect demandé hors limites est refusé avant de modifier la cible.
+Les écritures étendues ont un délai maximal de deux secondes et respectent
+l'annulation, y compris pendant l'attente d'une autre écriture.
+Le protocole ne fournit pas d'acquittement corrélé pour cette commande : seul
+`commandedAspect` est actualisé, `reportedAspect` reste nul sans autre source.
+Les retours de puissance `MAIN`, `JOIN` ou globaux alimentent le service sans
+client connecté. Un retour `PROG` seul n'autorise aucune ouverture. Un arrêt
+par voie est conservativement inconnu jusqu'au retour agrégé `MAIN`.
+Les générations réseau/puissance invalident les anciennes cibles et les
+observations utilisées avant une nouvelle ouverture. Une reprise de puissance
+est traitée avant d'autoriser l'envoi du repli sur le flux renouvelé.
+Les tests TCP et le test de démarrage du serveur sans client ne constituent pas
+une recette matérielle. L'essai physique SIG-020 reste à réaliser.
+
 SIG-012 implémente les accessoires étendus dans le pilote z21. La découverte
 `LAN_X_GET_FIRMWARE_VERSION` intervient après les requêtes R-BUS initiales.
 Sans réponse BCD valide indiquant un firmware au moins égal à 1.40, le pilote
@@ -84,7 +109,7 @@ réseau/DCC. Les commandes ont un délai maximal de deux secondes. Une invalidat
 annule les commandes en cours et écarte leurs résultats et retours obsolètes.
 Les erreurs restent visibles dans `error`, avec un code et un message génériques.
 `inhibitedReason` explique une indisponibilité ou l'absence du moteur automatique.
-Les contrats REST et WebSocket de ces états restent prévus par SIG-010/011.
+Les contrats REST et WebSocket de ces états sont livrés par SIG-010/011.
 
 SIG-001 est validé avec les précisions de généricité ci-dessus. SIG-002 fournit
 les types et validations dans [signal.go](../internal/model/signal.go) et
@@ -98,7 +123,7 @@ Un état opérationnel neuf utilise le repli du profil et n'a aucun retour
 confirmé. Leur persistance et leur lecture HTTP sont maintenant livrées par SIG-005 à SIG-007.
 
 Le modèle valide la forme des références ; leur existence et leur continuité
-orientée dans le circuit seront vérifiées par SIG-006. Le jeu `bal-3` est
+orientée dans le circuit sont vérifiées par SIG-006. Le jeu `bal-3` est
 identifié et validé dans les profils, mais son calcul reste prévu par SIG-014.
 
 SIG-003 fournit l'interface optionnelle `station.ExtendedAccessoryController`,
@@ -108,7 +133,7 @@ la commande validée et `SendExtendedAccessory`. Les limites portables sont
 s'appliquent. Sans `extendedAccessoryControl: true`, la commande est refusée.
 L'interface et la capacité doivent toutes deux être présentes. Les pilotes
 z21 n'annonce le support étendu qu'après découverte d'un firmware compatible.
-DCC-EX annonce encore le support étendu à `false` avant SIG-013.
+DCC-EX exige une identité de firmware vérifiée avant d'annoncer le support étendu.
 SIG-003 introduit le contrat HTTP 1.16.0 et le contrat événements 1.14.0.
 L'ajout de capacités optionnelles n'impose pas de migration des anciens clients.
 
@@ -433,7 +458,7 @@ feux. Son statut inconnu reste inconnu. L'intégration z21 appartient à SIG-012
 Le simulateur implémentera le contrat avec des états séparés par adresse,
 des défauts et délais déterministes, un journal et un reset. Ses observations
 représentent un banc simulé, jamais une preuve de fonctionnement matériel.
-Le pilote DCC-EX sera traité séparément par SIG-013 et SIG-020.
+Le pilote DCC-EX est livré par SIG-013 ; sa recette matérielle reste SIG-020.
 
 ## Persistance, archives et contrats clients
 
@@ -511,6 +536,9 @@ logicielles feront l'objet d'un travail distinct.
 - [Archives](ARCHIVE_FORMAT.md).
 - [Occupation et validité des observations](OCCUPANCY.md).
 - [Z21 LAN Protocol Specification, sections 5.4 à 5.6](https://www.z21.eu/media/Kwc_Basic_DownloadTag_Component/root-en-main_47-1652-959-downloadTag-download/default/d559b9cf/1699290380/z21-lan-protokoll-en.pdf).
+- [DCC-EX 5.6.6 : syntaxe des commandes et identité](https://github.com/DCC-EX/CommandStation-EX/blob/v5.6.6-Prod/DCCEXParser.cpp).
+- [DCC-EX 5.6.6 : encodage, décalage d'adresse et limite à cinq bits](https://github.com/DCC-EX/CommandStation-EX/blob/v5.6.6-Prod/DCC.cpp).
+- [DCC-EX 5.6.6 : retours de puissance](https://github.com/DCC-EX/CommandStation-EX/blob/v5.6.6-Prod/CommandDistributor.cpp).
 - [LEC000043 : détection et exemple de relais commandant un freinage](https://lectix.fr/produit/detecteur-doccupation-dcc-par-consommation-de-courant-3a/).
 - [LEC001021 : module de freinage ABC](https://lectix.fr/notices/LEC001021-notice-fr.pdf).
 - [Roco 10819 : détection de courant et R-BUS](https://www.roco.cc/ren/products/control/10819-z21-detector-x16.html).
@@ -550,3 +578,30 @@ ont été régénérées au format 9 ; les archives de matériel roulant sont in
 Les quatre exemples JSON du présent document et ses liens locaux sont valides.
 Ces contrôles utilisent des simulateurs et des sockets locaux. Aucun essai
 physique z21, ATtiny, LEC000043 ou ABC n'a été exécuté dans le cadre du lot B.
+
+## Livraison et validation du lot C
+
+SIG-008 à SIG-013 sont livrés pour la future version serveur **2.0.0**.
+Chaque ticket possède un commit dédié et une entrée dans le CHANGELOG.
+
+| Ticket | Suite complète `-race` réussie |
+| --- | --- |
+| SIG-008 | 1 206 tests |
+| SIG-009 | 1 211 tests |
+| SIG-010 | 1 215 tests |
+| SIG-011 | 1 221 tests |
+| SIG-012 | 1 230 tests |
+| SIG-013 et intégration finale | 1 242 tests |
+
+La suite standard et la suite `CGO_ENABLED=0` réussissent également avec
+**1 242 tests dans 32 packages**. `go vet`, le formatage, les différences Git
+et les références YAML sont vérifiés. Les contrats finaux du lot C sont
+HTTP **1.19.0** et événements **1.16.0**. Les formats d'archives restent
+layout **9** et matériel roulant **7**.
+
+Les capacités matérielles sont découvertes après connexion. Un client doit
+actualiser `system/info` après reprise avant de se fier à leur valeur en cache.
+Le serveur vérifie toujours les capacités courantes avant chaque commande.
+L'activation automatique reste refusée jusqu'au lot D. Les contrôles de ce lot
+utilisent des simulateurs TCP/UDP et ne valident pas les feux réels.
+Les recettes physiques SIG-019 et SIG-020 restent à réaliser.

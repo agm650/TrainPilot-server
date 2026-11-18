@@ -75,7 +75,22 @@ func SendExtendedAccessory(ctx context.Context, s CommandStation, command Extend
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	controller, supported := s.(ExtendedAccessoryController)
+	if err := ValidateExtendedAccessoryCommand(s, command); err != nil {
+		return err
+	}
+	if err := CheckCommandAllowed(s); err != nil {
+		return err
+	}
+	return s.(ExtendedAccessoryController).SetExtendedAccessory(ctx, command)
+}
+
+// ValidateExtendedAccessoryCommand checks portable and advertised driver
+// bounds without dispatching. Services use it before changing runtime targets.
+func ValidateExtendedAccessoryCommand(s CommandStation, command ExtendedAccessoryCommand) error {
+	if err := command.Validate(); err != nil {
+		return err
+	}
+	_, supported := s.(ExtendedAccessoryController)
 	caps := s.Capabilities()
 	if !supported || !caps.ExtendedAccessoryControl {
 		return ErrUnsupported
@@ -93,8 +108,5 @@ func SendExtendedAccessory(ctx context.Context, s CommandStation, command Extend
 	if command.Aspect < limits.MinAspect || command.Aspect > limits.MaxAspect {
 		return ErrInvalidExtendedAccessoryAspect
 	}
-	if err := CheckCommandAllowed(s); err != nil {
-		return err
-	}
-	return controller.SetExtendedAccessory(ctx, command)
+	return nil
 }

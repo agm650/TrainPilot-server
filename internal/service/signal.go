@@ -48,6 +48,8 @@ type SignalService struct {
 	reloadMu           sync.Mutex
 	configurationValid bool
 	lastLayoutSequence uint64
+	feedbackEpoch      station.FeedbackState
+	feedbackEpochKnown bool
 }
 
 func NewSignalService(db *store.Store, st station.CommandStation, bus *events.Bus, occupancy *OccupancyService) *SignalService {
@@ -334,6 +336,8 @@ func (s *SignalService) setReasonLocked(r *signalRuntime) {
 	switch {
 	case !s.station.Capabilities().ExtendedAccessoryControl:
 		r.state.InhibitedReason = "unsupported"
+	case s.signalCommandErrorLocked(r, r.definition.FallbackAspect) != nil:
+		r.state.InhibitedReason = "unsupported_endpoint"
 	case !s.usableLocked():
 		r.state.InhibitedReason = "station_or_power_unavailable"
 	case r.definition.Mode == model.SignalModeAutomatic:
@@ -350,6 +354,7 @@ func (s *SignalService) reconcile() {
 	if s.ctx.Err() != nil {
 		return
 	}
+	s.syncFeedbackEpochLocked()
 	for id, r := range s.entries {
 		if !s.usableLocked() {
 			if r.state.CommandedAspect != nil || r.state.Pending {
@@ -358,12 +363,20 @@ func (s *SignalService) reconcile() {
 			s.setReasonLocked(r)
 			continue
 		}
+		if s.signalCommandErrorLocked(r, r.definition.FallbackAspect) != nil {
+			if r.state.CommandedAspect != nil || r.state.Pending {
+				s.invalidateLocked(r, "unsupported_endpoint")
+			}
+			r.state.Synchronized = false
+			s.setReasonLocked(r)
+			continue
+		}
 		s.setReasonLocked(r)
 		desired, _ := r.profile.Aspect(r.state.DesiredAspect)
 		if !s.blockFreeLocked(r) && desired.Role != model.SignalRoleStop {
 			s.invalidateLocked(r, "protected_block_not_free")
 		}
-		r.state.Synchronized = r.definition.Mode == model.SignalModeManual && s.occupancy != nil && s.occupancy.BlockState(r.definition.ProtectedBlockID).State != model.OccupancyUnknown
+		r.state.Synchronized = r.state.Error == nil && r.definition.Mode == model.SignalModeManual && s.occupancy != nil && s.occupancy.BlockState(r.definition.ProtectedBlockID).State != model.OccupancyUnknown
 		if !r.needsFallback || r.state.Pending || !s.station.Capabilities().ExtendedAccessoryControl {
 			continue
 		}
@@ -384,12 +397,16 @@ func (s *SignalService) reconcile() {
 	}
 }
 
+func (s *SignalService) signalCommandErrorLocked(r *signalRuntime, target model.SignalAspectID) error {
+	return station.ValidateExtendedAccessoryCommand(s.station, station.ExtendedAccessoryCommand{Address: r.definition.Endpoint.LinearAddress, Aspect: r.definition.Endpoint.AspectCodes[target]})
+}
+
 func (s *SignalService) dispatch(ctx context.Context, id string, r *signalRuntime, generation uint64, target model.SignalAspectID, restrictive bool) error {
 	release, err := s.gate.acquire(ctx, restrictive)
 	if err == nil {
 		defer release()
 		if !restrictive && s.occupancy != nil {
-			err = s.occupancy.Recompute(ctx)
+			err = s.refreshSignalOccupancy(ctx)
 		}
 		s.mu.RLock()
 		valid := s.entries[id] == r && r.generation == generation && s.usableLocked() && (restrictive || s.blockFreeLocked(r))

@@ -38,11 +38,12 @@ func (s *SignalService) CommandAspect(ctx context.Context, user model.User, id s
 		return err
 	}
 	if s.occupancy != nil {
-		if err := s.occupancy.Recompute(ctx); err != nil {
+		if err := s.refreshSignalOccupancy(ctx); err != nil {
 			return err
 		}
 	}
 	s.mu.Lock()
+	s.syncFeedbackEpochLocked()
 	r := s.entries[id]
 	if r == nil {
 		s.mu.Unlock()
@@ -61,6 +62,14 @@ func (s *SignalService) CommandAspect(ctx context.Context, user model.User, id s
 	if !s.station.Capabilities().ExtendedAccessoryControl {
 		s.mu.Unlock()
 		return station.ErrUnsupported
+	}
+	if s.signalCommandErrorLocked(r, r.definition.FallbackAspect) != nil {
+		s.mu.Unlock()
+		return station.ErrUnsupported
+	}
+	if err := s.signalCommandErrorLocked(r, target); err != nil {
+		s.mu.Unlock()
+		return err
 	}
 	if s.ctx == nil || s.ctx.Err() != nil || !s.usableLocked() {
 		s.mu.Unlock()
@@ -101,6 +110,32 @@ func (s *SignalService) CommandAspect(ctx context.Context, user model.User, id s
 		return err
 	}
 	return s.dispatch(commandCtx, id, r, generation, target, restrictive)
+}
+
+// A feedback stream can be renewed while public connectivity remains online.
+// Its old observations and openings must still cross a new stop boundary.
+func (s *SignalService) syncFeedbackEpochLocked() {
+	provider, ok := s.station.(station.FeedbackStateProvider)
+	if !ok {
+		return
+	}
+	state := provider.FeedbackState()
+	if !s.feedbackEpochKnown || state.Generation != s.feedbackEpoch.Generation || state.PowerGeneration != s.feedbackEpoch.PowerGeneration {
+		for _, r := range s.entries {
+			s.invalidateLocked(r, "station_resynchronizing")
+		}
+	}
+	s.feedbackEpoch = state
+	s.feedbackEpochKnown = true
+}
+
+func (s *SignalService) refreshSignalOccupancy(ctx context.Context) error {
+	if provider, ok := s.station.(station.FeedbackStateProvider); ok {
+		if err := s.occupancy.SyncStationFeedback(ctx, provider); err != nil {
+			return err
+		}
+	}
+	return s.occupancy.Recompute(ctx)
 }
 
 // Mode is configuration and survives export/restart. Runtime targets never do.
@@ -155,7 +190,7 @@ func (s *SignalService) auditSignal(ctx context.Context, user model.User, action
 	switch {
 	case errors.Is(result, ErrPermissionDenied):
 		code = "denied"
-	case errors.Is(result, ErrValidation):
+	case errors.Is(result, ErrValidation), errors.Is(result, station.ErrInvalidExtendedAccessoryAddress), errors.Is(result, station.ErrInvalidExtendedAccessoryAspect):
 		code = "invalid"
 	case errors.Is(result, ErrSignalUnsafe):
 		code = "unsafe"

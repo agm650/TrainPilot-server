@@ -113,7 +113,7 @@ func (s *fakeTCPServer) readCommands(connection net.Conn) {
 	scanner := bufio.NewScanner(connection)
 	for scanner.Scan() {
 		command := strings.TrimSpace(scanner.Text())
-		if command == "" {
+		if command == "" || command == "<s>" {
 			continue
 		}
 		s.mu.Lock()
@@ -442,7 +442,12 @@ type failingWriteConn struct {
 	err error
 }
 
-func (c *failingWriteConn) Write([]byte) (int, error) { return 0, c.err }
+func (c *failingWriteConn) Write(data []byte) (int, error) {
+	if string(data) == "<s>\n" {
+		return len(data), nil
+	}
+	return 0, c.err
+}
 
 func TestWriteErrorInvalidatesConnectionAndStartsReconnect(t *testing.T) {
 	clientConn, serverConn := net.Pipe()

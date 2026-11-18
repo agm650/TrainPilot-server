@@ -230,12 +230,15 @@ func (c *ControlService) validateCommandLease(ctx context.Context, leaseID, loco
 }
 
 func (c *ControlService) publishStationStatusChanges(status station.Status) {
-	if c.signals != nil {
+	if c.signals != nil && !signalPowerUsable(status) {
 		c.signals.ObserveStatus(status)
 	}
 	c.observeSafetyStatus(status)
 	c.updateOccupancyTrackPower(context.Background(), status)
 	c.updateOccupancyProviderAvailability(status.Connectivity)
+	if c.signals != nil && signalPowerUsable(status) {
+		c.signals.ObserveStatus(status)
+	}
 	_, _, status.EmergencyStop = c.safetySnapshot()
 
 	c.statusMu.Lock()
@@ -395,13 +398,16 @@ func (c *ControlService) StationStatus(ctx context.Context) (station.Status, err
 	if provider, ok := c.station.(station.StatusProvider); ok {
 		status, err := provider.Status(ctx)
 		if err == nil {
-			if c.signals != nil {
+			if c.signals != nil && !signalPowerUsable(status) {
 				c.signals.ObserveStatus(status)
 			}
 			c.metrics.ObserveStationTransition("unknown", string(status.Connectivity))
 			c.observeSafetyStatus(status)
 			c.updateOccupancyProviderAvailability(status.Connectivity)
 			c.updateOccupancyTrackPower(ctx, status)
+			if c.signals != nil && signalPowerUsable(status) {
+				c.signals.ObserveStatus(status)
+			}
 			_, _, status.EmergencyStop = c.safetySnapshot()
 		}
 		return status, err

@@ -28,8 +28,13 @@ func TestRailwayServiceCommandsSimpleTurnoutThroughDCCEX(t *testing.T) {
 		}
 		defer connection.Close()
 		scanner := bufio.NewScanner(connection)
-		if scanner.Scan() {
-			commands <- strings.TrimSpace(scanner.Text())
+		for scanner.Scan() {
+			command := strings.TrimSpace(scanner.Text())
+			if command == "<s>" {
+				continue
+			} // Read-only identity/power discovery.
+			commands <- command
+			return
 		}
 	}()
 
