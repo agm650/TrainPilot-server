@@ -8,6 +8,9 @@ Planned server release: 2.0.0.
 
 ### Added
 
+- SIG-004 extended-accessory simulation with independent addresses, command
+  history, assumed reports, deterministic delays/errors, reset/reconnection
+  fencing and replayable scenario actions. Binary accessory state is separate.
 - SIG-003 optional DCC extended-accessory controller and observation contracts,
   portable validation, explicit capabilities/limits and dispatch without implied
   physical confirmation. Existing station drivers retain binary control.

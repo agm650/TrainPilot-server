@@ -18,17 +18,18 @@ const CurrentVersion = 2
 type Action string
 
 const (
-	ActionStationConnectivity Action = "station.connectivity"
-	ActionStationTrackPower   Action = "station.track_power"
-	ActionStationEmergency    Action = "station.emergency_stop"
-	ActionStationElectrical   Action = "station.electrical"
-	ActionFeedbackSet         Action = "feedback.set"
-	ActionFeedbackEmit        Action = "feedback.emit"
-	ActionAccessoryReport     Action = "accessory.report"
-	ActionAccessoryBehavior   Action = "accessory.behavior"
-	ActionFaultOperation      Action = "fault.operation"
-	ActionFaultClear          Action = "fault.clear"
-	ActionSimulatorReset      Action = "simulator.reset"
+	ActionStationConnectivity  Action = "station.connectivity"
+	ActionStationTrackPower    Action = "station.track_power"
+	ActionStationEmergency     Action = "station.emergency_stop"
+	ActionStationElectrical    Action = "station.electrical"
+	ActionFeedbackSet          Action = "feedback.set"
+	ActionFeedbackEmit         Action = "feedback.emit"
+	ActionExtendedAccessorySet Action = "extended_accessory.set"
+	ActionAccessoryReport      Action = "accessory.report"
+	ActionAccessoryBehavior    Action = "accessory.behavior"
+	ActionFaultOperation       Action = "fault.operation"
+	ActionFaultClear           Action = "fault.clear"
+	ActionSimulatorReset       Action = "simulator.reset"
 )
 
 type Definition struct {
@@ -111,6 +112,13 @@ type feedbackEmitStep struct {
 	Kind    string `json:"kind"`
 	Address *int   `json:"address"`
 	Active  *bool  `json:"active"`
+}
+
+type extendedAccessoryStep struct {
+	At      string `json:"at"`
+	Action  Action `json:"action"`
+	Address *int   `json:"address"`
+	Aspect  *int   `json:"aspect"`
 }
 
 type accessoryReportStep struct {
@@ -333,6 +341,19 @@ func parseStep(data []byte, version int) (Step, error) {
 		}
 		payload.Emit = true
 		step.payload = payload
+	case ActionExtendedAccessorySet:
+		var raw extendedAccessoryStep
+		if err := decodeStrict(data, &raw); err != nil {
+			return Step{}, err
+		}
+		if raw.Address == nil || raw.Aspect == nil {
+			return Step{}, fmt.Errorf("address and aspect are required")
+		}
+		command := station.ExtendedAccessoryCommand{Address: *raw.Address, Aspect: *raw.Aspect}
+		if err := command.Validate(); err != nil {
+			return Step{}, err
+		}
+		step.payload = command
 	case ActionAccessoryReport:
 		var raw accessoryReportStep
 		if err := decodeStrict(data, &raw); err != nil {
@@ -401,7 +422,7 @@ func parseStep(data []byte, version int) (Step, error) {
 			if err := validateAccessoryAddress(raw.Address); err != nil {
 				return Step{}, err
 			}
-			if raw.Operation != simulator.OpAccessory {
+			if raw.Operation != simulator.OpAccessory && raw.Operation != simulator.OpExtendedAccessory {
 				return Step{}, fmt.Errorf("address is only valid for accessory faults")
 			}
 			address = *raw.Address

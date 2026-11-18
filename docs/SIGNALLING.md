@@ -56,6 +56,16 @@ d'un retour inconnu. Il porte une qualité explicite et ne transforme jamais
 un succès d'envoi en confirmation physique. La saturation du flux sera
 documentée par chaque pilote qui implémente ce retour.
 
+SIG-004 annonce le support étendu dans le simulateur. Les observations y ont
+la qualité `assumed`. Le flux optionnel comporte 64 entrées, en livraison
+best-effort ; le snapshot contient l'état courant même si une notification
+est perdue. Un envoi identique reste dans l'historique, sans événement de
+changement supplémentaire. Une coupure invalide les aspects observés ; la
+reconnexion ne rejoue aucune commande. Un reset efface les états et le journal.
+L'opération `extended_accessory` accepte les mêmes défauts et délais que les
+autres opérations simulées. Les scénarios versions 1/2 acceptent l'action
+`extended_accessory.set` avec les champs `address` et `aspect` obligatoires.
+
 ## Périmètre du premier jalon
 
 Le premier jalon couvre le BAL de pleine voie à trois aspects : sémaphore

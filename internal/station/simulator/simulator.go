@@ -107,15 +107,17 @@ type scheduledAccessoryReport struct {
 }
 
 type State struct {
-	Connected      bool
-	Connectivity   station.Connectivity
-	LastSeen       *time.Time
-	TrackPower     bool
-	EmergencyStop  bool
-	Locomotives    map[int]LocoState
-	Accessories    map[int]AccessoryState
-	Electrical     ElectricalState
-	FeedbackStates map[FeedbackKey]bool
+	ExtendedAccessories map[int]ExtendedAccessoryState
+	ExtendedCommands    []ExtendedAccessoryCommandRecord
+	Connected           bool
+	Connectivity        station.Connectivity
+	LastSeen            *time.Time
+	TrackPower          bool
+	EmergencyStop       bool
+	Locomotives         map[int]LocoState
+	Accessories         map[int]AccessoryState
+	Electrical          ElectricalState
+	FeedbackStates      map[FeedbackKey]bool
 
 	accessoryBehaviors  map[int]AccessoryBehavior
 	accessoryReports    map[int]scheduledAccessoryReport
@@ -126,27 +128,29 @@ type State struct {
 }
 
 type Snapshot struct {
-	Connected          bool                              `json:"connected"`
-	Connectivity       station.Connectivity              `json:"connectivity"`
-	LastSeen           *time.Time                        `json:"lastSeen,omitempty"`
-	TrackPower         bool                              `json:"trackPower"`
-	EmergencyStop      bool                              `json:"emergencyStop"`
-	Locomotives        map[int]LocoState                 `json:"locomotives"`
-	Accessories        map[int]AccessoryState            `json:"accessories"`
-	AccessoryBehaviors map[int]AccessoryBehavior         `json:"accessoryBehaviors"`
-	Electrical         ElectricalState                   `json:"electrical"`
-	FeedbackStates     map[FeedbackKey]bool              `json:"-"`
-	OperationFaults    map[Operation]OperationFaultState `json:"operationFaults"`
+	ExtendedAccessories map[int]ExtendedAccessoryState    `json:"extendedAccessories"`
+	Connected           bool                              `json:"connected"`
+	Connectivity        station.Connectivity              `json:"connectivity"`
+	LastSeen            *time.Time                        `json:"lastSeen,omitempty"`
+	TrackPower          bool                              `json:"trackPower"`
+	EmergencyStop       bool                              `json:"emergencyStop"`
+	Locomotives         map[int]LocoState                 `json:"locomotives"`
+	Accessories         map[int]AccessoryState            `json:"accessories"`
+	AccessoryBehaviors  map[int]AccessoryBehavior         `json:"accessoryBehaviors"`
+	Electrical          ElectricalState                   `json:"electrical"`
+	FeedbackStates      map[FeedbackKey]bool              `json:"-"`
+	OperationFaults     map[Operation]OperationFaultState `json:"operationFaults"`
 }
 
 type Simulator struct {
-	mu                   sync.RWMutex
-	clock                clock.Clock
-	state                State
-	feedback             chan station.FeedbackEvent
-	statusEvents         chan station.Status
-	accessoryStateEvents chan station.AccessoryStateEvent
-	lifecycle            chan struct{}
+	extendedAccessoryStateEvents chan station.ExtendedAccessoryStateEvent
+	mu                           sync.RWMutex
+	clock                        clock.Clock
+	state                        State
+	feedback                     chan station.FeedbackEvent
+	statusEvents                 chan station.Status
+	accessoryStateEvents         chan station.AccessoryStateEvent
+	lifecycle                    chan struct{}
 }
 
 var _ station.CommandStation = (*Simulator)(nil)
@@ -166,18 +170,21 @@ func NewWithClock(clk clock.Clock) *Simulator {
 		clk = clock.Real{}
 	}
 	return &Simulator{
-		clock:                clk,
-		state:                newState(false),
-		feedback:             make(chan station.FeedbackEvent, 64),
-		statusEvents:         make(chan station.Status, 64),
-		accessoryStateEvents: make(chan station.AccessoryStateEvent, 64),
-		lifecycle:            make(chan struct{}),
+		clock:                        clk,
+		extendedAccessoryStateEvents: make(chan station.ExtendedAccessoryStateEvent, 64),
+		state:                        newState(false),
+		feedback:                     make(chan station.FeedbackEvent, 64),
+		statusEvents:                 make(chan station.Status, 64),
+		accessoryStateEvents:         make(chan station.AccessoryStateEvent, 64),
+		lifecycle:                    make(chan struct{}),
 	}
 }
 
 func newState(connected bool) State {
 	return State{
 		Connected:           connected,
+		ExtendedAccessories: map[int]ExtendedAccessoryState{},
+		ExtendedCommands:    []ExtendedAccessoryCommandRecord{},
 		Connectivity:        station.Offline,
 		Locomotives:         map[int]LocoState{},
 		Accessories:         map[int]AccessoryState{},
@@ -207,6 +214,7 @@ func (s *Simulator) Connect(context.Context) error {
 func (s *Simulator) Close() error {
 	s.mu.Lock()
 	s.closeLifecycleLocked()
+	s.invalidateExtendedAccessoriesLocked()
 	s.state.Connected = false
 	s.state.Connectivity = station.Offline
 	s.state.operationEpoch++
@@ -238,6 +246,9 @@ func (s *Simulator) SetConnectivity(connectivity station.Connectivity) error {
 	if changed {
 		s.state.operationEpoch++
 	}
+	if connectivity != station.Online {
+		s.invalidateExtendedAccessoriesLocked()
+	}
 	s.state.Connectivity = connectivity
 	if connectivity == station.Online {
 		s.state.LastSeen = timePointer(s.clock.Now())
@@ -249,7 +260,8 @@ func (s *Simulator) SetConnectivity(connectivity station.Connectivity) error {
 }
 
 func (s *Simulator) Capabilities() station.Capabilities {
-	return station.Capabilities{Driver: "simulator", TrackPower: true, LocomotiveControl: true, Functions: 69, MaxFunctionNumber: 68, AccessoryControl: true, Feedback: true}
+	limits := station.PortableExtendedAccessoryLimits()
+	return station.Capabilities{ExtendedAccessoryControl: true, ExtendedAccessoryLimits: &limits, Driver: "simulator", TrackPower: true, LocomotiveControl: true, Functions: 69, MaxFunctionNumber: 68, AccessoryControl: true, Feedback: true}
 }
 
 func (s *Simulator) ensure() error {
@@ -413,7 +425,7 @@ func (s *Simulator) SetOperationFault(operation Operation, fault OperationFault)
 		return fmt.Errorf("operation fault frequency must not be negative")
 	}
 	if fault.Address != 0 {
-		if operation != OpAccessory {
+		if operation != OpAccessory && operation != OpExtendedAccessory {
 			return fmt.Errorf("operation fault address is only valid for accessory operations")
 		}
 		if fault.Address < station.MinBasicAccessoryAddress || fault.Address > station.MaxBasicAccessoryAddress {
@@ -722,17 +734,21 @@ func (s *Simulator) Snapshot() Snapshot {
 	s.applyDueAccessoryReportsLocked(s.clock.Now())
 
 	snapshot := Snapshot{
-		Connected:          s.state.Connected,
-		Connectivity:       s.state.Connectivity,
-		LastSeen:           cloneTimePointer(s.state.LastSeen),
-		TrackPower:         s.state.TrackPower,
-		EmergencyStop:      s.state.EmergencyStop,
-		Locomotives:        make(map[int]LocoState, len(s.state.Locomotives)),
-		Accessories:        make(map[int]AccessoryState, len(s.state.Accessories)),
-		AccessoryBehaviors: make(map[int]AccessoryBehavior, len(s.state.accessoryBehaviors)),
-		Electrical:         s.state.Electrical,
-		FeedbackStates:     make(map[FeedbackKey]bool, len(s.state.FeedbackStates)),
-		OperationFaults:    make(map[Operation]OperationFaultState, len(s.state.operationFaults)),
+		ExtendedAccessories: make(map[int]ExtendedAccessoryState, len(s.state.ExtendedAccessories)),
+		Connected:           s.state.Connected,
+		Connectivity:        s.state.Connectivity,
+		LastSeen:            cloneTimePointer(s.state.LastSeen),
+		TrackPower:          s.state.TrackPower,
+		EmergencyStop:       s.state.EmergencyStop,
+		Locomotives:         make(map[int]LocoState, len(s.state.Locomotives)),
+		Accessories:         make(map[int]AccessoryState, len(s.state.Accessories)),
+		AccessoryBehaviors:  make(map[int]AccessoryBehavior, len(s.state.accessoryBehaviors)),
+		Electrical:          s.state.Electrical,
+		FeedbackStates:      make(map[FeedbackKey]bool, len(s.state.FeedbackStates)),
+		OperationFaults:     make(map[Operation]OperationFaultState, len(s.state.operationFaults)),
+	}
+	for address, value := range s.state.ExtendedAccessories {
+		snapshot.ExtendedAccessories[address] = cloneExtendedAccessoryState(value)
 	}
 	for address, loco := range s.state.Locomotives {
 		snapshot.Locomotives[address] = cloneLocoState(loco)
@@ -786,6 +802,14 @@ func (s *Simulator) Reset() {
 feedbackDrained:
 	for {
 		select {
+		case <-s.extendedAccessoryStateEvents:
+		default:
+			goto extendedDrained
+		}
+	}
+extendedDrained:
+	for {
+		select {
 		case <-s.accessoryStateEvents:
 		default:
 			return
@@ -807,7 +831,7 @@ func cloneLocoState(loco LocoState) LocoState {
 
 func validOperation(operation Operation) bool {
 	switch operation {
-	case OpStatus, OpTrackPower, OpEmergencyStop, OpThrottle, OpFunction, OpAccessory:
+	case OpStatus, OpTrackPower, OpEmergencyStop, OpThrottle, OpFunction, OpAccessory, OpExtendedAccessory:
 		return true
 	default:
 		return false
