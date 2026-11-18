@@ -1,7 +1,7 @@
 # Signalisation — spécification SIG-001
 
 Version cible du serveur : **2.0.0**, avec les autres lots de signalisation.
-Ce document fixe le contrat validé le 18 novembre 2026 pour SIG-002 à SIG-007.
+Ce document fixe le contrat validé le 18 novembre 2026 pour les lots B et C.
 La validation comprend les précisions de généricité apportées par l'utilisateur.
 Les exemples
 décrivent des données futures, pas des fonctionnalités déjà disponibles.
@@ -20,9 +20,10 @@ décrivent des données futures, pas des fonctionnalités déjà disponibles.
 - Le LEC000043 pourra participer à une étude ultérieure du freinage ABC.
   La compatibilité du montage complet avec le Roco 10819 reste à vérifier.
 
-Le firmware de la z21, celui de l'ATtiny et sa table de codes ne sont pas encore
-consignés. Ils devront figurer dans la recette du banc. Ce manque concerne la
-recette matérielle ; il ne bloque pas le modèle générique et le simulateur.
+Le firmware z21 du banc est déclaré à jour par l'utilisateur. Son numéro exact
+devra figurer dans la recette matérielle. La version DCC-EX du banc est confirmée
+à **5.6.6**. Le firmware de l'ATtiny et sa table de codes restent à consigner.
+Ces déclarations ne constituent pas une validation matérielle des pilotes étendus.
 
 ## État de l'implémentation
 
@@ -282,6 +283,11 @@ Un jeu absent ou non supporté interdit le mode automatique. Un changement
 de mode ne restaure pas une ancienne
 commande permissive. Les restrictions communes restent prioritaires.
 
+Pour le lot C, l'activation du mode automatique sera refusée tant que le moteur
+SIG-014 du lot D n'est pas disponible. Les définitions déjà configurées en
+automatique seront conservées. Leur état restera au repli, avec un motif
+explicite indiquant l'indisponibilité du moteur.
+
 La matrice ci-dessous concerne le profil SNCF BAL. Les premières lignes ont
 priorité. Le moteur traduit ses résultats par les rôles des aspects configurés.
 Un aval « fiable » désigne ici un aspect logique valide dans la génération
@@ -315,6 +321,14 @@ n'est jamais rejouée. Il faut une nouvelle acquisition des observations et un
 nouveau calcul ou une nouvelle demande manuelle. Un repli calculé à `S` ne
 prouve pas que sa commande a pu atteindre le décodeur pendant une coupure.
 
+Le lot C devra envoyer l'aspect de repli configuré au démarrage, après import
+et après reconnexion ou rétablissement de l'alimentation. Cet envoi sera
+indépendant des clients connectés. Il attendra une centrale `online`, une
+alimentation connue active et l'absence de défaut électrique, avec un endpoint
+valide et supporté. Il n'exigera pas un canton libre pour envoyer un aspect
+de rôle `stop`. Pendant une coupure, le repli restera une cible logique.
+Une écriture réussie ne confirmera jamais à elle seule l'état physique des feux.
+
 ## Contrat de pilote étendu — proposition pour SIG-003
 
 Ajouter une interface optionnelle `ExtendedAccessoryController`. La commande
@@ -342,8 +356,16 @@ Une capacité explicite annonce le support étendu. Une interface absente ou
 une capacité fausse donne `unsupported`. Distinguer les erreurs de validation,
 de transport et de disponibilité. Respecter l'annulation du contexte.
 
-La documentation officielle z21, sections 5.4 à 5.6, décrit le support à partir
-du firmware 1.40. L'adresse publique `1` correspond à l'adresse brute `4`.
+### Prérequis firmware z21 pour SIG-012
+
+La commande des signaux étendus exige un firmware z21 **1.40 ou supérieur**.
+Cette exigence provient de la
+[spécification officielle, sections 5.4 à 5.6](https://www.z21.eu/media/Kwc_Basic_DownloadTag_Component/root-en-main_47-1652-959-downloadTag-download/default/d559b9cf/1699290380/z21-lan-protokoll-en.pdf).
+Un firmware antérieur ne doit pas être annoncé compatible avec cette capacité.
+Ce prérequis concerne les accessoires étendus et n'ajoute pas de restriction
+aux fonctionnalités R-BUS ou accessoires binaires existantes.
+
+L'adresse publique `1` correspond à l'adresse brute `4`.
 Cette conversion ne réutilise pas celle des aiguillages binaires. Le retour
 z21 rapporte la commande mémorisée par la centrale, sans prouver l'état des
 feux. Son statut inconnu reste inconnu. L'intégration z21 appartient à SIG-012.
