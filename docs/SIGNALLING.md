@@ -24,6 +24,23 @@ Le firmware de la z21, celui de l'ATtiny et sa table de codes ne sont pas encore
 consignés. Ils devront figurer dans la recette du banc. Ce manque concerne la
 recette matérielle ; il ne bloque pas le modèle générique et le simulateur.
 
+## État de l'implémentation
+
+SIG-001 est validé avec les précisions de généricité ci-dessus. SIG-002 fournit
+les types et validations dans [signal.go](../internal/model/signal.go) et
+[signal_profile.go](../internal/model/signal_profile.go). Le profil SNCF est
+un [preset séparé](../internal/model/signal_profile_bal.go).
+
+Les tests couvrent aussi un profil personnalisé, des codes matériels
+arbitraires, plusieurs cibles, neuf feux, l'extinction et les indications
+combinées. Le modèle représente `flashing` sans exécuter de clignotement.
+Un état opérationnel neuf utilise le repli du profil et n'a aucun retour
+confirmé. Ces types ne sont pas encore exposés par une API ni persistés.
+
+Le modèle valide la forme des références ; leur existence et leur continuité
+orientée dans le circuit seront vérifiées par SIG-006. Le jeu `bal-3` est
+identifié et validé dans les profils, mais son calcul reste prévu par SIG-014.
+
 ## Périmètre du premier jalon
 
 Le premier jalon couvre le BAL de pleine voie à trois aspects : sémaphore

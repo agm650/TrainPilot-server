@@ -8,6 +8,11 @@ Planned server release: 2.0.0.
 
 ### Added
 
+- SIG-002 manufacturer-independent signal definitions and configurable
+  profiles, with semantic aspect roles, multiple targets, up to nine lights,
+  dark/combined indications and a representation for future flashing aspects.
+  Includes an isolated SNCF BAL preset, explicit ruleset selection, validated
+  DCC aspect mappings and runtime initialization without physical confirmation.
 - SIG-001 signalling specification for the 2.0.0 work: explicit downstream
   signals or terminal limits, configurable signalling profiles and semantic
   roles, separate logical and reported states, and manufacturer-independent
