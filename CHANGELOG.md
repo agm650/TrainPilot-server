@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 
 Planned server release: 2.0.0.
 
+### Fixed
+
+- Accept fresh z21 system status without waiting for a secondary X reply,
+  preventing repeated two-second disconnects and R-BUS rescans after recovery.
+  An X-only response retains the transport with track power unknown; missing
+  status still invalidates occupancy at degraded. Concurrent probes follow
+  network/power epochs and reject retired replies. Obsolete feedback frames
+  have a separate resynchronization log/metric with received/current generations
+  and never update the occupied-address logging cache.
+
 ### Added
 
 - SIG-018 end-to-end automatic BAL scenarios through REST/WebSocket, simulator

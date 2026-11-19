@@ -405,7 +405,7 @@ func (m *Metrics) ObserveFeedback(provider, result string, duration time.Duratio
 		return
 	}
 	provider = BoundedProvider(provider)
-	result = bounded(result, "mapped", "unmapped", "mapping_error", "update_error")
+	result = bounded(result, "mapped", "unmapped", "mapping_error", "update_error", "stale_generation")
 	m.feedbackEvents.WithLabelValues(provider, result).Inc()
 	m.feedbackDuration.WithLabelValues(provider, result).Observe(duration.Seconds())
 	if result == "mapping_error" {

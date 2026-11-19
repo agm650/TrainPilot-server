@@ -48,6 +48,8 @@ Le flag prime sur le fichier JSON. `--log-feedback=false` désactive ces logs.
 Chaque ligne sur STDOUT contient l'horodatage, la source, le type, l'adresse,
 l'état `active` et le résultat : `mapped`, `unmapped`, `mapping_error` ou
 `update_error`. Le bloc associé et l'erreur sont ajoutés lorsqu'ils existent.
+Les lignes ajoutent `generation` et `power_generation` pour identifier la
+synchronisation réseau et puissance de l'observation.
 Les capteurs sans mapping sont donc visibles. Les logs de fonctionnement
 existants restent sur STDERR.
 
@@ -60,6 +62,20 @@ L'état initial pour les logs est `free` (`active=false`) : une première récep
 Les répétitions du même état sont ignorées dans les logs, même sans mapping.
 Cet historique repart de `free` au redémarrage du serveur. Le traitement des
 observations et l'état d'occupation de sécurité restent indépendants de ce filtre.
+
+Une trame rejetée lors d'une resynchronisation produit une seule ligne
+`station.feedback.discarded`, avec `result=resynchronizing`. Elle précise
+`received_generation`, `current_generation`, `received_power_generation`,
+`current_power_generation`, `available` et `input_count`. Ce rejet attendu ne
+produit pas d'erreur `update_error` et ne modifie pas le cache des adresses
+occupées. Les métriques de feedback le classent sous `result=stale_generation`.
+Ces traces utilisent la même option `logFeedback`, désactivée par défaut.
+
+Le pilote z21 accepte immédiatement une réponse système complète et fraîche,
+même si la réponse secondaire X manque. Une réponse X seule maintient le
+transport, mais laisse la puissance inconnue jusqu'à réception de l'état système.
+L'absence des deux réponses invalide toujours l'occupation dès `degraded`.
+Les réponses provenant d'une ancienne génération réseau/puissance restent rejetées.
 
 ## Sécurité
 

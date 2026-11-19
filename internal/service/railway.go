@@ -417,6 +417,8 @@ func (r *RailwayService) emitFeedbackLog(event station.FeedbackEvent, result, bl
 		"address", event.Address,
 		"active", event.Active,
 		"result", result,
+		"generation", event.Generation,
+		"power_generation", event.PowerGeneration,
 	}
 	if occupiedAddresses != nil {
 		attrs = append(attrs, "occupied_addresses", occupiedAddresses)

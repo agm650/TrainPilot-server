@@ -26,14 +26,13 @@ func (r *RailwayService) handleFeedback(ctx context.Context, event station.Feedb
 			return
 		}
 		state := provider.FeedbackState()
-		if event.Kind == "synchronization" || !state.Available || event.Generation != state.Generation || event.PowerGeneration != state.PowerGeneration {
+		if event.Kind == "synchronization" {
 			return
 		}
-	}
-	if event.Source == "z21-rbus" && (event.Generation != r.feedbackLogGeneration || event.PowerGeneration != r.feedbackLogPowerGeneration) {
-		r.feedbackLogGeneration = event.Generation
-		r.feedbackLogPowerGeneration = event.PowerGeneration
-		r.rbusLogActive = nil
+		if !state.Available || event.Generation != state.Generation || event.PowerGeneration != state.PowerGeneration {
+			r.discardFeedback(event, state, started)
+			return
+		}
 	}
 	inputs := event.Inputs
 	if inputs == nil {
@@ -44,7 +43,7 @@ func (r *RailwayService) handleFeedback(ctx context.Context, event station.Feedb
 	before := make(map[string]model.OccupancyState)
 	var mappingError error
 	for _, input := range inputs {
-		individual := station.FeedbackEvent{Source: event.Source, Kind: event.Kind, Address: input.Address, Active: input.Active, Generation: event.Generation}
+		individual := station.FeedbackEvent{Source: event.Source, Kind: event.Kind, Address: input.Address, Active: input.Active, Generation: event.Generation, PowerGeneration: event.PowerGeneration}
 		sensorID, providerID := strconv.Itoa(input.Address), event.Source
 		mapping, err := r.store.ResolveOccupancySensorMapping(ctx, providerID, sensorID)
 		if errors.Is(err, store.ErrNotFound) {
@@ -78,6 +77,26 @@ func (r *RailwayService) handleFeedback(ctx context.Context, event station.Feedb
 			err = r.occupancy.ObserveBatch(ctx, observations)
 		}
 	}
+	if errors.Is(err, ErrFeedbackGenerationStale) {
+		// The epoch may change during mapping resolution. Reject the frame
+		// without advancing the log-only occupied-address cache.
+		r.discardFeedback(event, provider.FeedbackState(), started)
+		return
+	}
+	if synchronized {
+		// Frames containing only unmapped inputs do not enter ObserveStationBatch.
+		// Fence their transition logs too, after the mapping reads complete.
+		state := provider.FeedbackState()
+		if !state.Available || event.Generation != state.Generation || event.PowerGeneration != state.PowerGeneration {
+			r.discardFeedback(event, state, started)
+			return
+		}
+	}
+	if event.Source == "z21-rbus" && (event.Generation != r.feedbackLogGeneration || event.PowerGeneration != r.feedbackLogPowerGeneration) {
+		r.feedbackLogGeneration = event.Generation
+		r.feedbackLogPowerGeneration = event.PowerGeneration
+		r.rbusLogActive = nil
+	}
 	counted := make(map[string]bool)
 	for i := range records {
 		record := &records[i]
@@ -94,6 +113,24 @@ func (r *RailwayService) handleFeedback(ctx context.Context, event station.Feedb
 		r.metrics.ObserveFeedback(event.Source, record.result, time.Since(started))
 	}
 	r.logFeedbackRecords(records)
+}
+
+func (r *RailwayService) discardFeedback(event station.FeedbackEvent, current station.FeedbackState, started time.Time) {
+	count := len(event.Inputs)
+	if event.Inputs == nil {
+		count = 1
+	}
+	for i := 0; i < count; i++ {
+		r.metrics.ObserveFeedback(event.Source, "stale_generation", time.Since(started))
+	}
+	if r.feedbackLogger == nil {
+		return
+	}
+	r.feedbackLogger.Info("station.feedback.discarded",
+		"source", event.Source, "kind", event.Kind, "result", "resynchronizing", "input_count", count,
+		"received_generation", event.Generation, "current_generation", current.Generation,
+		"received_power_generation", event.PowerGeneration, "current_power_generation", current.PowerGeneration,
+		"available", current.Available)
 }
 
 func (r *RailwayService) logFeedbackRecords(records []feedbackRecord) {

@@ -125,6 +125,12 @@ func waitForStartupOccupancy(t *testing.T, railway *service.RailwayService, want
 
 func newZ21OccupancyHTTPFixture(t *testing.T, parent context.Context, driver station.CommandStation, extraMappings ...model.FeedbackMapping) (*httptest.Server, *client.Client, string, *service.RailwayService) {
 	t.Helper()
+	server, c, token, railway, _ := newZ21OccupancyHTTPFixtureWithAPI(t, parent, driver, extraMappings...)
+	return server, c, token, railway
+}
+
+func newZ21OccupancyHTTPFixtureWithAPI(t *testing.T, parent context.Context, driver station.CommandStation, extraMappings ...model.FeedbackMapping) (*httptest.Server, *client.Client, string, *service.RailwayService, *Server) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(parent)
 	db, err := store.Open(":memory:")
 	if err != nil {
@@ -178,7 +184,7 @@ func newZ21OccupancyHTTPFixture(t *testing.T, parent context.Context, driver sta
 	if err != nil {
 		t.Fatal(err)
 	}
-	return httpServer, apiClient, pair.AccessToken, railway
+	return httpServer, apiClient, pair.AccessToken, railway, api
 }
 
 type z21OccupancyRequest struct {
@@ -193,6 +199,8 @@ type z21OccupancyServer struct {
 	drop           atomic.Bool
 	powerOff       atomic.Bool
 	ignorePowerOn  atomic.Bool
+	omitXStatus    atomic.Bool
+	systemProbes   chan struct{}
 	signalSupport  atomic.Bool
 	signalCommands chan station.ExtendedAccessoryCommand
 }
@@ -203,7 +211,7 @@ func newZ21OccupancyServer(t *testing.T) *z21OccupancyServer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &z21OccupancyServer{conn: conn, requests: make(chan z21OccupancyRequest, 16), done: make(chan struct{}), signalCommands: make(chan station.ExtendedAccessoryCommand, 128)}
+	s := &z21OccupancyServer{conn: conn, requests: make(chan z21OccupancyRequest, 16), done: make(chan struct{}), signalCommands: make(chan station.ExtendedAccessoryCommand, 128), systemProbes: make(chan struct{}, 32)}
 	t.Cleanup(func() { _ = conn.Close(); <-s.done })
 	go func() {
 		defer close(s.done)
@@ -232,6 +240,10 @@ func newZ21OccupancyServer(t *testing.T) *z21OccupancyServer {
 					payload[12] = 0x02
 				}
 				_, _ = conn.WriteToUDP(apiZ21LAN(0x0084, payload), from)
+				select {
+				case s.systemProbes <- struct{}{}:
+				default:
+				}
 			case 0x0040:
 				if s.signalSupport.Load() && len(packet) >= 7 {
 					switch packet[4] {
@@ -260,7 +272,7 @@ func newZ21OccupancyServer(t *testing.T) *z21OccupancyServer {
 						}
 					}
 				}
-				if len(packet) == 7 && packet[4] == 0x21 && packet[5] == 0x24 {
+				if len(packet) == 7 && packet[4] == 0x21 && packet[5] == 0x24 && !s.omitXStatus.Load() {
 					status := byte(0)
 					if s.powerOff.Load() {
 						status = 2

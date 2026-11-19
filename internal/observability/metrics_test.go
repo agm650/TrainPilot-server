@@ -155,3 +155,18 @@ func TestSafetyDispatchMeasuresServerBudgetWithBoundedLabels(t *testing.T) {
 		t.Fatal("unbounded metric label")
 	}
 }
+
+func TestFeedbackResynchronizationHasDistinctBoundedMetric(t *testing.T) {
+	m := New(":memory:")
+	m.ObserveFeedback("z21-rbus", "stale_generation", time.Millisecond)
+	m.ObserveFeedback("z21-rbus", "unexpected-result", time.Millisecond)
+	body := scrape(t, m)
+	for _, sample := range []string{`result="stale_generation"`, `result="other"`} {
+		if !strings.Contains(body, sample) {
+			t.Fatal("missing feedback result", sample)
+		}
+	}
+	if strings.Contains(body, "unexpected-result") {
+		t.Fatal("unbounded result label")
+	}
+}

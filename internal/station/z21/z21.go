@@ -53,6 +53,7 @@ type Driver struct {
 	accessoryWaiters        map[uint16][]chan station.AccessoryStateEvent
 	statusEvents            chan station.Status
 	statusMu                sync.Mutex
+	statusEpoch             chan struct{} // Closed on connection/power invalidation, under mu.
 	rbusReceived            [rbusGroupCount]bool
 	xStatusWaiters          []chan byte
 	systemStateWaiters      []chan systemState
@@ -86,6 +87,7 @@ func New(address string, offlineAfter, accessoryPulse time.Duration) *Driver {
 		accessoryPulse:   accessoryPulse,
 		accessoryWaiters: make(map[uint16][]chan station.AccessoryStateEvent),
 		statusEvents:     make(chan station.Status, 16),
+		statusEpoch:      make(chan struct{}),
 		health:           station.NewHealthTracker(offlineAfter),
 		done:             make(chan struct{}),
 	}
@@ -165,9 +167,7 @@ func (d *Driver) loseConnection(c *net.UDPConn) {
 	d.retiredConnection = c
 	d.feedbackGeneration++
 	d.invalidateExtendedLocked()
-	d.statusMu.Lock()
-	d.lastStatus = nil
-	d.statusMu.Unlock()
+	d.invalidateStatusLocked()
 	generation := d.feedbackGeneration
 	powerGeneration := d.feedbackPowerGeneration
 	d.rbusReceived = [rbusGroupCount]bool{}
@@ -202,6 +202,7 @@ func (d *Driver) BeginFeedbackPowerSync() {
 	}
 	d.feedbackPowerGeneration++
 	d.invalidateExtendedLocked()
+	d.invalidateStatusLocked()
 	d.rbusReceived = [rbusGroupCount]bool{}
 	event := station.FeedbackEvent{Source: "z21-rbus", Kind: "synchronization", Generation: d.feedbackGeneration, PowerGeneration: d.feedbackPowerGeneration}
 	d.mu.Unlock()
@@ -232,6 +233,7 @@ func (d *Driver) Close() error {
 	d.mu.Lock()
 	d.closed = true
 	d.invalidateExtendedLocked()
+	d.invalidateStatusLocked()
 	c := d.conn
 	retired := d.retiredConnection
 	d.conn = nil
@@ -388,46 +390,133 @@ func (d *Driver) SetTrackPower(ctx context.Context, on bool) error {
 }
 func (d *Driver) EmergencyStop(ctx context.Context) error { return d.send(ctx, xbus(0x80)) }
 func (d *Driver) Status(ctx context.Context) (station.Status, error) {
+	deadline := time.Now().Add(2 * time.Second)
+	timer := time.NewTimer(time.Until(deadline))
+	defer timer.Stop()
+	for {
+		status, retry, err := d.probeStatus(ctx, timer.C)
+		if !retry {
+			return status, err
+		}
+		if err := ctx.Err(); err != nil {
+			return d.currentStatus(), err
+		}
+		// An epoch can change just as the timer is consumed. Do not start an
+		// unbounded attempt against an already expired deadline.
+		if !time.Now().Before(deadline) {
+			return d.currentStatus(), nil
+		}
+	}
+}
+
+// Each attempt belongs to one transport/power epoch. Concurrent callers may
+// share an observed reply, but a retired endpoint cannot satisfy new waiters.
+func (d *Driver) probeStatus(ctx context.Context, timeout <-chan time.Time) (station.Status, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return d.currentStatus(), false, err
+	}
 	if err := d.ensureConnection(ctx); err != nil {
 		d.health.CommunicationError()
-		return d.currentStatus(), err
+		return d.currentStatus(), false, err
 	}
-	d.mu.Lock()
-	connection := d.conn
-	d.mu.Unlock()
 	xReply := make(chan byte, 1)
 	systemReply := make(chan systemState, 1)
+	d.mu.Lock()
+	if d.closed {
+		d.mu.Unlock()
+		return d.currentStatus(), false, station.ErrOffline
+	}
+	if d.conn == nil {
+		d.mu.Unlock()
+		return station.Status{}, true, nil
+	}
+	connection, generation, powerGeneration, epoch := d.conn, d.feedbackGeneration, d.feedbackPowerGeneration, d.statusEpoch
 	d.statusMu.Lock()
 	d.xStatusWaiters = append(d.xStatusWaiters, xReply)
 	d.systemStateWaiters = append(d.systemStateWaiters, systemReply)
 	d.statusMu.Unlock()
+	d.mu.Unlock()
 	defer d.removeStatusWaiters(xReply, systemReply)
 	if err := d.send(ctx, xbus(0x21, 0x24)); err != nil {
-		return d.currentStatus(), nil
+		if errors.Is(err, station.ErrOffline) && ctx.Err() == nil {
+			return station.Status{}, true, nil
+		}
+		return d.currentStatus(), false, ctx.Err()
 	}
 	if err := d.send(ctx, lan(0x0085)); err != nil {
-		return d.currentStatus(), nil
+		if errors.Is(err, station.ErrOffline) && ctx.Err() == nil {
+			return station.Status{}, true, nil
+		}
+		return d.currentStatus(), false, ctx.Err()
 	}
-	timer := time.NewTimer(2 * time.Second)
-	defer timer.Stop()
-	for xReply != nil || systemReply != nil {
+	receivedX := false
+	xPending := (<-chan byte)(xReply)
+	for {
 		select {
-		case <-xReply:
-			xReply = nil
+		case <-xPending:
+			receivedX = true
+			xPending = nil
 		case <-systemReply:
-			systemReply = nil
+			// The rich system status is authoritative. A lost secondary X
+			// reply must not delay it or restart an otherwise healthy stream.
+			return d.finishStatusProbe(connection, generation, powerGeneration, false)
+		case <-epoch:
+			return station.Status{}, true, nil
 		case <-ctx.Done():
-			return d.currentStatus(), ctx.Err()
+			return d.currentStatus(), false, ctx.Err()
 		case <-d.done:
-			return d.currentStatus(), station.ErrOffline
-		case <-timer.C:
+			return d.currentStatus(), false, station.ErrOffline
+		case <-timeout:
+			// Prefer replies already queued when the deadline and receive
+			// become ready together. Never manufacture freshness from cache.
+			select {
+			case <-systemReply:
+				return d.finishStatusProbe(connection, generation, powerGeneration, false)
+			default:
+			}
+			select {
+			case <-xPending:
+				receivedX = true
+			default:
+			}
+			if receivedX {
+				return d.finishStatusProbe(connection, generation, powerGeneration, true)
+			}
 			d.loseConnection(connection)
-			return d.currentStatus(), nil
+			return d.currentStatus(), false, nil
 		}
 	}
-	// The system-state reply is richer and authoritative. LAN_X_GET_STATUS is
-	// still queried to support and verify both protocol paths.
-	return d.currentStatus(), nil
+}
+
+func (d *Driver) finishStatusProbe(connection *net.UDPConn, generation, powerGeneration uint64, partial bool) (station.Status, bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		return d.currentStatus(), false, station.ErrOffline
+	}
+	if d.conn != connection || d.feedbackGeneration != generation || d.feedbackPowerGeneration != powerGeneration {
+		return station.Status{}, true, nil
+	}
+	if partial {
+		// An X reply proves communication, but does not refresh the richer
+		// electrical/fault fields. Keep dependent detectors inhibited until
+		// a fresh system status establishes usable track power.
+		d.statusMu.Lock()
+		d.lastStatus = nil
+		d.statusMu.Unlock()
+	}
+	return d.currentStatus(), false, nil
+}
+
+// Caller holds mu, preserving the same lock order as status publication.
+func (d *Driver) invalidateStatusLocked() {
+	close(d.statusEpoch)
+	d.statusEpoch = make(chan struct{})
+	d.statusMu.Lock()
+	d.lastStatus = nil
+	d.xStatusWaiters = nil
+	d.systemStateWaiters = nil
+	d.statusMu.Unlock()
 }
 func (d *Driver) SetLocoSpeed(ctx context.Context, address int, speed float64, direction station.Direction) error {
 	if speed < 0 || speed > 1 {
@@ -543,7 +632,7 @@ func (d *Driver) parseConnection(c *net.UDPConn, generation, powerGeneration uin
 		case header == lanXHeader && len(payload) == 6 && payload[0] == lanXGetExtendedAccessoryInfo:
 			d.parseExtendedAccessoryInfo(payload, c, generation, powerGeneration)
 		case header == 0x0040 && len(payload) == 4 && payload[0] == 0x62 && payload[1] == 0x22 && xor(payload[:3]) == payload[3]:
-			d.publishXStatus(payload[2])
+			d.publishXStatus(payload[2], c, generation, powerGeneration)
 		case header == lanXHeader && len(payload) == 5 && payload[0] == lanXGetTurnoutInfo:
 			d.parseTurnoutInfo(payload)
 		case header == 0x0084 && len(payload) == 16:
@@ -678,11 +767,17 @@ func statusFromSystemState(s systemState) station.Status {
 	}
 }
 
-func (d *Driver) publishXStatus(status byte) {
+func (d *Driver) publishXStatus(status byte, c *net.UDPConn, generation, powerGeneration uint64) {
+	d.mu.Lock()
+	if d.closed || d.conn != c || d.feedbackGeneration != generation || d.feedbackPowerGeneration != powerGeneration {
+		d.mu.Unlock()
+		return
+	}
 	d.statusMu.Lock()
 	waiters := d.xStatusWaiters
 	d.xStatusWaiters = nil
 	d.statusMu.Unlock()
+	d.mu.Unlock()
 	for _, ch := range waiters {
 		ch <- status
 	}

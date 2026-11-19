@@ -16,6 +16,32 @@ une trace protocolaire ; les versions de firmware n'ont pas été communiquées.
 
 ## RBUS-001 — Correction et recette
 
+### Retour de banc du 19 novembre 2026
+
+L'utilisateur rapporte un nouvel essai : locomotive détectée sur le canton 2,
+coupure Ethernet avec la centrale allumée, attente du statut dégradé/perdu, puis
+reconnexion. Le client macOS récupère finalement les occupations, avec un délai.
+Les logs montrent cependant des répétitions d'occupation à environ deux secondes
+d'intervalle et des rejets de générations devenues obsolètes. Ce retour confirme
+une récupération observée, avec une anomalie encore présente ; ce n'est pas une
+recette complète sans défaut. Les numéros exacts des firmwares restent à relever.
+
+Le diagnostic logiciel reproduit une invalidation à tort quand l'état système
+arrive sans la réponse secondaire X. Le correctif accepte cet état système frais
+immédiatement, conserve les barrières de génération et distingue les trames
+rejetées dans `station.feedback.discarded`. Les requêtes concurrentes et les
+changements de génération puissance sont testés. Ce correctif supplémentaire
+reste **à retester physiquement sur le nouveau binaire**.
+
+Pendant ce réessai, laisser la liaison rétablie pendant au moins dix secondes.
+Une occupation inchangée peut être annoncée une fois dans la nouvelle génération,
+puis les logs de transition doivent rester silencieux. Les rejets transitoires
+doivent indiquer les générations reçues/courantes ; ils ne doivent pas former
+une nouvelle boucle de resynchronisation. Refaire aussi la recette OFF/ON DCC
+ci-dessous. Aucun résultat physique de ce nouveau correctif n'est présumé.
+
+### Correction et protocole de recette initial
+
 Correction logicielle : invalidation dès `degraded`, génération de feedback,
 renouvellement du socket UDP et des abonnements, nouvelle lecture des groupes
 0 et 1, puis relance des seuls groupes manquants. Les mappings wildcard sont
